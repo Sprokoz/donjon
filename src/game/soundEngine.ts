@@ -1,6 +1,32 @@
 import { BossType, StageKey } from './types';
 
-const MENU_MUSIC_URL = './assets/aistudio/music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_713e37c4.mp3';
+const MENU_MP3_FILENAME = 'music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_713e37c4.mp3';
+
+function getMenuMusicCandidates(): string[] {
+  const candidates: string[] = [];
+  if (typeof window !== 'undefined') {
+    const isDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+    if (!isDev) {
+      try {
+        const modUrl = import.meta.url;
+        if (modUrl) {
+          candidates.push(new URL(`./aistudio/${MENU_MP3_FILENAME}`, modUrl).href);
+        }
+      } catch {
+        // ignore URL error
+      }
+    }
+    try {
+      candidates.push(new URL(`./assets/aistudio/${MENU_MP3_FILENAME}`, window.location.href).href);
+    } catch {
+      // ignore
+    }
+  }
+  candidates.push(`./assets/aistudio/${MENU_MP3_FILENAME}`);
+  candidates.push(`/assets/aistudio/${MENU_MP3_FILENAME}`);
+  candidates.push(`./docs/assets/aistudio/${MENU_MP3_FILENAME}`);
+  return Array.from(new Set(candidates));
+}
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -16,6 +42,10 @@ class SoundEngine {
 
   private menuAudio: HTMLAudioElement | null = null;
   private menuMusicActive = false;
+  private menuAutoplayBlocked = false;
+  private menuCandidateIndex = 0;
+  private menuCandidates: string[] = [];
+  private menuListeners = new Set<(blocked: boolean) => void>();
 
   private bgmTimer: number | null = null;
   private bgmStep = 0;
@@ -83,39 +113,99 @@ class SoundEngine {
     return this.ctx;
   }
 
+  private setMenuAutoplayBlocked(blocked: boolean) {
+    if (this.menuAutoplayBlocked === blocked) return;
+    this.menuAutoplayBlocked = blocked;
+    this.menuListeners.forEach((cb) => cb(blocked));
+  }
+
+  public isMenuAutoplayBlocked(): boolean {
+    return this.menuAutoplayBlocked;
+  }
+
+  public onMenuAutoplayChange(cb: (blocked: boolean) => void): () => void {
+    this.menuListeners.add(cb);
+    cb(this.menuAutoplayBlocked);
+    return () => {
+      this.menuListeners.delete(cb);
+    };
+  }
+
   private syncMenuAudioState() {
     if (!this.menuAudio) return;
     this.menuAudio.muted = this.muted;
     this.menuAudio.volume = this.muted ? 0 : Math.max(0, Math.min(1, this.musicVolume * 0.72));
   }
 
+  private ensureMenuAudio(): HTMLAudioElement | null {
+    if (typeof window === 'undefined') return null;
+    if (!this.menuAudio) {
+      this.menuCandidates = getMenuMusicCandidates();
+      this.menuCandidateIndex = 0;
+      const audio = new Audio(this.menuCandidates[0]);
+      audio.loop = true;
+      audio.preload = 'auto';
+      audio.addEventListener('playing', () => {
+        this.setMenuAutoplayBlocked(false);
+      });
+      audio.addEventListener('error', () => {
+        if (this.menuCandidateIndex + 1 < this.menuCandidates.length) {
+          this.menuCandidateIndex += 1;
+          audio.src = this.menuCandidates[this.menuCandidateIndex];
+          audio.load();
+          if (this.menuMusicActive && !this.muted) {
+            this.attemptMenuPlay();
+          }
+        }
+      });
+      this.menuAudio = audio;
+    }
+    return this.menuAudio;
+  }
+
+  private attemptMenuPlay() {
+    const audio = this.ensureMenuAudio();
+    if (!audio || !this.menuMusicActive) return;
+    this.syncMenuAudioState();
+    if (!audio.paused) {
+      this.setMenuAutoplayBlocked(false);
+      return;
+    }
+    try {
+      const p = audio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          this.setMenuAutoplayBlocked(false);
+        }).catch(() => {
+          if (this.menuMusicActive && !this.muted) {
+            this.setMenuAutoplayBlocked(true);
+          }
+        });
+      }
+    } catch {
+      if (this.menuMusicActive && !this.muted) {
+        this.setMenuAutoplayBlocked(true);
+      }
+    }
+  }
+
   public unlock() {
     this.ensureContext();
-    if (this.menuMusicActive && this.menuAudio && this.menuAudio.paused) {
-      this.syncMenuAudioState();
-      this.menuAudio.play().catch(() => {});
+    if (this.menuMusicActive && (!this.menuAudio || this.menuAudio.paused)) {
+      this.attemptMenuPlay();
     }
   }
 
   public playMenuMusic() {
     if (typeof window === 'undefined') return;
     this.menuMusicActive = true;
-    if (!this.menuAudio) {
-      const audio = new Audio(MENU_MUSIC_URL);
-      audio.loop = true;
-      audio.preload = 'auto';
-      this.menuAudio = audio;
-    }
-    this.syncMenuAudioState();
-    if (this.menuAudio.paused) {
-      this.menuAudio.play().catch(() => {
-        // Browser autoplay blocked until first user interaction; unlock() will start it.
-      });
-    }
+    this.ensureMenuAudio();
+    this.attemptMenuPlay();
   }
 
   public stopMenuMusic(reset = true) {
     this.menuMusicActive = false;
+    this.setMenuAutoplayBlocked(false);
     if (!this.menuAudio) return;
     this.menuAudio.pause();
     if (reset) {

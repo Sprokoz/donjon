@@ -23,6 +23,7 @@ interface TitleMenuProps {
   onOpenCheats: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
+  menuAudioBlocked: boolean;
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -39,6 +40,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenCheats,
   anyCheatActive,
   isMuted,
+  menuAudioBlocked,
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
@@ -87,19 +89,29 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
             <button
               type="button"
               onClick={() => {
-                soundEngine.unlock();
-                onToggleMute();
+                if (menuAudioBlocked && !isMuted) {
+                  soundEngine.unlock();
+                  soundEngine.playMenuMusic();
+                } else {
+                  soundEngine.unlock();
+                  onToggleMute();
+                }
                 soundEngine.playUiClick();
               }}
               className={`min-h-[40px] px-2.5 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 isMuted
                   ? 'bg-red-950/40 border-red-700/70 text-red-300 hover:bg-red-900/50'
+                  : menuAudioBlocked
+                  ? 'bg-amber-950/60 border-amber-500/80 text-amber-200 animate-pulse hover:bg-amber-900/60'
                   : 'bg-[#09090e]/90 border-slate-700 text-amber-300 hover:border-slate-500'
               }`}
-              aria-label={isMuted ? 'Unmute Menu Music' : 'Mute Menu Music'}
-              title={isMuted ? 'Unmute Music' : 'Mute Music'}
+              aria-label={
+                isMuted ? 'Unmute Menu Music' : menuAudioBlocked ? 'Tap to Play Menu Music' : 'Mute Menu Music'
+              }
+              title={isMuted ? 'Unmute Music' : menuAudioBlocked ? 'Tap to Play Music' : 'Mute Music'}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {!isMuted && menuAudioBlocked && <span>Play Music</span>}
             </button>
             <button
               type="button"
@@ -403,6 +415,7 @@ interface HeroSetupProps {
   playerClasses: { 1: HeroClassId; 2: HeroClassId };
   onSelectClass: (playerNum: 1 | 2, cls: HeroClassId) => void;
   isMuted: boolean;
+  menuAudioBlocked: boolean;
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -418,6 +431,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   playerClasses,
   onSelectClass,
   isMuted,
+  menuAudioBlocked,
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
@@ -448,19 +462,29 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             <button
               type="button"
               onClick={() => {
-                soundEngine.unlock();
-                onToggleMute();
+                if (menuAudioBlocked && !isMuted) {
+                  soundEngine.unlock();
+                  soundEngine.playMenuMusic();
+                } else {
+                  soundEngine.unlock();
+                  onToggleMute();
+                }
                 soundEngine.playUiClick();
               }}
-              className={`min-h-[36px] px-2 py-1 rounded border text-xs font-semibold flex items-center justify-center cursor-pointer transition-colors ${
+              className={`min-h-[36px] px-2 py-1 rounded border text-xs font-semibold flex items-center gap-1 justify-center cursor-pointer transition-colors ${
                 isMuted
                   ? 'bg-red-950/40 border-red-700/70 text-red-300'
+                  : menuAudioBlocked
+                  ? 'bg-amber-950/60 border-amber-500/80 text-amber-200 animate-pulse'
                   : 'bg-black/80 border-slate-700 text-amber-300 hover:border-slate-500'
               }`}
-              aria-label={isMuted ? 'Unmute Menu Music' : 'Mute Menu Music'}
-              title={isMuted ? 'Unmute Music' : 'Mute Music'}
+              aria-label={
+                isMuted ? 'Unmute Menu Music' : menuAudioBlocked ? 'Tap to Play Menu Music' : 'Mute Menu Music'
+              }
+              title={isMuted ? 'Unmute Music' : menuAudioBlocked ? 'Tap to Play Music' : 'Mute Music'}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {!isMuted && menuAudioBlocked && <span className="hidden sm:inline">Play</span>}
             </button>
             <button
               type="button"

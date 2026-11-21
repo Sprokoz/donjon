@@ -103,6 +103,7 @@ export default function App() {
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenNote, setFullscreenNote] = useState<string | null>(null);
+  const [menuAudioBlocked, setMenuAudioBlocked] = useState(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
@@ -168,6 +169,10 @@ export default function App() {
   }, [controls]);
 
   useEffect(() => {
+    return soundEngine.onMenuAutoplayChange(setMenuAudioBlocked);
+  }, []);
+
+  useEffect(() => {
     screenRef.current = screen;
     if (screen === 'TITLE_MENU' || screen === 'HERO_SETUP') {
       soundEngine.playMenuMusic();
@@ -181,11 +186,15 @@ export default function App() {
     const handleFirstInteraction = () => {
       soundEngine.unlock();
     };
-    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
-    window.addEventListener('keydown', handleFirstInteraction, { passive: true });
+    window.addEventListener('click', handleFirstInteraction, { capture: true, passive: true });
+    window.addEventListener('touchend', handleFirstInteraction, { capture: true, passive: true });
+    window.addEventListener('pointerdown', handleFirstInteraction, { capture: true, passive: true });
+    window.addEventListener('keydown', handleFirstInteraction, { capture: true, passive: true });
     return () => {
-      window.removeEventListener('pointerdown', handleFirstInteraction);
-      window.removeEventListener('keydown', handleFirstInteraction);
+      window.removeEventListener('click', handleFirstInteraction, { capture: true });
+      window.removeEventListener('touchend', handleFirstInteraction, { capture: true });
+      window.removeEventListener('pointerdown', handleFirstInteraction, { capture: true });
+      window.removeEventListener('keydown', handleFirstInteraction, { capture: true });
     };
   }, [screen]);
 
@@ -459,6 +468,7 @@ export default function App() {
           onOpenCheats={() => setShowCheatsModal(true)}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
+          menuAudioBlocked={menuAudioBlocked}
           onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
@@ -495,6 +505,7 @@ export default function App() {
           playerClasses={playerClasses}
           onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
           isMuted={isMuted}
+          menuAudioBlocked={menuAudioBlocked}
           onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}

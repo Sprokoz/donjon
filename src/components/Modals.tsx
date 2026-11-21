@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X } from 'lucide-react';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2 } from 'lucide-react';
 import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, PlayerControls, RunSummary, StageKey } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
@@ -110,8 +110,13 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ controls, numPlaye
 interface PauseModalProps {
   musicVol: number;
   sfxVol: number;
+  isFullscreen: boolean;
+  fullscreenNote?: string | null;
+  showTouchControls: boolean;
   onMusicChange: (v: number) => void;
   onSfxChange: (v: number) => void;
+  onToggleFullscreen: () => void;
+  onToggleTouchControls: () => void;
   onResume: () => void;
   onControls: () => void;
   onCheats: () => void;
@@ -123,8 +128,13 @@ interface PauseModalProps {
 export const PauseModal: React.FC<PauseModalProps> = ({
   musicVol,
   sfxVol,
+  isFullscreen,
+  fullscreenNote,
+  showTouchControls,
   onMusicChange,
   onSfxChange,
+  onToggleFullscreen,
+  onToggleTouchControls,
   onResume,
   onControls,
   onCheats,
@@ -134,8 +144,8 @@ export const PauseModal: React.FC<PauseModalProps> = ({
 }) => {
   return (
     <div className="fixed inset-0 z-40 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-[#09090e] border border-slate-700 rounded-lg p-6 space-y-5">
-        <h2 className="font-arcade text-base text-center text-white">PAUSED</h2>
+      <div className="w-full max-w-sm bg-[#09090e] border border-slate-700 rounded-lg p-6 space-y-5 max-h-[92dvh] overflow-y-auto">
+        <h2 className="font-arcade text-base text-center text-white">PAUSED · SETTINGS</h2>
 
         <div className="space-y-3 bg-black/70 border border-slate-800 rounded-md p-3.5 text-xs">
           <div className="flex items-center justify-between gap-3">
@@ -166,6 +176,36 @@ export const PauseModal: React.FC<PauseModalProps> = ({
               className="w-36 accent-cyan-400"
             />
           </div>
+
+          <div className="pt-2.5 border-t border-slate-800/80 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              className={`min-h-[42px] px-2.5 py-2 rounded border font-semibold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors ${
+                isFullscreen
+                  ? 'bg-cyan-950/50 border-cyan-500/70 text-cyan-200 hover:bg-cyan-900/50'
+                  : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 shrink-0" /> : <Maximize2 className="w-3.5 h-3.5 shrink-0" />}
+              <span>{isFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onToggleTouchControls}
+              className={`min-h-[42px] px-2.5 py-2 rounded border font-semibold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors ${
+                showTouchControls
+                  ? 'bg-amber-950/50 border-amber-500/70 text-amber-200 hover:bg-amber-900/50'
+                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
+              <span>{showTouchControls ? 'Touch: ON' : 'Touch: OFF'}</span>
+            </button>
+          </div>
+          {fullscreenNote && (
+            <p className="text-[11px] text-amber-300/90 text-center leading-snug">{fullscreenNote}</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2.5">

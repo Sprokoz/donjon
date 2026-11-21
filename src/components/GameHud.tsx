@@ -12,6 +12,8 @@ import {
   Users,
   FastForward,
   Gamepad2,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { BOONS_CATALOG, DifficultyKey, HERO_CLASSES, HeroClassId, HudSnapshot, PlayerHudState } from '../game/types';
 import { formatDuration } from './PixelHeart';
@@ -23,7 +25,9 @@ interface GameHudProps {
   numPlayers: 1 | 2;
   playerColors: { 1: string; 2: string };
   isMuted: boolean;
+  isFullscreen: boolean;
   showTouchControls: boolean;
+  onToggleFullscreen: () => void;
   onToggleTouchControls: () => void;
   onToggleMute: () => void;
   onPause: () => void;
@@ -178,7 +182,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   numPlayers,
   playerColors,
   isMuted,
+  isFullscreen,
   showTouchControls,
+  onToggleFullscreen,
   onToggleTouchControls,
   onToggleMute,
   onPause,
@@ -212,6 +218,19 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   const renderMobileQuickButtons = () => (
     <div className="flex lg:hidden items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={onToggleFullscreen}
+        className={`p-1.5 rounded border cursor-pointer ${
+          isFullscreen
+            ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-300'
+            : 'bg-stone-900 border-stone-700 text-stone-300'
+        }`}
+        aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+      >
+        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+      </button>
       <button
         type="button"
         onClick={onToggleTouchControls}
@@ -552,6 +571,19 @@ export const GameHud: React.FC<GameHudProps> = ({
             aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-amber-400" />}
+          </button>
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            className={`p-1.5 rounded border cursor-pointer ${
+              isFullscreen
+                ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-300'
+                : 'bg-stone-900 hover:bg-stone-800 border-stone-700 text-stone-300'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
           <button
             type="button"

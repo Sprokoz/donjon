@@ -101,6 +101,8 @@ export default function App() {
   const [transitionTarget, setTransitionTarget] = useState<StageKey | null>(null);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenNote, setFullscreenNote] = useState<string | null>(null);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
@@ -112,6 +114,43 @@ export default function App() {
   const touchInputRef = useRef<TouchInputState>({ x: 0, y: 0, dash: false, ability: false });
   const controlsRef = useRef<ControlsConfig>(controls);
   const screenRef = useRef<AppScreen>(screen);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element | null };
+      setIsFullscreen(Boolean(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    syncFullscreen();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    setFullscreenNote(null);
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    const rootEl = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    };
+    try {
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) await doc.exitFullscreen();
+        else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+      } else {
+        if (rootEl.requestFullscreen) await rootEl.requestFullscreen();
+        else if (rootEl.webkitRequestFullscreen) await rootEl.webkitRequestFullscreen();
+        else setFullscreenNote('Fullscreen is not supported in this browser.');
+      }
+    } catch {
+      setFullscreenNote('Fullscreen blocked by browser or embedded frame.');
+    }
+  }, []);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -384,6 +423,8 @@ export default function App() {
           onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenCheats={() => setShowCheatsModal(true)}
           anyCheatActive={anyCheatActive}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
           leaderboard={leaderboard}
         />
         {showTutorialModal && (
@@ -429,7 +470,9 @@ export default function App() {
           numPlayers={hud.isTutorial ? 1 : numPlayers}
           playerColors={{ 1: playerColors[1].hex, 2: playerColors[2].hex }}
           isMuted={isMuted}
+          isFullscreen={isFullscreen}
           showTouchControls={showTouchControls}
+          onToggleFullscreen={handleToggleFullscreen}
           onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
           onToggleMute={handleToggleMute}
           onPause={() => {
@@ -480,6 +523,9 @@ export default function App() {
         <PauseModal
           musicVol={musicVol}
           sfxVol={sfxVol}
+          isFullscreen={isFullscreen}
+          fullscreenNote={fullscreenNote}
+          showTouchControls={showTouchControls}
           onMusicChange={(v) => {
             setMusicVol(v);
             soundEngine.setMusicVolume(v);
@@ -488,6 +534,8 @@ export default function App() {
             setSfxVol(v);
             soundEngine.setSfxVolume(v);
           }}
+          onToggleFullscreen={handleToggleFullscreen}
+          onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
           onResume={() => setScreen('PLAYING')}
           onControls={() => setShowControlsModal(true)}
           onCheats={() => setShowCheatsModal(true)}

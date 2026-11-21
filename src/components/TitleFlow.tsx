@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2 } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -22,6 +22,8 @@ interface TitleMenuProps {
   onOpenTutorial: () => void;
   onOpenCheats: () => void;
   anyCheatActive: boolean;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
   leaderboard: LeaderboardEntry[];
 }
 
@@ -34,6 +36,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenTutorial,
   onOpenCheats,
   anyCheatActive,
+  isFullscreen,
+  onToggleFullscreen,
   leaderboard,
 }) => {
   const embers = useMemo(
@@ -74,7 +78,26 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
 
       <div className="relative z-10 w-full max-w-4xl flex flex-col gap-6">
         {/* Title Header */}
-        <header className="text-center space-y-2">
+        <header className="relative text-center space-y-2">
+          <div className="flex justify-end sm:absolute sm:right-0 sm:top-0 mb-1 sm:mb-0">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onToggleFullscreen();
+              }}
+              className={`min-h-[40px] px-3 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                isFullscreen
+                  ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-200 hover:bg-cyan-900/60'
+                  : 'bg-[#09090e]/90 border-slate-700 text-slate-200 hover:border-slate-500'
+              }`}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+            </button>
+          </div>
           <p className="font-mono-num text-xs tracking-[0.26em] text-amber-400/85 uppercase">
             Iron Depths · The Abyss · Oni Sanctum · Eclipse Zenith
           </p>

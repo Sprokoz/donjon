@@ -1,6 +1,6 @@
 import { BossType, StageKey } from './types';
 
-const MENU_MUSIC_URL = './assets/aistudio/Music_for_A_Defeated_Kingdom_-_Valor_is_Dead_c8704844.mp3';
+const MENU_MUSIC_URL = './assets/aistudio/music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_713e37c4.mp3';
 
 class SoundEngine {
   private ctx: AudioContext | null = null;

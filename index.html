@@ -13,8 +13,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#050406] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-white">
+  <body class="bg-[#050406] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-white" style="background-color:#050406;color:#e7e5e4;margin:0;">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.addEventListener('load', function () {
+        setTimeout(function () {
+          if (window.__DUNGEON_BOUNCER_BOOTED__) return;
+          if (window.location.pathname.indexOf('/docs') === -1 && window.location.protocol.indexOf('http') === 0) {
+            fetch('./docs/index.html', { method: 'HEAD' })
+              .then(function (res) {
+                if (res.ok) {
+                  window.location.replace('./docs/' + window.location.search + window.location.hash);
+                }
+              })
+              .catch(function () {});
+          }
+        }, 180);
+      });
+    </script>
   </body>
 </html>

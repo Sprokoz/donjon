@@ -1515,12 +1515,20 @@ function triggerHeroAbility(rt: GameRuntime, p: Player) {
   }
 }
 
+export interface TouchInputState {
+  x: number;
+  y: number;
+  dash: boolean;
+  ability: boolean;
+}
+
 function updatePlayer(
   rt: GameRuntime,
   p: Player,
   dt: number,
   keys: Record<string, boolean>,
-  controls: ControlsConfig['p1']
+  controls: ControlsConfig['p1'],
+  touchInput?: TouchInputState
 ) {
   if (p.state !== 'alive') return;
   p.animTime += dt;
@@ -1571,9 +1579,13 @@ function updatePlayer(
   const leftPressed = !!keys[controls.left] || (rt.numPlayers === 1 && !!keys['arrowleft']);
   const rightPressed = !!keys[controls.right] || (rt.numPlayers === 1 && !!keys['arrowright']);
   const dashPressed =
-    !!keys[controls.dash] || (rt.numPlayers === 1 && (!!keys['shift'] || !!keys['enter']));
+    !!keys[controls.dash] ||
+    !!touchInput?.dash ||
+    (rt.numPlayers === 1 && (!!keys['shift'] || !!keys['enter']));
   const abilityPressed =
-    !!keys[controls.ability] || (rt.numPlayers === 1 && (!!keys['q'] || !!keys['f']));
+    !!keys[controls.ability] ||
+    !!touchInput?.ability ||
+    (rt.numPlayers === 1 && (!!keys['q'] || !!keys['f']));
 
   if (p.sealed) {
     p.dashTrail.forEach((t) => (t.alpha -= dt * 3));
@@ -1606,10 +1618,16 @@ function updatePlayer(
 
   let dirX = (rightPressed ? 1 : 0) - (leftPressed ? 1 : 0);
   let dirY = (downPressed ? 1 : 0) - (upPressed ? 1 : 0);
+  if (dirX === 0 && dirY === 0 && touchInput && (touchInput.x !== 0 || touchInput.y !== 0)) {
+    dirX = touchInput.x;
+    dirY = touchInput.y;
+  }
   if (dirX !== 0 || dirY !== 0) {
     const len = Math.sqrt(dirX * dirX + dirY * dirY);
-    dirX /= len;
-    dirY /= len;
+    if (len > 0) {
+      dirX /= len;
+      dirY /= len;
+    }
     p.facingAngle = Math.atan2(dirY, dirX);
     p.dashDirX = dirX;
     p.dashDirY = dirY;
@@ -4598,7 +4616,13 @@ function updateCamera(rt: GameRuntime, dt: number) {
   rt.camera.y += (ty - rt.camera.y) * panDamp;
 }
 
-export function stepGame(rt: GameRuntime, rawDt: number, keys: Record<string, boolean>, controls: ControlsConfig) {
+export function stepGame(
+  rt: GameRuntime,
+  rawDt: number,
+  keys: Record<string, boolean>,
+  controls: ControlsConfig,
+  touchInput?: TouchInputState
+) {
   if (rt.pendingEvent) return;
   const dt = Math.min(rawDt, 0.05);
   rt.elapsedSeconds += dt;
@@ -4742,7 +4766,7 @@ export function stepGame(rt: GameRuntime, rawDt: number, keys: Record<string, bo
     return;
   }
 
-  updatePlayer(rt, rt.players[0], dt, keys, controls.p1);
+  updatePlayer(rt, rt.players[0], dt, keys, controls.p1, touchInput);
   if (rt.numPlayers === 2) updatePlayer(rt, rt.players[1], dt, keys, controls.p2);
 
   // Void Decoys (Phantom passive)

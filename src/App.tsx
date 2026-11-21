@@ -27,6 +27,7 @@ import {
   skipBossIntro,
   stepGame,
   switchTutorialClass,
+  TouchInputState,
   transitionToStage,
 } from './game/engine';
 import { renderGame } from './game/renderer';
@@ -100,9 +101,15 @@ export default function App() {
   const [transitionTarget, setTransitionTarget] = useState<StageKey | null>(null);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
 
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
+  });
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const runtimeRef = useRef<GameRuntime | null>(null);
   const keysRef = useRef<Record<string, boolean>>({});
+  const touchInputRef = useRef<TouchInputState>({ x: 0, y: 0, dash: false, ability: false });
   const controlsRef = useRef<ControlsConfig>(controls);
   const screenRef = useRef<AppScreen>(screen);
 
@@ -138,6 +145,7 @@ export default function App() {
     });
     runtimeRef.current = rt;
     keysRef.current = {};
+    touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
     setBoonDraftState(null);
     setTransitionTarget(null);
     setRunSummary(null);
@@ -160,6 +168,7 @@ export default function App() {
     });
     runtimeRef.current = rt;
     keysRef.current = {};
+    touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
     setBoonDraftState(null);
     setTransitionTarget(null);
     setRunSummary(null);
@@ -261,6 +270,7 @@ export default function App() {
 
     const onBlur = () => {
       keysRef.current = {};
+      touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -292,7 +302,7 @@ export default function App() {
       if (rt && canvas) {
         const ctx = canvas.getContext('2d');
         if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal) {
-          stepGame(rt, dt, keysRef.current, controlsRef.current);
+          stepGame(rt, dt, keysRef.current, controlsRef.current, touchInputRef.current);
 
           if (rt.pendingEvent) {
             const ev = rt.pendingEvent;
@@ -419,8 +429,13 @@ export default function App() {
           numPlayers={hud.isTutorial ? 1 : numPlayers}
           playerColors={{ 1: playerColors[1].hex, 2: playerColors[2].hex }}
           isMuted={isMuted}
+          showTouchControls={showTouchControls}
+          onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
           onToggleMute={handleToggleMute}
-          onPause={() => setScreen(screen === 'PAUSED' ? 'PLAYING' : 'PAUSED')}
+          onPause={() => {
+            touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
+            setScreen(screen === 'PAUSED' ? 'PLAYING' : 'PAUSED');
+          }}
           onOpenControls={() => setShowControlsModal(true)}
           onSwitchTutorialClass={(cls) => {
             const rt = runtimeRef.current;
@@ -440,6 +455,16 @@ export default function App() {
             if (!rt) return;
             skipBossIntro(rt);
             setHud(extractHudSnapshot(rt));
+          }}
+          onTouchMove={(x, y) => {
+            touchInputRef.current.x = x;
+            touchInputRef.current.y = y;
+          }}
+          onTouchDash={(pressed) => {
+            touchInputRef.current.dash = pressed;
+          }}
+          onTouchAbility={(pressed) => {
+            touchInputRef.current.ability = pressed;
           }}
         >
           <canvas

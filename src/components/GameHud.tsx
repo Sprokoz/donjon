@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pause,
   Volume2,
@@ -11,9 +11,11 @@ import {
   LogOut,
   Users,
   FastForward,
+  Gamepad2,
 } from 'lucide-react';
 import { BOONS_CATALOG, DifficultyKey, HERO_CLASSES, HeroClassId, HudSnapshot, PlayerHudState } from '../game/types';
 import { formatDuration } from './PixelHeart';
+import { MobileControls } from './MobileControls';
 
 interface GameHudProps {
   hud: HudSnapshot;
@@ -21,6 +23,8 @@ interface GameHudProps {
   numPlayers: 1 | 2;
   playerColors: { 1: string; 2: string };
   isMuted: boolean;
+  showTouchControls: boolean;
+  onToggleTouchControls: () => void;
   onToggleMute: () => void;
   onPause: () => void;
   onOpenControls: () => void;
@@ -28,6 +32,9 @@ interface GameHudProps {
   onNextTutorialStep?: () => void;
   onExitTutorial?: () => void;
   onSkipIntro?: () => void;
+  onTouchMove: (x: number, y: number) => void;
+  onTouchDash: (pressed: boolean) => void;
+  onTouchAbility: (pressed: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -171,6 +178,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   numPlayers,
   playerColors,
   isMuted,
+  showTouchControls,
+  onToggleTouchControls,
   onToggleMute,
   onPause,
   onOpenControls,
@@ -178,14 +187,61 @@ export const GameHud: React.FC<GameHudProps> = ({
   onNextTutorialStep,
   onExitTutorial,
   onSkipIntro,
+  onTouchMove,
+  onTouchDash,
+  onTouchAbility,
   children,
 }) => {
+  const [isLandscapeMobile, setIsLandscapeMobile] = useState(false);
+
+  useEffect(() => {
+    const updateOrientation = () => {
+      setIsLandscapeMobile(window.innerWidth > window.innerHeight && window.innerHeight < 560);
+    };
+    updateOrientation();
+    window.addEventListener('resize', updateOrientation);
+    return () => window.removeEventListener('resize', updateOrientation);
+  }, []);
+
   const bossPct = hud.bossMaxHealth > 0 ? Math.max(0, (hud.bossHealth / hud.bossMaxHealth) * 100) : 0;
   const showBossBar = hud.isBossLevel && hud.bossHealth > 0 && hud.bossState !== 'comic_intro';
   const bossStatusText =
     hud.bossState === 'weakened'
       ? 'WEAKENED — 2X CRITICAL DAMAGE!'
       : `PHASE ${hud.bossPhase === 2 ? 'II' : 'I'} · ATTACK ANYTIME · DODGE CLEANLY FOR 2X OPENING`;
+
+  const renderMobileQuickButtons = () => (
+    <div className="flex lg:hidden items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={onToggleTouchControls}
+        className={`p-1.5 rounded border cursor-pointer ${
+          showTouchControls
+            ? 'bg-amber-950/60 border-amber-500/70 text-amber-300'
+            : 'bg-stone-900 border-stone-700 text-stone-400'
+        }`}
+        aria-label="Toggle Touch Controls"
+        title="Toggle On-Screen Touch Buttons"
+      >
+        <Gamepad2 className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onToggleMute}
+        className="p-1.5 rounded bg-stone-900 border border-stone-700 text-stone-300 cursor-pointer"
+        aria-label="Toggle Mute"
+      >
+        {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-amber-400" />}
+      </button>
+      <button
+        type="button"
+        onClick={onPause}
+        className="px-2 py-1 rounded bg-stone-900 border border-stone-700 text-[10px] font-semibold text-stone-200 cursor-pointer"
+      >
+        Pause
+      </button>
+    </div>
+  );
 
   return (
     <div className="h-dvh w-full overflow-hidden bg-[#050406] p-2 lg:px-3 lg:py-2 select-none flex flex-col lg:grid lg:grid-cols-[232px_minmax(0,1fr)_232px] xl:grid-cols-[252px_minmax(0,1fr)_252px] gap-2.5 items-stretch">
@@ -281,12 +337,12 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* ── CENTER MAXIMIZED BATTLEFIELD COLUMN ──────────────────────── */}
       <main className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center gap-1.5">
-        {/* Compact Top Boss HP + Guard Posture / Stage Strip */}
-        <div className="w-full max-w-[1160px] min-h-[48px] py-1 shrink-0 bg-[#0b0a0e] border border-stone-800 rounded px-3 flex flex-col justify-center">
+        {/* Compact Top Boss HP + Stage Strip */}
+        <div className="w-full max-w-[1160px] min-h-[44px] py-1 shrink-0 bg-[#0b0a0e] border border-stone-800 rounded px-2.5 sm:px-3 flex flex-col justify-center">
           {showBossBar ? (
             <>
               <div className="flex items-center justify-between gap-2 mb-0.5 min-w-0">
-                <span className="font-souls text-xs font-bold text-stone-100 tracking-wider truncate shrink-0">
+                <span className="font-souls text-[11px] sm:text-xs font-bold text-stone-100 tracking-wider truncate shrink-0">
                   {hud.bossName}
                 </span>
                 <div className="flex items-center gap-2 min-w-0 truncate">
@@ -301,9 +357,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                     </span>
                   )}
                 </div>
-                <span className="font-mono-num text-[11px] text-stone-300 shrink-0">
-                  {hud.bossHealth} / {hud.bossMaxHealth}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-mono-num text-[11px] text-stone-300">
+                    {hud.bossHealth} / {hud.bossMaxHealth}
+                  </span>
+                  {renderMobileQuickButtons()}
+                </div>
               </div>
               <div className="relative w-full h-2 bg-stone-950 border border-stone-700/90 overflow-hidden">
                 <div
@@ -321,9 +380,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                 />
               </div>
-              <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="flex items-center justify-between gap-2 mt-0.5">
                 <span
-                  className={`font-mono-num text-[10px] font-bold tracking-wider truncate ${
+                  className={`font-mono-num text-[9px] sm:text-[10px] font-bold tracking-wider truncate ${
                     hud.bossState === 'weakened' ? 'text-cyan-300 animate-pulse' : 'text-stone-400'
                   }`}
                 >
@@ -339,34 +398,45 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span className="text-[11px] text-stone-400 hidden sm:inline truncate">
                 Grab Blade Orb to Strike · [Space] Clean Dodge · [E] Skill
               </span>
-              {/* Compact Mobile Actions */}
-              <div className="flex lg:hidden items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={onToggleMute}
-                  className="p-1 rounded bg-stone-900 border border-stone-700 text-stone-300 cursor-pointer"
-                  aria-label="Toggle Mute"
-                >
-                  {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-amber-400" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={onPause}
-                  className="px-2 py-1 rounded bg-stone-900 border border-stone-700 text-[10px] text-stone-200 cursor-pointer"
-                >
-                  Pause
-                </button>
-              </div>
+              {renderMobileQuickButtons()}
             </div>
           )}
         </div>
+
+        {/* Mobile Tutorial Quick Objective & Drill Bar (< lg) */}
+        {hud.isTutorial && (
+          <div className="flex lg:hidden w-full items-center justify-between gap-2 bg-[#0b0a0e] border border-amber-700/60 rounded px-2.5 py-1.5 text-[10px] font-mono-num shrink-0">
+            <span className="text-amber-300 font-bold truncate">
+              {hud.tutorialTitle} ({hud.tutorialProgress}/{hud.tutorialTotal})
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => onNextTutorialStep?.()}
+                className="px-2 py-1 rounded bg-amber-600 text-white font-semibold cursor-pointer"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                onClick={() => onExitTutorial?.()}
+                className="px-2 py-1 rounded bg-stone-800 text-stone-200 cursor-pointer"
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Maximized 4:3 Battlefield Viewport */}
         <div className="flex-1 min-h-0 w-full flex items-center justify-center">
           <div
             className="relative rounded border border-stone-800 shadow-[0_0_50px_rgba(0,0,0,0.9)] bg-black overflow-hidden"
             style={{
-              width: 'min(100%, calc((100dvh - 76px) * 4 / 3))',
+              width:
+                showTouchControls && !isLandscapeMobile
+                  ? 'min(100%, calc((100dvh - 256px) * 4 / 3))'
+                  : 'min(100%, calc((100dvh - 76px) * 4 / 3))',
               aspectRatio: '4 / 3',
             }}
           >
@@ -393,7 +463,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {hud.phaseAnnounce && (
               <div
-                className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 px-6 py-1.5 bg-gradient-to-r from-transparent via-black/85 to-transparent border-y border-amber-500/40 font-souls text-sm font-bold text-center whitespace-nowrap"
+                className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 px-4 sm:px-6 py-1.5 bg-gradient-to-r from-transparent via-black/85 to-transparent border-y border-amber-500/40 font-souls text-xs sm:text-sm font-bold text-center whitespace-nowrap max-w-[95%] truncate"
                 style={{ color: hud.phaseAnnounce.color, textShadow: `0 0 14px ${hud.phaseAnnounce.color}` }}
               >
                 {hud.phaseAnnounce.text}
@@ -403,31 +473,62 @@ export const GameHud: React.FC<GameHudProps> = ({
             {/* Clear Co-op Teamwork Objective Strip during Eclipse Co-op Patterns */}
             {hud.coopPrompt && (
               <div
-                className={`pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded flex items-center gap-2 font-mono-num text-[11px] font-bold whitespace-nowrap shadow-lg ${
+                className={`pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 px-3 sm:px-4 py-1.5 rounded flex items-center gap-2 font-mono-num text-[10px] sm:text-[11px] font-bold whitespace-nowrap max-w-[95%] truncate shadow-lg ${
                   hud.coopPrompt.includes('FAILED')
                     ? 'bg-red-950/90 border border-red-500 text-red-200 animate-pulse'
                     : 'bg-black/85 border border-amber-400/60 text-amber-200'
                 }`}
               >
-                <Users className={`w-3.5 h-3.5 ${hud.coopPrompt.includes('FAILED') ? 'text-red-400' : 'text-cyan-300'}`} />
-                <span>{hud.coopPrompt}</span>
+                <Users className={`w-3.5 h-3.5 shrink-0 ${hud.coopPrompt.includes('FAILED') ? 'text-red-400' : 'text-cyan-300'}`} />
+                <span className="truncate">{hud.coopPrompt}</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Narrow-screen fallback bar (< lg) */}
-        <div className="flex lg:hidden w-full items-center justify-between gap-2 bg-[#0b0a0e] border border-stone-800 rounded px-3 py-1.5 text-[11px] font-mono-num">
-          <span style={{ color: playerColors[1] }} className="font-bold">
-            P1: {hud.p1.hp}/{hud.p1.maxHp} HP
-          </span>
-          {numPlayers === 2 && (
-            <span style={{ color: playerColors[2] }} className="font-bold">
-              P2: {hud.p2.hp}/{hud.p2.maxHp} HP
+        {/* Narrow-screen Player Vital & Score Strip (< lg) */}
+        <div className="flex lg:hidden w-full items-center justify-between gap-2 bg-[#0b0a0e] border border-stone-800 rounded px-3 py-1.5 text-[11px] font-mono-num shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span style={{ color: playerColors[1] }} className="font-bold whitespace-nowrap">
+              P1: {hud.p1.hp}/{hud.p1.maxHp}
             </span>
-          )}
-          <span className="text-amber-300 font-bold">{hud.score.toLocaleString()}</span>
+            {hud.p1.hasKnife && <span className="text-cyan-300 font-bold text-[10px]">ARMED</span>}
+            {hud.p1.empowered && <span className="text-amber-300 font-bold text-[10px]">EMP</span>}
+            {numPlayers === 2 && (
+              <span style={{ color: playerColors[2] }} className="font-bold whitespace-nowrap">
+                P2: {hud.p2.hp}/{hud.p2.maxHp}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-arcade text-[10px]" style={{ color: STYLE_COLORS[hud.styleRank] }}>
+              {hud.styleRank}
+            </span>
+            <span className="text-amber-300 font-bold">{hud.score.toLocaleString()}</span>
+          </div>
         </div>
+
+        {/* Mobile Touch Controls Deck (Portrait docked below arena OR Landscape corner overlay) */}
+        {showTouchControls && (
+          <div
+            className={
+              isLandscapeMobile
+                ? 'fixed bottom-2 inset-x-2 z-20 pointer-events-none'
+                : 'w-full shrink-0 pt-1 pb-2'
+            }
+          >
+            <MobileControls
+              p1={hud.p1}
+              playerColor={playerColors[1]}
+              compact={isLandscapeMobile}
+              showSkipIntro={hud.isBossLevel && hud.bossState === 'comic_intro'}
+              onMoveChange={onTouchMove}
+              onDashChange={onTouchDash}
+              onAbilityChange={onTouchAbility}
+              onSkipIntro={onSkipIntro}
+            />
+          </div>
+        )}
       </main>
 
       {/* ── RIGHT SIDEBAR (Desktop) ──────────────────────────────────── */}

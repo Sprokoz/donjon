@@ -1,0 +1,6 @@
+{
+  "name": "Dungeon Bouncer",
+  "description": "An intense 1-2 player arcade dungeon bouncer & boss-rush game across Iron Depths, The Void, and Oni Sanctum.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

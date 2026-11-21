@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-arcade: 'Press Start 2P', monospace;
+    --font-souls: 'Cinzel', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #050406;
+    color: #e7e5e4;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+  }
+}
+
+.font-arcade {
+  font-family: var(--font-arcade);
+}
+
+.font-souls {
+  font-family: var(--font-souls);
+  letter-spacing: 0.08em;
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes scanlineScroll {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 120px;
+  }
+}
+
+.arcade-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(217, 119, 6, 0.025) 2px,
+    rgba(217, 119, 6, 0.025) 4px
+  );
+  animation: scanlineScroll 12s linear infinite;
+}
+
+@keyframes starTwinkle {
+  0%, 100% {
+    opacity: 0.14;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}

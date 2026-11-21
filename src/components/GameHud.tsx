@@ -216,49 +216,55 @@ export const GameHud: React.FC<GameHudProps> = ({
       ? 'WEAKENED — 2X CRITICAL DAMAGE!'
       : `PHASE ${hud.bossPhase === 2 ? 'II' : 'I'} · ATTACK ANYTIME · DODGE CLEANLY FOR 2X OPENING`;
 
-  const renderMobileQuickButtons = () => (
-    <div className="flex lg:hidden items-center gap-1 shrink-0">
-      <button
-        type="button"
-        onClick={onToggleFullscreen}
-        className={`p-1.5 rounded border cursor-pointer ${
-          isFullscreen
-            ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-300'
-            : 'bg-stone-900 border-stone-700 text-stone-300'
-        }`}
-        aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-      >
-        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-      </button>
-      <button
-        type="button"
-        onClick={onToggleTouchControls}
-        className={`p-1.5 rounded border cursor-pointer ${
-          showTouchControls
-            ? 'bg-amber-950/60 border-amber-500/70 text-amber-300'
-            : 'bg-stone-900 border-stone-700 text-stone-400'
-        }`}
-        aria-label="Toggle Touch Controls"
-        title="Toggle On-Screen Touch Buttons"
-      >
-        <Gamepad2 className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleMute}
-        className="p-1.5 rounded bg-stone-900 border border-stone-700 text-stone-300 cursor-pointer"
-        aria-label="Toggle Mute"
-      >
-        {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-amber-400" />}
-      </button>
-      <button
-        type="button"
-        onClick={onPause}
-        className="px-2 py-1 rounded bg-stone-900 border border-stone-700 text-[10px] font-semibold text-stone-200 cursor-pointer"
-      >
-        Pause
-      </button>
+  const mobileQuickButtons = (
+    <div className="flex lg:hidden w-full items-center justify-between gap-1.5 bg-[#0b0a0e] border border-stone-800 rounded px-2 py-1 shrink-0">
+      <span className="font-mono-num text-[10px] font-bold tracking-wider text-amber-400/90 uppercase truncate">
+        {hud.isTutorial ? 'TRAINING ARENA' : `${difficulty} · ${numPlayers}P`}
+      </span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          className={`min-h-[32px] px-2 py-1 rounded border text-[11px] font-semibold flex items-center gap-1 whitespace-nowrap cursor-pointer ${
+            isFullscreen
+              ? 'bg-cyan-950/70 border-cyan-500/70 text-cyan-200'
+              : 'bg-stone-900 border-stone-700 text-stone-200'
+          }`}
+          aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 shrink-0" /> : <Maximize2 className="w-3.5 h-3.5 shrink-0" />}
+          <span>{isFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={onToggleTouchControls}
+          className={`min-h-[32px] p-1.5 rounded border cursor-pointer flex items-center justify-center ${
+            showTouchControls
+              ? 'bg-amber-950/60 border-amber-500/70 text-amber-300'
+              : 'bg-stone-900 border-stone-700 text-stone-400'
+          }`}
+          aria-label="Toggle Touch Controls"
+          title="Toggle On-Screen Touch Buttons"
+        >
+          <Gamepad2 className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleMute}
+          className="min-h-[32px] p-1.5 rounded bg-stone-900 border border-stone-700 text-stone-300 cursor-pointer flex items-center justify-center"
+          aria-label="Toggle Mute"
+        >
+          {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-amber-400" />}
+        </button>
+        <button
+          type="button"
+          onClick={onPause}
+          className="min-h-[32px] px-2.5 py-1 rounded bg-stone-900 border border-stone-700 text-[11px] font-semibold text-stone-100 cursor-pointer"
+        >
+          Pause
+        </button>
+      </div>
     </div>
   );
 
@@ -356,17 +362,20 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* ── CENTER MAXIMIZED BATTLEFIELD COLUMN ──────────────────────── */}
       <main className="flex-1 min-w-0 min-h-0 flex flex-col items-center justify-center gap-1.5">
+        {/* Dedicated Mobile Quick Actions Bar (< lg) — never clipped by Boss HP */}
+        {mobileQuickButtons}
+
         {/* Compact Top Boss HP + Stage Strip */}
-        <div className="w-full max-w-[1160px] min-h-[44px] py-1 shrink-0 bg-[#0b0a0e] border border-stone-800 rounded px-2.5 sm:px-3 flex flex-col justify-center">
+        <div className="w-full max-w-[1160px] min-h-[40px] py-1 shrink-0 bg-[#0b0a0e] border border-stone-800 rounded px-2.5 sm:px-3 flex flex-col justify-center overflow-hidden">
           {showBossBar ? (
             <>
               <div className="flex items-center justify-between gap-2 mb-0.5 min-w-0">
-                <span className="font-souls text-[11px] sm:text-xs font-bold text-stone-100 tracking-wider truncate shrink-0">
+                <span className="font-souls text-[11px] sm:text-xs font-bold text-stone-100 tracking-wider truncate min-w-0">
                   {hud.bossName}
                 </span>
                 <div className="flex items-center gap-2 min-w-0 truncate">
                   {hud.bossAttackLabel && (
-                    <span className="font-mono-num text-[10px] font-bold tracking-wider text-amber-300 animate-pulse shrink-0">
+                    <span className="font-mono-num text-[10px] font-bold tracking-wider text-amber-300 animate-pulse truncate">
                       ▲ {hud.bossAttackLabel} ▲
                     </span>
                   )}
@@ -376,12 +385,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="font-mono-num text-[11px] text-stone-300">
-                    {hud.bossHealth} / {hud.bossMaxHealth}
-                  </span>
-                  {renderMobileQuickButtons()}
-                </div>
+                <span className="font-mono-num text-[11px] text-stone-300 shrink-0">
+                  {hud.bossHealth} / {hud.bossMaxHealth}
+                </span>
               </div>
               <div className="relative w-full h-2 bg-stone-950 border border-stone-700/90 overflow-hidden">
                 <div
@@ -410,14 +416,13 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-between gap-2 text-xs font-mono-num text-stone-300">
+            <div className="flex items-center justify-between gap-2 text-xs font-mono-num text-stone-300 min-w-0">
               <span className="font-souls text-[11px] text-amber-400/90 tracking-wider truncate">
                 {hud.isBossLevel ? 'TRAVERSING THE FOG...' : hud.stageLabel}
               </span>
               <span className="text-[11px] text-stone-400 hidden sm:inline truncate">
                 Grab Blade Orb to Strike · [Space] Clean Dodge · [E] Skill
               </span>
-              {renderMobileQuickButtons()}
             </div>
           )}
         </div>
@@ -454,8 +459,8 @@ export const GameHud: React.FC<GameHudProps> = ({
             style={{
               width:
                 showTouchControls && !isLandscapeMobile
-                  ? 'min(100%, calc((100dvh - 256px) * 4 / 3))'
-                  : 'min(100%, calc((100dvh - 76px) * 4 / 3))',
+                  ? 'min(100%, calc((100dvh - 296px) * 4 / 3))'
+                  : 'min(100%, calc((100dvh - 116px) * 4 / 3))',
               aspectRatio: '4 / 3',
             }}
           >

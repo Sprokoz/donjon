@@ -115,6 +115,8 @@ export default function App() {
   const controlsRef = useRef<ControlsConfig>(controls);
   const screenRef = useRef<AppScreen>(screen);
 
+  const fullscreenNoteTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     const syncFullscreen = () => {
       const doc = document as Document & { webkitFullscreenElement?: Element | null };
@@ -126,7 +128,16 @@ export default function App() {
     return () => {
       document.removeEventListener('fullscreenchange', syncFullscreen);
       document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+      if (fullscreenNoteTimerRef.current) window.clearTimeout(fullscreenNoteTimerRef.current);
     };
+  }, []);
+
+  const showFullscreenNotice = useCallback((msg: string) => {
+    setFullscreenNote(msg);
+    if (fullscreenNoteTimerRef.current) window.clearTimeout(fullscreenNoteTimerRef.current);
+    fullscreenNoteTimerRef.current = window.setTimeout(() => {
+      setFullscreenNote(null);
+    }, 4500);
   }, []);
 
   const handleToggleFullscreen = useCallback(async () => {
@@ -145,12 +156,12 @@ export default function App() {
       } else {
         if (rootEl.requestFullscreen) await rootEl.requestFullscreen();
         else if (rootEl.webkitRequestFullscreen) await rootEl.webkitRequestFullscreen();
-        else setFullscreenNote('Fullscreen is not supported in this browser.');
+        else showFullscreenNotice('Fullscreen not supported here — try Add to Home Screen on iOS.');
       }
     } catch {
-      setFullscreenNote('Fullscreen blocked by browser or embedded frame.');
+      showFullscreenNotice('Fullscreen blocked by browser or embedded frame.');
     }
-  }, []);
+  }, [showFullscreenNotice]);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -411,6 +422,12 @@ export default function App() {
 
   const anyCheatActive = Object.values(cheats).some(Boolean);
 
+  const fullscreenToast = fullscreenNote && screen !== 'PAUSED' ? (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] px-4 py-2 rounded-md bg-stone-950/95 border border-amber-500/70 text-amber-200 font-mono-num text-xs text-center shadow-xl">
+      {fullscreenNote}
+    </div>
+  ) : null;
+
   if (screen === 'TITLE_MENU') {
     return (
       <>
@@ -427,6 +444,7 @@ export default function App() {
           onToggleFullscreen={handleToggleFullscreen}
           leaderboard={leaderboard}
         />
+        {fullscreenToast}
         {showTutorialModal && (
           <TutorialModal
             onClose={() => setShowTutorialModal(false)}
@@ -448,16 +466,21 @@ export default function App() {
 
   if (screen === 'HERO_SETUP') {
     return (
-      <HeroSetup
-        numPlayers={numPlayers}
-        onSelectPlayers={setNumPlayers}
-        playerColors={playerColors}
-        onSelectColor={(pid, col) => setPlayerColors((prev) => ({ ...prev, [pid]: col }))}
-        playerClasses={playerClasses}
-        onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
-        onBack={() => setScreen('TITLE_MENU')}
-        onStart={beginRun}
-      />
+      <>
+        <HeroSetup
+          numPlayers={numPlayers}
+          onSelectPlayers={setNumPlayers}
+          playerColors={playerColors}
+          onSelectColor={(pid, col) => setPlayerColors((prev) => ({ ...prev, [pid]: col }))}
+          playerClasses={playerClasses}
+          onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
+          onBack={() => setScreen('TITLE_MENU')}
+          onStart={beginRun}
+        />
+        {fullscreenToast}
+      </>
     );
   }
 
@@ -603,6 +626,8 @@ export default function App() {
           onMainMenu={handleReturnToMenu}
         />
       )}
+
+      {fullscreenToast}
     </>
   );
 }

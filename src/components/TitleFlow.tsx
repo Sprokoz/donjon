@@ -57,7 +57,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   const diffs: DifficultyKey[] = ['easy', 'medium', 'hard'];
 
   return (
-    <div className="relative min-h-screen w-full bg-[#040407] flex flex-col items-center justify-center p-6 overflow-y-auto">
+    <div className="relative min-h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto">
       {/* Dark atmospheric embers */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         {embers.map((s) => (
@@ -76,7 +76,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         <div className="arcade-scanlines absolute inset-0" />
       </div>
 
-      <div className="relative z-10 w-full max-w-4xl flex flex-col gap-6">
+      <div className="relative z-10 w-full max-w-4xl my-auto flex flex-col gap-5 sm:gap-6">
         {/* Title Header */}
         <header className="relative text-center space-y-2">
           <div className="flex justify-end sm:absolute sm:right-0 sm:top-0 mb-1 sm:mb-0">
@@ -381,6 +381,8 @@ interface HeroSetupProps {
   onSelectColor: (playerNum: 1 | 2, col: ColorOption) => void;
   playerClasses: { 1: HeroClassId; 2: HeroClassId };
   onSelectClass: (playerNum: 1 | 2, cls: HeroClassId) => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
   onBack: () => void;
   onStart: () => void;
 }
@@ -392,28 +394,49 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onSelectColor,
   playerClasses,
   onSelectClass,
+  isFullscreen,
+  onToggleFullscreen,
   onBack,
   onStart,
 }) => {
   return (
-    <div className="relative min-h-screen w-full bg-[#040407] flex flex-col items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <div className="relative min-h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto">
       <div className="arcade-scanlines pointer-events-none fixed inset-0" />
 
-      <div className="relative z-10 w-full max-w-5xl bg-[#09090e]/95 border border-slate-800 rounded-lg p-5 sm:p-6 space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="relative z-10 w-full max-w-5xl my-auto bg-[#09090e]/95 border border-slate-800 rounded-lg p-5 sm:p-6 space-y-5">
+        <div className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => {
               soundEngine.playUiClick();
               onBack();
             }}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white cursor-pointer"
+            className="min-h-[36px] flex items-center gap-1.5 text-xs text-slate-400 hover:text-white cursor-pointer shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
-          <h2 className="font-arcade text-sm sm:text-base text-white tracking-wider">COMBAT FRAME LOADOUT</h2>
-          <div className="w-12" />
+          <h2 className="font-arcade text-xs sm:text-base text-white tracking-wider text-center truncate">
+            COMBAT FRAME LOADOUT
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.unlock();
+              soundEngine.playUiClick();
+              onToggleFullscreen();
+            }}
+            className={`min-h-[36px] px-2.5 py-1 rounded border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              isFullscreen
+                ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-200 hover:bg-cyan-900/60'
+                : 'bg-black/80 border-slate-700 text-slate-200 hover:border-slate-500'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+            <span className="sm:hidden">{isFullscreen ? 'Exit' : 'Full'}</span>
+          </button>
         </div>
 
         {/* 1P / 2P Toggle */}

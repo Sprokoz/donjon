@@ -113,6 +113,8 @@ interface PauseModalProps {
   isFullscreen: boolean;
   fullscreenNote?: string | null;
   showTouchControls: boolean;
+  onlineRole?: 'none' | 'host' | 'guest';
+  pausedBy?: 1 | 2;
   onMusicChange: (v: number) => void;
   onSfxChange: (v: number) => void;
   onToggleFullscreen: () => void;
@@ -131,6 +133,8 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   isFullscreen,
   fullscreenNote,
   showTouchControls,
+  onlineRole = 'none',
+  pausedBy,
   onMusicChange,
   onSfxChange,
   onToggleFullscreen,
@@ -142,10 +146,19 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   onRestart,
   onMenu,
 }) => {
+  const isOnline = onlineRole !== 'none';
+
   return (
     <div className="fixed inset-0 z-40 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-[#09090e] border border-slate-700 rounded-lg p-6 space-y-5 max-h-[92dvh] overflow-y-auto">
-        <h2 className="font-arcade text-base text-center text-white">PAUSED · SETTINGS</h2>
+        <div className="text-center space-y-1">
+          <h2 className="font-arcade text-base text-white">PAUSED · SETTINGS</h2>
+          {isOnline && pausedBy && (
+            <p className="font-mono-num text-[11px] text-amber-300">
+              Paused by Player {pausedBy}
+            </p>
+          )}
+        </div>
 
         <div className="space-y-3 bg-black/70 border border-slate-800 rounded-md p-3.5 text-xs">
           <div className="flex items-center justify-between gap-3">
@@ -223,31 +236,35 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           >
             Customize Controls
           </button>
-          <button
-            type="button"
-            onClick={onCheats}
-            className={`w-full py-2.5 rounded-md border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-              cheatsActive
-                ? 'bg-red-950/60 hover:bg-red-900/60 border-red-600/80 text-amber-300'
-                : 'bg-slate-900 hover:bg-slate-800 border-amber-700/60 text-amber-300'
-            }`}
-          >
-            <Skull className="w-3.5 h-3.5 text-red-400" />
-            <span>{cheatsActive ? 'Cheats (SHAME ON YOU)' : 'Cheats & Forbidden Tome'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={onRestart}
-            className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Restart Run
-          </button>
+          {!isOnline && (
+            <button
+              type="button"
+              onClick={onCheats}
+              className={`w-full py-2.5 rounded-md border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                cheatsActive
+                  ? 'bg-red-950/60 hover:bg-red-900/60 border-red-600/80 text-amber-300'
+                  : 'bg-slate-900 hover:bg-slate-800 border-amber-700/60 text-amber-300'
+              }`}
+            >
+              <Skull className="w-3.5 h-3.5 text-red-400" />
+              <span>{cheatsActive ? 'Cheats (SHAME ON YOU)' : 'Cheats & Forbidden Tome'}</span>
+            </button>
+          )}
+          {onlineRole !== 'guest' && (
+            <button
+              type="button"
+              onClick={onRestart}
+              className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Restart Run
+            </button>
+          )}
           <button
             type="button"
             onClick={onMenu}
             className="w-full py-2.5 rounded-md bg-black hover:bg-slate-900 border border-slate-800 text-slate-400 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Home className="w-3.5 h-3.5" /> Main Menu
+            <Home className="w-3.5 h-3.5" /> {isOnline ? 'Leave Online Match' : 'Main Menu'}
           </button>
         </div>
       </div>
@@ -527,10 +544,16 @@ export const CheatsModal: React.FC<CheatsModalProps> = ({
 interface BoonDraftModalProps {
   clearedStage: StageKey;
   choices: BoonDef[];
+  isWaitingForHost?: boolean;
   onPick: (boon: BoonDef) => void;
 }
 
-export const BoonDraftModal: React.FC<BoonDraftModalProps> = ({ clearedStage, choices, onPick }) => {
+export const BoonDraftModal: React.FC<BoonDraftModalProps> = ({
+  clearedStage,
+  choices,
+  isWaitingForHost = false,
+  onPick,
+}) => {
   const title =
     clearedStage === 'mechaBoss'
       ? 'HEIR OF IRON DESTROYED'
@@ -546,7 +569,9 @@ export const BoonDraftModal: React.FC<BoonDraftModalProps> = ({ clearedStage, ch
             <Sparkles className="w-4 h-4" />
             <span>{title}</span>
           </div>
-          <h2 className="font-souls text-2xl sm:text-3xl font-bold text-stone-100">CHOOSE A BOSS SOUL RELIC</h2>
+          <h2 className="font-souls text-2xl sm:text-3xl font-bold text-stone-100">
+            {isWaitingForHost ? 'HOST IS CHOOSING A RELIC...' : 'CHOOSE A BOSS SOUL RELIC'}
+          </h2>
           <p className="text-xs text-stone-400">
             Kindle your frame before traversing the next fog gate (+30 HP restored).
           </p>
@@ -557,11 +582,17 @@ export const BoonDraftModal: React.FC<BoonDraftModalProps> = ({ clearedStage, ch
             <button
               key={boon.id}
               type="button"
+              disabled={isWaitingForHost}
               onClick={() => {
+                if (isWaitingForHost) return;
                 soundEngine.playUiClick();
                 onPick(boon);
               }}
-              className="text-left p-5 rounded bg-[#0b0a0e] border border-stone-700 hover:border-amber-400 transition-all cursor-pointer flex flex-col gap-3 hover:-translate-y-1"
+              className={`text-left p-5 rounded bg-[#0b0a0e] border border-stone-700 transition-all flex flex-col gap-3 ${
+                isWaitingForHost
+                  ? 'opacity-80 cursor-default'
+                  : 'hover:border-amber-400 cursor-pointer hover:-translate-y-1'
+              }`}
               style={{ boxShadow: `0 0 24px ${boon.accent}22` }}
             >
               <div className="flex items-center justify-between">
@@ -575,7 +606,7 @@ export const BoonDraftModal: React.FC<BoonDraftModalProps> = ({ clearedStage, ch
               <h3 className="font-souls text-sm font-bold text-white leading-relaxed">{boon.name}</h3>
               <p className="text-xs text-stone-300 leading-relaxed flex-1">{boon.description}</p>
               <div className="pt-2 border-t border-stone-800 text-xs font-semibold" style={{ color: boon.accent }}>
-                Absorb Relic →
+                {isWaitingForHost ? 'Host Selecting...' : 'Absorb Relic →'}
               </div>
             </button>
           ))}
@@ -624,11 +655,17 @@ export const StageTransitionModal: React.FC<StageTransitionModalProps> = ({ next
 
 interface EndScreenModalProps {
   summary: RunSummary;
+  onlineRole?: 'none' | 'host' | 'guest';
   onPlayAgain: () => void;
   onMainMenu: () => void;
 }
 
-export const EndScreenModal: React.FC<EndScreenModalProps> = ({ summary, onPlayAgain, onMainMenu }) => {
+export const EndScreenModal: React.FC<EndScreenModalProps> = ({
+  summary,
+  onlineRole = 'none',
+  onPlayAgain,
+  onMainMenu,
+}) => {
   return (
     <div className="fixed inset-0 z-40 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-[#0b0a0e] border border-stone-700 rounded p-6 space-y-5 text-center">
@@ -704,20 +741,76 @@ export const EndScreenModal: React.FC<EndScreenModalProps> = ({ summary, onPlayA
           </div>
         </div>
 
+        {onlineRole === 'guest' && (
+          <div className="font-mono-num text-xs text-cyan-300 animate-pulse">
+            Waiting for Host to Restart or Leave...
+          </div>
+        )}
+
         <div className="flex gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onPlayAgain}
-            className="flex-1 py-3 rounded bg-red-700 hover:bg-red-600 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" /> Rise Again
-          </button>
+          {onlineRole !== 'guest' && (
+            <button
+              type="button"
+              onClick={onPlayAgain}
+              className="flex-1 py-3 rounded bg-red-700 hover:bg-red-600 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" /> Rise Again
+            </button>
+          )}
           <button
             type="button"
             onClick={onMainMenu}
             className="flex-1 py-3 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-200 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Home className="w-4 h-4" /> Main Menu
+            <Home className="w-4 h-4" /> {onlineRole !== 'none' ? 'Leave Online Match' : 'Main Menu'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface OnlineDisconnectModalProps {
+  isHost: boolean;
+  onContinueSolo?: () => void;
+  onReturnToMenu: () => void;
+}
+
+export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
+  isHost,
+  onContinueSolo,
+  onReturnToMenu,
+}) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/88 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-[#09090e] border border-red-700/70 rounded-lg p-6 space-y-4 text-center">
+        <div className="flex justify-center">
+          <AlertTriangle className="w-8 h-8 text-amber-400" />
+        </div>
+        <h2 className="font-arcade text-sm text-white">
+          {isHost ? 'PARTNER DISCONNECTED' : 'HOST DISCONNECTED'}
+        </h2>
+        <p className="text-xs text-slate-300 leading-relaxed">
+          {isHost
+            ? 'Your online co-op partner left the match. You can continue this run solo or return to the main menu.'
+            : 'The Host ended the session or lost connection.'}
+        </p>
+        <div className="flex flex-col gap-2.5 pt-1">
+          {isHost && onContinueSolo && (
+            <button
+              type="button"
+              onClick={onContinueSolo}
+              className="w-full py-2.5 rounded-md bg-red-600 hover:bg-red-500 text-white text-xs font-semibold cursor-pointer"
+            >
+              Continue Solo
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onReturnToMenu}
+            className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+          >
+            Return to Main Menu
           </button>
         </div>
       </div>

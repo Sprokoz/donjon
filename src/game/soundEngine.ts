@@ -1,5 +1,10 @@
 import { BossType, StageKey } from './types';
 
+export interface SfxSyncEvent {
+  fn: string;
+  args: unknown[];
+}
+
 const MENU_MP3_FILENAME = 'music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_713e37c4.mp3';
 
 function getMenuMusicCandidates(): string[] {
@@ -52,6 +57,82 @@ class SoundEngine {
   private lastVoiceAt = 0;
   private introGain: GainNode | null = null;
   private introTimers: number[] = [];
+  private sfxBroadcastHook: ((ev: SfxSyncEvent) => void) | null = null;
+  private replayingSync = false;
+  private broadcastDepth = 0;
+
+  constructor() {
+    const syncedMethods = [
+      'playBossVoiceTelegraph',
+      'playBossAttackExecuteSfx',
+      'playDash',
+      'playLanding',
+      'playBladePickup',
+      'playSlash',
+      'playGraze',
+      'playParry',
+      'playCoopResonance',
+      'playPlayerHit',
+      'playEnemySpawn',
+      'playArmorClang',
+      'playPostureUnlock',
+      'playBossEntry',
+      'stopBossIntroAudio',
+      'playBossCinematicIntro',
+      'playBossTelegraph',
+      'playBossShoot',
+      'playBossDamaged',
+      'playBossWeakened',
+      'playBossPhase2',
+      'playBossDefeated',
+      'playMedkit',
+      'playRevive',
+      'playPowerup',
+      'playBoonSelect',
+      'playCrescentWave',
+      'playCloak',
+      'playShockwave',
+      'playSurge',
+      'playVictory',
+      'playLose',
+      'setMusicTrack',
+      'stopMusic',
+    ] as const;
+
+    syncedMethods.forEach((fn) => {
+      const self = this as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const orig = self[fn].bind(this);
+      self[fn] = (...args: unknown[]) => {
+        const isTopLevel = this.broadcastDepth === 0;
+        this.broadcastDepth++;
+        try {
+          const res = orig(...args);
+          if (isTopLevel && this.sfxBroadcastHook && !this.replayingSync) {
+            this.sfxBroadcastHook({ fn, args });
+          }
+          return res;
+        } finally {
+          this.broadcastDepth--;
+        }
+      };
+    });
+  }
+
+  public setSfxBroadcastHook(hook: ((ev: SfxSyncEvent) => void) | null) {
+    this.sfxBroadcastHook = hook;
+  }
+
+  public replaySfxEvent(ev: SfxSyncEvent) {
+    const self = this as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const method = self[ev.fn];
+    if (typeof method !== 'function') return;
+    this.replayingSync = true;
+    try {
+      method.apply(this, ev.args || []);
+    } finally {
+      this.replayingSync = false;
+    }
+  }
 
   private createCathedralImpulse(ctx: AudioContext, seconds = 2.4, decay = 2.5): AudioBuffer {
     const rate = ctx.sampleRate;

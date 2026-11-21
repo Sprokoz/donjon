@@ -4621,7 +4621,8 @@ export function stepGame(
   rawDt: number,
   keys: Record<string, boolean>,
   controls: ControlsConfig,
-  touchInput?: TouchInputState
+  touchInput?: TouchInputState,
+  remoteP2Input?: TouchInputState
 ) {
   if (rt.pendingEvent) return;
   const dt = Math.min(rawDt, 0.05);
@@ -4767,7 +4768,16 @@ export function stepGame(
   }
 
   updatePlayer(rt, rt.players[0], dt, keys, controls.p1, touchInput);
-  if (rt.numPlayers === 2) updatePlayer(rt, rt.players[1], dt, keys, controls.p2);
+  if (rt.numPlayers === 2) {
+    updatePlayer(
+      rt,
+      rt.players[1],
+      dt,
+      remoteP2Input ? {} : keys,
+      controls.p2,
+      remoteP2Input
+    );
+  }
 
   // Void Decoys (Phantom passive)
   for (let di = rt.voidDecoys.length - 1; di >= 0; di--) {

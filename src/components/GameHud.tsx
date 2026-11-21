@@ -23,6 +23,8 @@ interface GameHudProps {
   hud: HudSnapshot;
   difficulty: DifficultyKey;
   numPlayers: 1 | 2;
+  localPlayerNum?: 1 | 2;
+  isOnline?: boolean;
   playerColors: { 1: string; 2: string };
   isMuted: boolean;
   isFullscreen: boolean;
@@ -180,6 +182,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   hud,
   difficulty,
   numPlayers,
+  localPlayerNum = 1,
+  isOnline = false,
   playerColors,
   isMuted,
   isFullscreen,
@@ -318,11 +322,11 @@ export const GameHud: React.FC<GameHudProps> = ({
 
         {/* P1 Card */}
         <PlayerSideCard
-          label="PLAYER 1"
+          label={isOnline && localPlayerNum === 1 ? 'PLAYER 1 (YOU)' : 'PLAYER 1'}
           p={hud.p1}
           color={playerColors[1]}
           combo={hud.comboP1}
-          skillKeyLabel="E"
+          skillKeyLabel={isOnline && localPlayerNum === 2 ? 'HOST' : 'E'}
         />
 
         {/* Tutorial Drill & Frame Switcher */}
@@ -542,8 +546,8 @@ export const GameHud: React.FC<GameHudProps> = ({
             }
           >
             <MobileControls
-              p1={hud.p1}
-              playerColor={playerColors[1]}
+              p1={localPlayerNum === 2 ? hud.p2 : hud.p1}
+              playerColor={localPlayerNum === 2 ? playerColors[2] : playerColors[1]}
               compact={isLandscapeMobile}
               showSkipIntro={hud.isBossLevel && hud.bossState === 'comic_intro'}
               onMoveChange={onTouchMove}
@@ -603,11 +607,11 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* P2 Card in 2P Co-op OR Combat Field Guide in 1P */}
         {numPlayers === 2 ? (
           <PlayerSideCard
-            label="PLAYER 2"
+            label={isOnline && localPlayerNum === 2 ? 'PLAYER 2 (YOU)' : isOnline ? 'PLAYER 2 (ONLINE)' : 'PLAYER 2'}
             p={hud.p2}
             color={playerColors[2]}
             combo={hud.comboP2}
-            skillKeyLabel="/"
+            skillKeyLabel={isOnline && localPlayerNum === 2 ? 'E / /' : isOnline ? 'ONLINE' : '/'}
           />
         ) : (
           <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-3 space-y-2 text-[11px] font-mono-num">

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -12,6 +12,12 @@ import {
 } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
+import {
+  CoopMode,
+  getInviteLink,
+  OnlineConnectionStatus,
+  sanitizeRoomCode,
+} from '../game/onlineSync';
 
 interface TitleMenuProps {
   difficulty: DifficultyKey;
@@ -408,8 +414,20 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
 };
 
 interface HeroSetupProps {
-  numPlayers: 1 | 2;
-  onSelectPlayers: (n: 1 | 2) => void;
+  coopMode: CoopMode;
+  onSelectCoopMode: (m: CoopMode) => void;
+  onlineRole: 'host' | 'guest';
+  onSelectOnlineRole: (r: 'host' | 'guest') => void;
+  roomCode: string;
+  joinInput: string;
+  onChangeJoinInput: (val: string) => void;
+  onlineStatus: OnlineConnectionStatus;
+  onlineError: string | null;
+  onHostCreateRoom: () => void;
+  onGuestJoinRoom: () => void;
+  onDisconnectOnline: () => void;
+  difficulty: DifficultyKey;
+  mode: GameMode;
   playerColors: { 1: ColorOption; 2: ColorOption };
   onSelectColor: (playerNum: 1 | 2, col: ColorOption) => void;
   playerClasses: { 1: HeroClassId; 2: HeroClassId };
@@ -424,8 +442,20 @@ interface HeroSetupProps {
 }
 
 export const HeroSetup: React.FC<HeroSetupProps> = ({
-  numPlayers,
-  onSelectPlayers,
+  coopMode,
+  onSelectCoopMode,
+  onlineRole,
+  onSelectOnlineRole,
+  roomCode,
+  joinInput,
+  onChangeJoinInput,
+  onlineStatus,
+  onlineError,
+  onHostCreateRoom,
+  onGuestJoinRoom,
+  onDisconnectOnline,
+  difficulty,
+  mode,
   playerColors,
   onSelectColor,
   playerClasses,
@@ -438,6 +468,20 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onBack,
   onStart,
 }) => {
+  const [copiedType, setCopiedType] = useState<'code' | 'link' | null>(null);
+
+  const numPlayers: 1 | 2 = coopMode === 'solo' ? 1 : 2;
+  const isOnline = coopMode === 'online';
+  const isOnlineConnected = onlineStatus === 'connected';
+  const localEditablePid: 1 | 2 | null = !isOnline ? null : onlineRole === 'host' ? 1 : 2;
+
+  const copyText = (value: string, kind: 'code' | 'link') => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value).catch(() => {});
+    setCopiedType(kind);
+    window.setTimeout(() => setCopiedType((cur) => (cur === kind ? null : cur)), 2000);
+  };
+
   return (
     <div className="relative min-h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto">
       <div className="arcade-scanlines pointer-events-none fixed inset-0" />
@@ -507,26 +551,26 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           </div>
         </div>
 
-        {/* 1P / 2P Toggle */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* 1P / 2P Local / 2P Online Selector */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
             onClick={() => {
               soundEngine.playUiClick();
-              onSelectPlayers(1);
+              onSelectCoopMode('solo');
             }}
-            className={`p-3.5 rounded-md border text-left transition-all cursor-pointer flex items-center gap-3.5 ${
-              numPlayers === 1
+            className={`p-3.5 rounded-md border text-left transition-all cursor-pointer flex items-center gap-3 ${
+              coopMode === 'solo'
                 ? 'bg-red-950/25 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.16)]'
                 : 'bg-black/60 border-slate-800 hover:border-slate-700'
             }`}
           >
-            <div className="p-2.5 rounded bg-red-500/15 text-red-400">
+            <div className="p-2.5 rounded bg-red-500/15 text-red-400 shrink-0">
               <User className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="font-arcade text-xs text-white">1 PLAYER</div>
-              <div className="text-xs text-slate-400 mt-1">WASD/Arrows · Space Dash · E Skill</div>
+              <div className="text-[11px] text-slate-400 mt-1 truncate">Solo Arena</div>
             </div>
           </button>
 
@@ -534,23 +578,217 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             type="button"
             onClick={() => {
               soundEngine.playUiClick();
-              onSelectPlayers(2);
+              onSelectCoopMode('local');
             }}
-            className={`p-3.5 rounded-md border text-left transition-all cursor-pointer flex items-center gap-3.5 ${
-              numPlayers === 2
+            className={`p-3.5 rounded-md border text-left transition-all cursor-pointer flex items-center gap-3 ${
+              coopMode === 'local'
                 ? 'bg-cyan-950/25 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.16)]'
                 : 'bg-black/60 border-slate-800 hover:border-slate-700'
             }`}
           >
-            <div className="p-2.5 rounded bg-cyan-500/15 text-cyan-300">
+            <div className="p-2.5 rounded bg-cyan-500/15 text-cyan-300 shrink-0">
               <Users className="w-5 h-5" />
             </div>
-            <div>
-              <div className="font-arcade text-xs text-white">2 PLAYERS</div>
-              <div className="text-xs text-slate-400 mt-1">Local Co-op · 2x Boss HP · Shared Arena &amp; Revives</div>
+            <div className="min-w-0">
+              <div className="font-arcade text-xs text-white">2P LOCAL</div>
+              <div className="text-[11px] text-slate-400 mt-1 truncate">Same Keyboard Co-op</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onSelectCoopMode('online');
+            }}
+            className={`p-3.5 rounded-md border text-left transition-all cursor-pointer flex items-center gap-3 ${
+              coopMode === 'online'
+                ? 'bg-emerald-950/25 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.16)]'
+                : 'bg-black/60 border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="p-2.5 rounded bg-emerald-500/15 text-emerald-300 shrink-0">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-arcade text-xs text-white">2P ONLINE</div>
+              <div className="text-[11px] text-slate-400 mt-1 truncate">Play With Friends Online</div>
             </div>
           </button>
         </div>
+
+        {/* Online Room Bar */}
+        {isOnline && (
+          <div className="bg-black/80 border border-emerald-700/50 rounded-md p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 p-1 bg-slate-950 border border-slate-800 rounded-md">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onSelectOnlineRole('host');
+                  }}
+                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                    onlineRole === 'host'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Host Room
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onSelectOnlineRole('guest');
+                  }}
+                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                    onlineRole === 'guest'
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Join Room
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-mono-num">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isOnlineConnected
+                      ? 'bg-emerald-400'
+                      : onlineStatus === 'error'
+                      ? 'bg-red-500'
+                      : onlineStatus === 'idle'
+                      ? 'bg-slate-600'
+                      : 'bg-amber-400 animate-pulse'
+                  }`}
+                />
+                <span
+                  className={
+                    isOnlineConnected
+                      ? 'text-emerald-300 font-semibold'
+                      : onlineStatus === 'error'
+                      ? 'text-red-400'
+                      : 'text-slate-300'
+                  }
+                >
+                  {onlineRole === 'host'
+                    ? isOnlineConnected
+                      ? 'Partner Joined · Ready to Deploy'
+                      : onlineStatus === 'creating'
+                      ? 'Opening room...'
+                      : onlineStatus === 'waiting'
+                      ? 'Waiting for partner to join...'
+                      : onlineStatus === 'error'
+                      ? 'Room error'
+                      : 'Preparing room...'
+                    : isOnlineConnected
+                    ? `Connected · ${DIFFICULTY_SETTINGS[difficulty].label} · ${mode === 'boss_rush' ? 'Boss Rush' : 'Campaign'}`
+                    : onlineStatus === 'connecting'
+                    ? 'Joining room...'
+                    : onlineStatus === 'error'
+                    ? 'Connection failed'
+                    : 'Enter Host Room Code'}
+                </span>
+              </div>
+            </div>
+
+            {onlineRole === 'host' ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-mono-num uppercase">Room Code</span>
+                  <span className="font-arcade text-base sm:text-lg tracking-[0.22em] px-3 py-1.5 rounded bg-slate-950 border border-emerald-500/60 text-emerald-300 select-all">
+                    {roomCode || '-----'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      copyText(roomCode, 'code');
+                    }}
+                    disabled={!roomCode}
+                    className="px-3 py-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  >
+                    {copiedType === 'code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedType === 'code' ? 'Copied Code' : 'Copy Code'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      copyText(getInviteLink(roomCode), 'link');
+                    }}
+                    disabled={!roomCode}
+                    className="px-3 py-2 rounded bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/60 text-xs text-emerald-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  >
+                    {copiedType === 'link' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link2 className="w-3.5 h-3.5" />}
+                    <span>{copiedType === 'link' ? 'Link Copied' : 'Copy Invite Link'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onHostCreateRoom();
+                    }}
+                    className="px-2.5 py-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 flex items-center gap-1 cursor-pointer"
+                    title="New Room Code"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                <input
+                  type="text"
+                  value={joinInput}
+                  onChange={(e) => onChangeJoinInput(sanitizeRoomCode(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && joinInput.length >= 4 && !isOnlineConnected) {
+                      soundEngine.playUiClick();
+                      onGuestJoinRoom();
+                    }
+                  }}
+                  placeholder="ROOM CODE"
+                  maxLength={8}
+                  disabled={isOnlineConnected}
+                  className="w-40 px-3 py-2 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-arcade text-sm tracking-[0.2em] text-cyan-200 uppercase text-center disabled:opacity-70"
+                />
+                {!isOnlineConnected ? (
+                  <button
+                    type="button"
+                    disabled={joinInput.length < 4 || onlineStatus === 'connecting'}
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onGuestJoinRoom();
+                    }}
+                    className="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer transition-colors"
+                  >
+                    {onlineStatus === 'connecting' ? 'Connecting...' : 'Connect'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onDisconnectOnline();
+                    }}
+                    className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors"
+                  >
+                    Leave Room
+                  </button>
+                )}
+              </div>
+            )}
+
+            {onlineError && (
+              <p className="text-xs text-red-400 font-mono-num">{onlineError}</p>
+            )}
+          </div>
+        )}
 
         {/* Player Class + Color Selection */}
         <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
@@ -558,21 +796,38 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             const selectedColor = playerColors[pid];
             const selectedClassId = playerClasses[pid];
             const selectedClass = HERO_CLASSES.find((c) => c.id === selectedClassId) || HERO_CLASSES[0];
+            const lockedForLocalUser = isOnline && localEditablePid !== pid;
+            const roleBadge = !isOnline
+              ? pid === 1
+                ? 'WASD · Space Dash · E Skill'
+                : 'Arrows · Enter Dash · / Skill'
+              : localEditablePid === pid
+              ? 'YOUR FRAME · WASD/Arrows or Touch'
+              : pid === 1
+              ? 'HOST FRAME'
+              : isOnlineConnected
+              ? 'PARTNER FRAME'
+              : 'WAITING FOR PARTNER';
 
             return (
-              <div key={pid} className="p-4 rounded-md bg-black/75 border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-arcade text-xs" style={{ color: selectedColor.hex }}>
+              <div
+                key={pid}
+                className={`p-4 rounded-md bg-black/75 border space-y-4 ${
+                  lockedForLocalUser ? 'border-slate-800/80 opacity-90' : 'border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="font-arcade text-xs shrink-0" style={{ color: selectedColor.hex }}>
                       PLAYER {pid}
                     </span>
                     <span className="text-slate-600">·</span>
-                    <span className="font-mono-num text-xs text-white font-semibold">
+                    <span className="font-mono-num text-xs text-white font-semibold truncate">
                       {selectedClass.name}
                     </span>
                   </div>
-                  <span className="text-[11px] font-mono-num text-slate-400">
-                    {pid === 1 ? 'WASD · Space Dash · E Skill' : 'Arrows · Enter Dash · / Skill'}
+                  <span className="text-[10px] font-mono-num text-slate-400 shrink-0 truncate">
+                    {roleBadge}
                   </span>
                 </div>
 
@@ -584,11 +839,15 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       <button
                         key={cls.id}
                         type="button"
+                        disabled={lockedForLocalUser}
                         onClick={() => {
+                          if (lockedForLocalUser) return;
                           soundEngine.playUiClick();
                           onSelectClass(pid, cls.id);
                         }}
-                        className={`p-2.5 rounded border text-left transition-all cursor-pointer ${
+                        className={`p-2.5 rounded border text-left transition-all ${
+                          lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                        } ${
                           active
                             ? 'bg-slate-900 border-white shadow-sm'
                             : 'bg-slate-950/60 border-slate-800 hover:border-slate-600'
@@ -631,12 +890,16 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                         <button
                           key={col.hex}
                           type="button"
+                          disabled={lockedForLocalUser}
                           title={col.name}
                           onClick={() => {
+                            if (lockedForLocalUser) return;
                             soundEngine.playUiClick();
                             onSelectColor(pid, col);
                           }}
-                          className={`h-7 rounded border-2 transition-transform cursor-pointer ${
+                          className={`h-7 rounded border-2 transition-transform ${
+                            lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                          } ${
                             isSel ? 'border-white scale-105' : 'border-transparent opacity-70 hover:opacity-100'
                           }`}
                           style={{
@@ -654,17 +917,26 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            soundEngine.unlock();
-            soundEngine.playBoonSelect();
-            onStart();
-          }}
-          className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 text-white font-arcade text-sm tracking-wider transition-all cursor-pointer shadow-[0_0_24px_rgba(220,38,38,0.35)]"
-        >
-          DEPLOY INTO ARENA
-        </button>
+        {isOnline && onlineRole === 'guest' ? (
+          <div className="w-full py-4 px-4 rounded-md bg-slate-900/90 border border-cyan-700/50 text-center font-arcade text-xs text-cyan-200 tracking-wider">
+            {isOnlineConnected
+              ? 'CONNECTED · WAITING FOR HOST TO DEPLOY'
+              : 'ENTER A ROOM CODE TO JOIN AN ONLINE MATCH'}
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={isOnline && !isOnlineConnected}
+            onClick={() => {
+              soundEngine.unlock();
+              soundEngine.playBoonSelect();
+              onStart();
+            }}
+            className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)]"
+          >
+            {isOnline && !isOnlineConnected ? 'WAITING FOR PARTNER TO JOIN...' : 'DEPLOY INTO ARENA'}
+          </button>
+        )}
       </div>
     </div>
   );

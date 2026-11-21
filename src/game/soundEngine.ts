@@ -4,20 +4,17 @@ const MENU_MP3_FILENAME = 'music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_7
 
 function getMenuMusicCandidates(): string[] {
   const candidates: string[] = [];
-  if (typeof window !== 'undefined') {
-    const isDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
-    if (!isDev) {
-      try {
-        const modUrl = import.meta.url;
-        if (modUrl) {
-          candidates.push(new URL(`./aistudio/${MENU_MP3_FILENAME}`, modUrl).href);
-        }
-      } catch {
-        // ignore URL error
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    try {
+      const moduleScript = document.querySelector('script[type="module"][src*="assets/"]') as HTMLScriptElement | null;
+      if (moduleScript?.src) {
+        candidates.push(new URL(`./aistudio/${MENU_MP3_FILENAME}`, moduleScript.src).href);
       }
+    } catch {
+      // ignore URL error
     }
     try {
-      candidates.push(new URL(`./assets/aistudio/${MENU_MP3_FILENAME}`, window.location.href).href);
+      candidates.push(new URL(`./assets/aistudio/${MENU_MP3_FILENAME}`, document.baseURI || window.location.href).href);
     } catch {
       // ignore
     }

@@ -1,5 +1,7 @@
 import { BossType, StageKey } from './types';
 
+const MENU_MUSIC_URL = './assets/aistudio/Music_for_A_Defeated_Kingdom_-_Valor_is_Dead_c8704844.mp3';
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private masterComp: DynamicsCompressorNode | null = null;
@@ -11,6 +13,9 @@ class SoundEngine {
   private musicVolume = 0.65;
   private sfxVolume = 0.85;
   private muted = false;
+
+  private menuAudio: HTMLAudioElement | null = null;
+  private menuMusicActive = false;
 
   private bgmTimer: number | null = null;
   private bgmStep = 0;
@@ -78,12 +83,53 @@ class SoundEngine {
     return this.ctx;
   }
 
+  private syncMenuAudioState() {
+    if (!this.menuAudio) return;
+    this.menuAudio.muted = this.muted;
+    this.menuAudio.volume = this.muted ? 0 : Math.max(0, Math.min(1, this.musicVolume * 0.72));
+  }
+
   public unlock() {
     this.ensureContext();
+    if (this.menuMusicActive && this.menuAudio && this.menuAudio.paused) {
+      this.syncMenuAudioState();
+      this.menuAudio.play().catch(() => {});
+    }
+  }
+
+  public playMenuMusic() {
+    if (typeof window === 'undefined') return;
+    this.menuMusicActive = true;
+    if (!this.menuAudio) {
+      const audio = new Audio(MENU_MUSIC_URL);
+      audio.loop = true;
+      audio.preload = 'auto';
+      this.menuAudio = audio;
+    }
+    this.syncMenuAudioState();
+    if (this.menuAudio.paused) {
+      this.menuAudio.play().catch(() => {
+        // Browser autoplay blocked until first user interaction; unlock() will start it.
+      });
+    }
+  }
+
+  public stopMenuMusic(reset = true) {
+    this.menuMusicActive = false;
+    if (!this.menuAudio) return;
+    this.menuAudio.pause();
+    if (reset) {
+      try {
+        this.menuAudio.currentTime = 0;
+      } catch {
+        // ignore seek errors before metadata loads
+      }
+    }
   }
 
   public setMusicVolume(v: number) {
     this.musicVolume = Math.max(0, Math.min(1, v));
+    this.syncMenuAudioState();
     if (this.musicGain && this.ctx) {
       this.musicGain.gain.setTargetAtTime(this.muted ? 0 : this.musicVolume * 0.3, this.ctx.currentTime, 0.04);
     }
@@ -98,6 +144,7 @@ class SoundEngine {
 
   public setMuted(m: boolean) {
     this.muted = m;
+    this.syncMenuAudioState();
     if (this.ctx && this.musicGain && this.sfxGain) {
       this.musicGain.gain.setTargetAtTime(m ? 0 : this.musicVolume * 0.3, this.ctx.currentTime, 0.04);
       this.sfxGain.gain.setTargetAtTime(m ? 0 : this.sfxVolume * 0.58, this.ctx.currentTime, 0.04);

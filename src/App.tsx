@@ -169,6 +169,24 @@ export default function App() {
 
   useEffect(() => {
     screenRef.current = screen;
+    if (screen === 'TITLE_MENU' || screen === 'HERO_SETUP') {
+      soundEngine.playMenuMusic();
+    } else {
+      soundEngine.stopMenuMusic(true);
+    }
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen !== 'TITLE_MENU' && screen !== 'HERO_SETUP') return;
+    const handleFirstInteraction = () => {
+      soundEngine.unlock();
+    };
+    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
+    window.addEventListener('keydown', handleFirstInteraction, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+    };
   }, [screen]);
 
   const handleSaveControls = useCallback((next: ControlsConfig) => {
@@ -440,6 +458,8 @@ export default function App() {
           onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenCheats={() => setShowCheatsModal(true)}
           anyCheatActive={anyCheatActive}
+          isMuted={isMuted}
+          onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
           leaderboard={leaderboard}
@@ -474,6 +494,8 @@ export default function App() {
           onSelectColor={(pid, col) => setPlayerColors((prev) => ({ ...prev, [pid]: col }))}
           playerClasses={playerClasses}
           onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
+          isMuted={isMuted}
+          onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
           onBack={() => setScreen('TITLE_MENU')}

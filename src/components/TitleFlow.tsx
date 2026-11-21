@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2 } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -22,6 +22,8 @@ interface TitleMenuProps {
   onOpenTutorial: () => void;
   onOpenCheats: () => void;
   anyCheatActive: boolean;
+  isMuted: boolean;
+  onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   leaderboard: LeaderboardEntry[];
@@ -36,6 +38,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenTutorial,
   onOpenCheats,
   anyCheatActive,
+  isMuted,
+  onToggleMute,
   isFullscreen,
   onToggleFullscreen,
   leaderboard,
@@ -79,7 +83,24 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
       <div className="relative z-10 w-full max-w-4xl my-auto flex flex-col gap-5 sm:gap-6">
         {/* Title Header */}
         <header className="relative text-center space-y-2">
-          <div className="flex justify-end sm:absolute sm:right-0 sm:top-0 mb-1 sm:mb-0">
+          <div className="flex items-center justify-end gap-2 sm:absolute sm:right-0 sm:top-0 mb-1 sm:mb-0">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                onToggleMute();
+                soundEngine.playUiClick();
+              }}
+              className={`min-h-[40px] px-2.5 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                isMuted
+                  ? 'bg-red-950/40 border-red-700/70 text-red-300 hover:bg-red-900/50'
+                  : 'bg-[#09090e]/90 border-slate-700 text-amber-300 hover:border-slate-500'
+              }`}
+              aria-label={isMuted ? 'Unmute Menu Music' : 'Mute Menu Music'}
+              title={isMuted ? 'Unmute Music' : 'Mute Music'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -381,6 +402,8 @@ interface HeroSetupProps {
   onSelectColor: (playerNum: 1 | 2, col: ColorOption) => void;
   playerClasses: { 1: HeroClassId; 2: HeroClassId };
   onSelectClass: (playerNum: 1 | 2, cls: HeroClassId) => void;
+  isMuted: boolean;
+  onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onBack: () => void;
@@ -394,6 +417,8 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onSelectColor,
   playerClasses,
   onSelectClass,
+  isMuted,
+  onToggleMute,
   isFullscreen,
   onToggleFullscreen,
   onBack,
@@ -419,24 +444,43 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           <h2 className="font-arcade text-xs sm:text-base text-white tracking-wider text-center truncate">
             COMBAT FRAME LOADOUT
           </h2>
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.unlock();
-              soundEngine.playUiClick();
-              onToggleFullscreen();
-            }}
-            className={`min-h-[36px] px-2.5 py-1 rounded border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-              isFullscreen
-                ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-200 hover:bg-cyan-900/60'
-                : 'bg-black/80 border-slate-700 text-slate-200 hover:border-slate-500'
-            }`}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
-            <span className="sm:hidden">{isFullscreen ? 'Exit' : 'Full'}</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                onToggleMute();
+                soundEngine.playUiClick();
+              }}
+              className={`min-h-[36px] px-2 py-1 rounded border text-xs font-semibold flex items-center justify-center cursor-pointer transition-colors ${
+                isMuted
+                  ? 'bg-red-950/40 border-red-700/70 text-red-300'
+                  : 'bg-black/80 border-slate-700 text-amber-300 hover:border-slate-500'
+              }`}
+              aria-label={isMuted ? 'Unmute Menu Music' : 'Mute Menu Music'}
+              title={isMuted ? 'Unmute Music' : 'Mute Music'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onToggleFullscreen();
+              }}
+              className={`min-h-[36px] px-2.5 py-1 rounded border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                isFullscreen
+                  ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-200 hover:bg-cyan-900/60'
+                  : 'bg-black/80 border-slate-700 text-slate-200 hover:border-slate-500'
+              }`}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+              <span className="sm:hidden">{isFullscreen ? 'Exit' : 'Full'}</span>
+            </button>
+          </div>
         </div>
 
         {/* 1P / 2P Toggle */}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2 } from 'lucide-react';
-import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, PlayerControls, PlayerId, RunSummary, StageKey } from '../game/types';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2 } from 'lucide-react';
+import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, FinalVoteState, PlayerControls, PlayerHudState, PlayerId, RunSummary, StageKey } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 
@@ -812,6 +812,147 @@ export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
           >
             Return to Main Menu
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface FinalBossVoteModalProps {
+  finalVote: FinalVoteState;
+  players: PlayerHudState[];
+  localPlayerId: PlayerId;
+  playerColors: Record<number, string>;
+  onVote: (choice: 'end' | 'deeper') => void;
+}
+
+export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
+  finalVote,
+  players,
+  localPlayerId,
+  playerColors,
+  onVote,
+}) => {
+  const activePlayers = players.filter((p) => p.state !== 'spectator');
+  const myVote = finalVote.votes[localPlayerId];
+  const endVotes = Object.values(finalVote.votes).filter((v) => v === 'end').length;
+  const deeperVotes = Object.values(finalVote.votes).filter((v) => v === 'deeper').length;
+  const nextLoop = finalVote.loopLevel + 1;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/82 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl bg-[#09090e] border border-amber-500/70 rounded-lg p-5 sm:p-6 space-y-5 shadow-[0_0_50px_rgba(245,158,11,0.2)]">
+        <div className="flex items-start justify-between gap-3 border-b border-stone-800 pb-3">
+          <div>
+            <div className="font-mono-num text-[10px] font-bold tracking-widest text-amber-400 uppercase">
+              ECLIPSE CONQUERED · PARTY VOTE
+            </div>
+            <h2 className="font-souls text-xl sm:text-2xl font-bold text-white mt-0.5">
+              END THE RUN OR DESCEND DEEPER?
+            </h2>
+          </div>
+          <div className="px-3 py-1.5 rounded bg-stone-900 border border-amber-500/60 font-mono-num text-xs font-bold text-amber-300 flex items-center gap-1.5 shrink-0">
+            <Clock className="w-3.5 h-3.5" />
+            <span>{Math.max(0, finalVote.timer)}s</span>
+          </div>
+        </div>
+
+        {/* Two Vote Choices */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onVote('end');
+            }}
+            className={`text-left p-4 rounded-md border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+              myVote === 'end'
+                ? 'bg-amber-950/45 border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
+                : 'bg-black/75 border-stone-700 hover:border-amber-500/70'
+            }`}
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-arcade text-xs text-amber-300">
+                  <Trophy className="w-4 h-4" />
+                  CLAIM VICTORY
+                </span>
+                <span className="font-mono-num text-xs font-bold text-amber-200">{endVotes} VOTE(S)</span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed">
+                Seal the Eclipse Sanctum, record your party score on the Leaderboard, and celebrate Victory now.
+              </p>
+            </div>
+            <div className="font-mono-num text-[11px] font-bold text-amber-400 flex items-center gap-1">
+              {myVote === 'end' && <CheckCircle2 className="w-3.5 h-3.5" />}
+              <span>{myVote === 'end' ? 'YOUR VOTE: END RUN' : 'VOTE TO END RUN →'}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onVote('deeper');
+            }}
+            className={`text-left p-4 rounded-md border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+              myVote === 'deeper'
+                ? 'bg-rose-950/50 border-rose-500 shadow-[0_0_24px_rgba(244,63,94,0.28)]'
+                : 'bg-black/75 border-stone-700 hover:border-rose-500/70'
+            }`}
+          >
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-arcade text-xs text-rose-300">
+                  <Flame className="w-4 h-4" />
+                  GO DEEPER (LOOP {nextLoop})
+                </span>
+                <span className="font-mono-num text-xs font-bold text-rose-200">{deeperVotes} VOTE(S)</span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed">
+                Keep weapons, coins, skills &amp; HP buffs. New Abyssal Floor scales <strong className="text-rose-300">+45% Mobs, +65% Boss HP, +18% DMG, +15% Speed</strong> &amp; <strong className="text-amber-300">+50% Score</strong>!
+              </p>
+            </div>
+            <div className="font-mono-num text-[11px] font-bold text-rose-400 flex items-center gap-1">
+              {myVote === 'deeper' && <CheckCircle2 className="w-3.5 h-3.5" />}
+              <span>{myVote === 'deeper' ? `YOUR VOTE: LOOP ${nextLoop}` : `VOTE TO DESCEND →`}</span>
+            </div>
+          </button>
+        </div>
+
+        {/* Live Party Ballots */}
+        <div className="bg-black/70 border border-stone-800 rounded p-3 space-y-2">
+          <div className="flex items-center justify-between text-[10px] font-mono-num text-stone-400 uppercase tracking-wider">
+            <span>PARTY BALLOTS ({Object.keys(finalVote.votes).length}/{activePlayers.length})</span>
+            <span>Majority wins · Ties go Deeper</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {activePlayers.map((pl) => {
+              const v = finalVote.votes[pl.id];
+              const col = playerColors[pl.id] || pl.color;
+              return (
+                <div
+                  key={pl.id}
+                  className="px-2.5 py-2 rounded border border-stone-800 bg-stone-950/80 flex flex-col gap-1"
+                >
+                  <div className="font-arcade text-[10px] truncate" style={{ color: col }}>
+                    P{pl.id}{pl.id === localPlayerId ? ' (YOU)' : ''}
+                  </div>
+                  <div
+                    className={`font-mono-num text-[10px] font-bold ${
+                      v === 'deeper'
+                        ? 'text-rose-300'
+                        : v === 'end'
+                        ? 'text-amber-300'
+                        : 'text-stone-500 animate-pulse'
+                    }`}
+                  >
+                    {v === 'deeper' ? 'GO DEEPER' : v === 'end' ? 'END RUN' : 'VOTING...'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

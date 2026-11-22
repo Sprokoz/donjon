@@ -12,7 +12,16 @@ export type WeaponId =
   | 'warrior_greatsword'
   | 'ranger_bow';
 
-export type RoomKind = 'combat' | 'shop' | 'treasure' | 'boss';
+export type RoomKind = 'start' | 'combat' | 'shop' | 'treasure' | 'boss';
+
+export interface ClassSkillDef {
+  slot: 1 | 2 | 3 | 4;
+  name: string;
+  shortName: string;
+  desc: string;
+  cooldown: number;
+  keyLabel: 'E' | 'Q' | 'R' | 'F';
+}
 
 export interface WeaponDef {
   id: Exclude<WeaponId, 'none'>;
@@ -27,6 +36,7 @@ export interface WeaponDef {
   bonusHp: number;
   accent: string;
   shortTag: string;
+  skills: [ClassSkillDef, ClassSkillDef, ClassSkillDef, ClassSkillDef];
 }
 
 export type AppScreen =
@@ -84,6 +94,7 @@ export interface HeroClassDef {
   baseSpeed: number;
   bonusHp: number;
   accent: string;
+  skills: [ClassSkillDef, ClassSkillDef, ClassSkillDef, ClassSkillDef];
 }
 
 export interface BoonDef {
@@ -173,6 +184,7 @@ export interface Player {
   postDashInvulnerability: number;
   hp: number;
   maxHp: number;
+  bonusMaxHp: number;
   dash2Ready: boolean;
   dash2CooldownTimer: number;
   dash2Active: boolean;
@@ -180,13 +192,24 @@ export interface Player {
   invulnFrames: number;
   _lastDashPressed: boolean;
   _lastAbilityPressed: boolean;
-  // Class / Weapon active skill
+  _lastSkill2Pressed: boolean;
+  _lastSkill3Pressed: boolean;
+  _lastSkill4Pressed: boolean;
+  // Class / Weapon active skills (1..4 unlocked via Weapon / Scrolls / Relics)
+  unlockedSkillTier: number;
+  skillCooldowns: [number, number, number, number];
+  skillMaxCooldowns: [number, number, number, number];
   abilityReady: boolean;
   abilityCooldown: number;
   abilityCooldownTimer: number;
   cloakTimer: number;
   empoweredStrike: boolean;
   shieldRegenTimer: number;
+  bladeHealCd: number;
+  whirlwindTimer: number;
+  fortifyTimer: number;
+  bloodlustTimer: number;
+  chargeTimer: number;
   // Status & buffs
   sealed: boolean;
   sealTimer: number;
@@ -203,7 +226,14 @@ export interface Player {
 export interface PlayerProjectile {
   uid: number;
   ownerId: PlayerId;
-  kind: 'crescent' | 'arc_bolt' | 'ranger_arrow';
+  kind:
+    | 'crescent'
+    | 'cataclysm'
+    | 'arc_bolt'
+    | 'ranger_arrow'
+    | 'sniper_arrow'
+    | 'shadow_kunai'
+    | 'frost_shard';
   x: number;
   y: number;
   dx: number;
@@ -213,6 +243,21 @@ export interface PlayerProjectile {
   color: string;
   lifetime: number;
   pierce: number;
+  bossDamage?: number;
+}
+
+export interface SkillZone {
+  id: number;
+  ownerId: PlayerId;
+  kind: 'holy_ground' | 'frost_trap' | 'arrow_rain';
+  x: number;
+  y: number;
+  radius: number;
+  timer: number;
+  maxTimer: number;
+  tickTimer: number;
+  triggered?: boolean;
+  color: string;
 }
 
 export interface VoidDecoy {
@@ -540,15 +585,30 @@ export interface WeaponDrop {
   swapLockTimer: number;
 }
 
+export interface SkillScrollDrop {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  bob: number;
+  lockTimer: number;
+}
+
+export type GateDir = 'top' | 'bottom' | 'left' | 'right';
+
 export interface DungeonGate {
   id: string;
-  dir: 'top' | 'bottom' | 'left' | 'right';
+  dir: GateDir;
   x: number;
   y: number;
   width: number;
   height: number;
   roomType: RoomKind;
   targetStage: StageKey;
+  targetRoomKey?: string;
+  isNextFloorPortal?: boolean;
+  visitedTarget?: boolean;
+  clearedTarget?: boolean;
   label: string;
   subLabel: string;
   accent: string;
@@ -558,7 +618,7 @@ export interface DungeonGate {
 
 export interface ShopItem {
   id: number;
-  kind: 'potion' | 'max_hp' | 'shield' | 'weapon_crate';
+  kind: 'potion' | 'max_hp' | 'shield' | 'weapon_crate' | 'skill_scroll';
   label: string;
   subLabel: string;
   cost: number;
@@ -569,6 +629,32 @@ export interface ShopItem {
   weaponId?: Exclude<WeaponId, 'none'>;
   purchasedBy: number[];
   globalSold?: boolean;
+}
+
+export interface FloorMapNodeHud {
+  key: string;
+  gx: number;
+  gy: number;
+  kind: RoomKind;
+  visited: boolean;
+  cleared: boolean;
+  revealed: boolean;
+  connections: Partial<Record<GateDir, string>>;
+}
+
+export interface FloorMapHudSnapshot {
+  floorNumber: number;
+  loopLevel: number;
+  currentRoomKey: string;
+  gridSize: number;
+  nodes: FloorMapNodeHud[];
+}
+
+export interface FinalVoteState {
+  active: boolean;
+  timer: number;
+  votes: Record<number, 'end' | 'deeper'>;
+  loopLevel: number;
 }
 
 export interface LobbyPlayerInfo {
@@ -600,6 +686,10 @@ export interface PlayerHudState {
   combo: number;
   hp: number;
   maxHp: number;
+  bonusMaxHp: number;
+  unlockedSkillTier: number;
+  skillCooldowns: [number, number, number, number];
+  skillMaxCooldowns: [number, number, number, number];
   state: Player['state'];
   dashReady: boolean;
   dashCooldown: number;
@@ -633,6 +723,9 @@ export interface HudSnapshot {
   isOnlineCampaign: boolean;
   roomKind: RoomKind;
   roomDepth: number;
+  loopLevel: number;
+  floorMap?: FloorMapHudSnapshot;
+  finalVote?: FinalVoteState | null;
   bossesDefeatedCount: number;
   gatesActive: boolean;
   bossType: BossType;
@@ -734,11 +827,45 @@ export const HERO_CLASSES: HeroClassDef[] = [
     passiveDesc: 'Dashing while armed cuts with an extended +18px blade arc.',
     skillName: 'Crescent Wave',
     skillDesc: 'Fires a piercing slash wave that slices bullets & bosses.',
-    skillCooldown: 7.5,
-    dashCooldown: 8.5,
+    skillCooldown: 11.5,
+    dashCooldown: 9.0,
     baseSpeed: 5.2,
     bonusHp: 0,
     accent: '#ef4444',
+    skills: [
+      {
+        slot: 1,
+        name: 'Crescent Wave',
+        shortName: 'CRESCENT',
+        desc: 'Fires a piercing slash wave that slices bullets & bosses.',
+        cooldown: 11.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Steel Whirlwind',
+        shortName: 'WHIRL',
+        desc: '2.0s spinning crimson blade aura carving nearby mobs & orbs.',
+        cooldown: 15.5,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Battlecry Surge',
+        shortName: 'WARCRY',
+        desc: 'Stuns nearby mobs, empowers next strike & boosts speed 4s.',
+        cooldown: 19.0,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Cataclysm Sever',
+        shortName: 'CATACLYSM',
+        desc: 'Colossal crimson greatsword beam piercing the entire arena.',
+        cooldown: 25.5,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'phantom',
@@ -746,14 +873,48 @@ export const HERO_CLASSES: HeroClassDef[] = [
     codename: 'VOID STALKER',
     role: 'Evasive Assassin',
     passiveName: 'Blink Decoy',
-    passiveDesc: 'Fastest Dash (6.5s). Dashing leaves a void bomb decoy.',
+    passiveDesc: 'Fastest Dash (7.2s). Dashing leaves a void bomb decoy.',
     skillName: 'Shadow Cloak',
-    skillDesc: 'Phase-shift invulnerable for 1.6s + empower next strike.',
-    skillCooldown: 10.5,
-    dashCooldown: 6.5,
+    skillDesc: '1.25s stealth cloak + empower next strike + decoy bomb.',
+    skillCooldown: 14.0,
+    dashCooldown: 7.2,
     baseSpeed: 5.4,
     bonusHp: 0,
     accent: '#a855f7',
+    skills: [
+      {
+        slot: 1,
+        name: 'Shadow Cloak',
+        shortName: 'CLOAK',
+        desc: '1.25s stealth cloak + empower next strike + decoy bomb.',
+        cooldown: 14.0,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Fan of Knives',
+        shortName: 'KUNAI',
+        desc: 'Hurls 5 piercing shadow kunai in a wide cone.',
+        cooldown: 13.0,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Phantom Blink',
+        shortName: 'BLINK',
+        desc: 'Blinks forward leaving twin explosive void decoys behind.',
+        cooldown: 17.5,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Nightmare Blossom',
+        shortName: 'BLOSSOM',
+        desc: '170px whirlwind of 8 shadow slashes cutting foes & orbs.',
+        cooldown: 25.0,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'vanguard',
@@ -761,14 +922,48 @@ export const HERO_CLASSES: HeroClassDef[] = [
     codename: 'IRON BASTION',
     role: 'Armored Juggernaut',
     passiveName: 'Reactive Armor',
-    passiveDesc: '+25 Max HP (125 total) & auto-regenerates Aegis Shield every 24s.',
+    passiveDesc: '+25 Max HP (125 total) & auto-regenerates Aegis Shield every 28s.',
     skillName: 'Aegis Shockwave',
-    skillDesc: 'Emits a pulse that vaporizes nearby bullets & stuns foes.',
-    skillCooldown: 9.5,
-    dashCooldown: 9.5,
+    skillDesc: 'Pulse that vaporizes nearby bullets & stuns enemies.',
+    skillCooldown: 14.5,
+    dashCooldown: 10.0,
     baseSpeed: 4.7,
     bonusHp: 25,
     accent: '#38bdf8',
+    skills: [
+      {
+        slot: 1,
+        name: 'Aegis Shockwave',
+        shortName: 'DOME',
+        desc: 'Pulse that vaporizes nearby bullets & stuns enemies.',
+        cooldown: 14.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Bulwark Charge',
+        shortName: 'CHARGE',
+        desc: 'Armored rush forward slamming & stunning enemies in path.',
+        cooldown: 15.0,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Iron Fortification',
+        shortName: 'FORTIFY',
+        desc: '3.5s iron ward granting Shield + counter-shocking attackers.',
+        cooldown: 20.0,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Colossus Slam',
+        shortName: 'COLOSSUS',
+        desc: '340px earthshatter wiping projectiles, stunning & hurting boss.',
+        cooldown: 26.0,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'volt',
@@ -778,12 +973,46 @@ export const HERO_CLASSES: HeroClassDef[] = [
     passiveName: 'Static Arc',
     passiveDesc: '+18% Move Speed. Clean Dodges fire homing Arc Bolts at foes.',
     skillName: 'Overcharge Surge',
-    skillDesc: '4.5s Overdrive + pulls Blade to you + resets Dash CD.',
-    skillCooldown: 11.5,
-    dashCooldown: 8.0,
+    skillDesc: '3.5s Overdrive + recalls Blade to you + shaves Dash CD.',
+    skillCooldown: 14.5,
+    dashCooldown: 8.5,
     baseSpeed: 5.9,
     bonusHp: 0,
     accent: '#facc15',
+    skills: [
+      {
+        slot: 1,
+        name: 'Overcharge Surge',
+        shortName: 'SURGE',
+        desc: '3.5s Overdrive + recalls Blade + shaves 3s off Dash CD.',
+        cooldown: 14.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Arc Barrage',
+        shortName: 'VOLLEY',
+        desc: 'Fires 4 high-speed electric bolts piercing targets.',
+        cooldown: 13.5,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Railshot Lance',
+        shortName: 'RAILSHOT',
+        desc: 'Hyper-velocity lightning lance piercing unlimited enemies.',
+        cooldown: 18.5,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Tempest Rain',
+        shortName: 'TEMPEST',
+        desc: 'Calls a storm field ahead calling down 12 arc bolts.',
+        cooldown: 25.0,
+        keyLabel: 'F',
+      },
+    ],
   },
 ];
 
@@ -918,70 +1147,240 @@ export const WEAPONS_CATALOG: WeaponDef[] = [
     name: 'SERAPHIC HOLY STAFF',
     roleLabel: 'CLERIC / HEALER',
     skillName: 'Sanctuary Hymn',
-    skillDesc: 'Heals self & nearby allies +30 HP, boosts revive, & cleanses Seals.',
-    passiveDesc: 'Picking up your Blade Orb restores +5 HP.',
-    skillCooldown: 9.0,
-    dashCooldown: 8.5,
+    skillDesc: 'Heals nearby allies +14 HP, +25% revive, & cleanses Seals.',
+    passiveDesc: 'Blade Orb pickup restores +2 HP (3.5s CD) & +22% revive speed.',
+    skillCooldown: 15.5,
+    dashCooldown: 9.2,
     speedMult: 1.0,
     bonusHp: 0,
     accent: '#fde047',
     shortTag: 'STAFF',
+    skills: [
+      {
+        slot: 1,
+        name: 'Sanctuary Hymn',
+        shortName: 'HYMN',
+        desc: 'Heals self & allies (240px) +14 HP, +25% revive & cleanses Seals.',
+        cooldown: 15.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Consecrated Ground',
+        shortName: 'SANCTUM',
+        desc: '4s sacred rune (+3 HP/s to allies inside, slows mobs 40%).',
+        cooldown: 19.0,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Aegis Benediction',
+        shortName: 'BLESS',
+        desc: 'Grants Aegis Shield + +10 HP to lowest-HP ally within 300px.',
+        cooldown: 22.0,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Seraphic Dawn',
+        shortName: 'DAWN',
+        desc: 'Wide blessing (+18 HP, +45% revive) + clears close orbs (160px).',
+        cooldown: 28.0,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'tank_shield',
     name: 'AEGIS BASTION',
     roleLabel: 'TANK / GUARDIAN',
     skillName: 'Bastion Dome',
-    skillDesc: 'Shields nearby allies & deletes boss projectiles in a 270px AoE + stuns foes.',
-    passiveDesc: '+25 Max HP & auto-regenerates Aegis Shield every 24s.',
-    skillCooldown: 9.5,
-    dashCooldown: 9.2,
+    skillDesc: 'Shields nearby allies & deletes boss projectiles in 255px AoE + stun.',
+    passiveDesc: '+25 Max HP & auto-regenerates Aegis Shield every 28s.',
+    skillCooldown: 14.5,
+    dashCooldown: 9.8,
     speedMult: 0.94,
     bonusHp: 25,
     accent: '#38bdf8',
     shortTag: 'TANK',
+    skills: [
+      {
+        slot: 1,
+        name: 'Bastion Dome',
+        shortName: 'DOME',
+        desc: '255px shock dome deleting bullets, shielding allies & stunning foes.',
+        cooldown: 14.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Bulwark Charge',
+        shortName: 'CHARGE',
+        desc: 'Armored rush forward slamming & stunning enemies in path.',
+        cooldown: 15.0,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Iron Fortification',
+        shortName: 'FORTIFY',
+        desc: '3.5s iron ward granting Shield + counter-shocking attackers.',
+        cooldown: 20.0,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Colossus Slam',
+        shortName: 'COLOSSUS',
+        desc: '340px earthshatter wiping projectiles, stunning 3.5s & crushing boss.',
+        cooldown: 26.0,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'assassin_blades',
     name: 'NIGHTBLADE TWINS',
     roleLabel: 'ASSASSIN',
     skillName: 'Shadow Execution',
-    skillDesc: '1.7s Shadow Cloak invulnerability + empowers strike + Void Decoy bomb.',
-    passiveDesc: 'Fastest Dash (6.5s) & +8% Move Speed.',
-    skillCooldown: 9.5,
-    dashCooldown: 6.5,
+    skillDesc: '1.25s Shadow Cloak + empowers strike + Void Decoy bomb.',
+    passiveDesc: 'Fastest Dash (7.2s) & +8% Move Speed.',
+    skillCooldown: 14.0,
+    dashCooldown: 7.2,
     speedMult: 1.08,
     bonusHp: 0,
     accent: '#a855f7',
     shortTag: 'BLADES',
+    skills: [
+      {
+        slot: 1,
+        name: 'Shadow Execution',
+        shortName: 'CLOAK',
+        desc: '1.25s Shadow Cloak + empowers strike + Void Decoy bomb.',
+        cooldown: 14.0,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Fan of Knives',
+        shortName: 'KUNAI',
+        desc: 'Hurls 5 piercing shadow kunai in a lethal cone.',
+        cooldown: 13.0,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Phantom Blink',
+        shortName: 'BLINK',
+        desc: 'Shadow-steps forward leaving twin void decoy bombs behind.',
+        cooldown: 17.5,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Nightmare Blossom',
+        shortName: 'BLOSSOM',
+        desc: '170px whirlwind of 8 shadow slashes cutting foes, bullets & boss.',
+        cooldown: 25.0,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'warrior_greatsword',
     name: 'CRIMSON GREATSWORD',
     roleLabel: 'WARRIOR',
     skillName: 'Crescent Cleave',
-    skillDesc: 'Unleashes a wide Crescent Wave that slices bullets, mobs & bosses.',
+    skillDesc: 'Wide Crescent Wave slicing bullets, mobs & bosses.',
     passiveDesc: '+20px extended Dash slash reach while armed.',
-    skillCooldown: 7.5,
-    dashCooldown: 8.2,
+    skillCooldown: 11.5,
+    dashCooldown: 8.8,
     speedMult: 1.02,
     bonusHp: 10,
     accent: '#ef4444',
     shortTag: 'SWORD',
+    skills: [
+      {
+        slot: 1,
+        name: 'Crescent Cleave',
+        shortName: 'CLEAVE',
+        desc: 'Unleashes a wide Crescent Wave slicing bullets, mobs & bosses.',
+        cooldown: 11.5,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Whirlwind Tempest',
+        shortName: 'WHIRL',
+        desc: '2.0s spinning greatsword aura carving mobs & close bullets.',
+        cooldown: 15.5,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Bloodlust Roar',
+        shortName: 'WARCRY',
+        desc: 'Stuns nearby mobs, empowers next strike & boosts speed 4s.',
+        cooldown: 19.0,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Cataclysm Splitter',
+        shortName: 'CATACLYSM',
+        desc: 'Giant crimson shockbeam cleaving across the entire arena.',
+        cooldown: 25.5,
+        keyLabel: 'F',
+      },
+    ],
   },
   {
     id: 'ranger_bow',
     name: 'TEMPEST LONGBOW',
     roleLabel: 'RANGER',
     skillName: 'Storm Volley',
-    skillDesc: 'Fires 3 piercing Storm Arrows + triggers 3.5s Overdrive & recalls Blade.',
+    skillDesc: '3 piercing Storm Arrows + 3.0s Overdrive & Blade recall.',
     passiveDesc: '+15% Move Speed while wielding the bow.',
-    skillCooldown: 8.5,
-    dashCooldown: 7.8,
+    skillCooldown: 13.0,
+    dashCooldown: 8.2,
     speedMult: 1.15,
     bonusHp: 0,
     accent: '#34d399',
     shortTag: 'BOW',
+    skills: [
+      {
+        slot: 1,
+        name: 'Storm Volley',
+        shortName: 'VOLLEY',
+        desc: '3 piercing Storm Arrows + 3.0s Overdrive + recalls Blade.',
+        cooldown: 13.0,
+        keyLabel: 'E',
+      },
+      {
+        slot: 2,
+        name: 'Frost Snare Trap',
+        shortName: 'TRAP',
+        desc: 'Drops an icy snare trap freezing mobs 3s & bursting 6 shards.',
+        cooldown: 15.5,
+        keyLabel: 'Q',
+      },
+      {
+        slot: 3,
+        name: 'Piercing Railshot',
+        shortName: 'SNIPE',
+        desc: 'High-velocity sniper arrow piercing unlimited foes & boss.',
+        cooldown: 18.5,
+        keyLabel: 'R',
+      },
+      {
+        slot: 4,
+        name: 'Tempest Arrow Rain',
+        shortName: 'BARRAGE',
+        desc: 'Calls a 3-wave arrow storm across the target zone ahead.',
+        cooldown: 25.0,
+        keyLabel: 'F',
+      },
+    ],
   },
 ];
 

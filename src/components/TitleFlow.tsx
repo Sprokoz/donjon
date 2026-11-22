@@ -1090,18 +1090,18 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
               <div className="space-y-2.5 text-xs text-slate-300">
                 <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-white">Larger Arena &amp; 1.5x Horde Scaling</div>
+                  <div className="font-semibold text-white">5×5 Persistent Floor Grid &amp; Minimap</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    Start in a sprawling 1220×860 combat room with dynamic Boss-Style Camera. Each teammate adds +50% enemies (up to 3.0x at 5P).
+                    Explore connected rooms with a live Right-Side Minimap. Revisit cleared rooms, Shops, Vaults &amp; Bosses — your world state persists! Each teammate adds +50% enemies.
                   </div>
                 </div>
                 <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
                   <div className="font-semibold text-amber-200 flex items-center gap-1.5">
                     <PackageOpen className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Last-Mob Chests &amp; Exclusive Role Weapons</span>
+                    <span>Exclusive Weapons &amp; 4 Unlockable Skills</span>
                   </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    The final enemy drops a Chest containing shared <strong className="text-amber-300">Coins</strong> (split equally) OR a single-player <strong className="text-cyan-300">Weapon</strong>. Coordinate who takes Tank, Healer, Assassin, Warrior, or Ranger!
+                    Chests drop shared Coins or single-player Weapons (unlocking <strong className="text-cyan-300">[E] Skill 1</strong>). Loot <strong className="text-purple-300">Skill Scrolls</strong> in Vaults, Chests &amp; Shops to unlock <strong className="text-amber-300">[Q] · [R] · [F]</strong>!
                   </div>
                 </div>
                 <div className="grid grid-cols-5 gap-1.5 pt-0.5">
@@ -1115,15 +1115,15 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                         {w.shortTag}
                       </div>
                       <div className="text-[9px] text-slate-400 truncate mt-0.5">
-                        {w.skillName.split(' ')[0]}
+                        4 Skills
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-cyan-200">4 Directional Gates (Top · Bottom · Left · Right)</div>
+                  <div className="font-semibold text-cyan-200">Boss Portals &amp; Abyssal Loop Voting</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    After clearing a room, step together into one of 4 random Gates leading to Combat Rooms, Merchant Shops, Treasure Vaults, or Boss Sanctums!
+                    Slay each Floor Boss to open Next-Floor Portals. After Eclipse falls, vote to <strong className="text-amber-300">End &amp; Claim Victory</strong> or <strong className="text-rose-300">Descend Deeper (Loop +1)</strong>!
                   </div>
                 </div>
               </div>

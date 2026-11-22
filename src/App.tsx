@@ -5,6 +5,7 @@ import {
   CheatsModal,
   ControlsModal,
   EndScreenModal,
+  FinalBossVoteModal,
   OnlineDisconnectModal,
   PauseModal,
   StageTransitionModal,
@@ -15,6 +16,7 @@ import { TutorialModal } from './components/TutorialModal';
 import {
   advanceTutorialStep,
   applyBoon,
+  castFinalVote,
   cheatClearOrExpose,
   cheatHealParty,
   cheatWarpBoss,
@@ -100,11 +102,17 @@ function readLocalGuestInput(
   if (keys[p1.down] || keys[p2.down]) y += 1;
   const dash = Boolean(touch.dash || keys[p1.dash] || keys[p2.dash]);
   const ability = Boolean(touch.ability || keys[p1.ability] || keys[p2.ability]);
+  const skill2 = Boolean(touch.skill2 || keys['q'] || keys['2']);
+  const skill3 = Boolean(touch.skill3 || keys['r'] || keys['3']);
+  const skill4 = Boolean(touch.skill4 || keys['f'] || keys['4']);
   return {
     x: Math.max(-1, Math.min(1, x)),
     y: Math.max(-1, Math.min(1, y)),
     dash,
     ability,
+    skill2,
+    skill3,
+    skill4,
   };
 }
 
@@ -198,7 +206,15 @@ export default function App() {
   const pendingSfxRef = useRef<SfxSyncEvent[]>([]);
 
   const keysRef = useRef<Record<string, boolean>>({});
-  const touchInputRef = useRef<TouchInputState>({ x: 0, y: 0, dash: false, ability: false });
+  const touchInputRef = useRef<TouchInputState>({
+    x: 0,
+    y: 0,
+    dash: false,
+    ability: false,
+    skill2: false,
+    skill3: false,
+    skill4: false,
+  });
   const controlsRef = useRef<ControlsConfig>(controls);
   const screenRef = useRef<AppScreen>(screen);
   const coopModeRef = useRef<CoopMode>(coopMode);
@@ -531,7 +547,7 @@ export default function App() {
     latestGuestSnapRef.current = null;
     remoteInputsRef.current = {};
     keysRef.current = {};
-    touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
+    touchInputRef.current = { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false };
     setBoonDraftState(null);
     setTransitionTarget(null);
     setRunSummary(null);
@@ -685,6 +701,20 @@ export default function App() {
         broadcastHostLobbyState(nextGuests);
       } else if (msg.type === 'input') {
         remoteInputsRef.current[fromPlayerId] = msg.input;
+      } else if (msg.type === 'cast_vote') {
+        const rt = runtimeRef.current;
+        if (rt) {
+          castFinalVote(rt, fromPlayerId, msg.choice);
+          setHud(extractHudSnapshot(rt));
+          if (onlineSessionRef.current?.isConnected()) {
+            const sfx = pendingSfxRef.current.splice(0);
+            onlineSessionRef.current.send({
+              type: 'sync',
+              snap: serializeRuntimeForSync(rt),
+              sfx,
+            });
+          }
+        }
       } else if (msg.type === 'cmd') {
         if (msg.action === 'skip_intro') {
           const rt = runtimeRef.current;
@@ -1051,11 +1081,11 @@ export default function App() {
 
     const onBlur = () => {
       keysRef.current = {};
-      touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
+      touchInputRef.current = { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false };
       if (activeOnlineRoleRef.current === 'guest' && onlineSessionRef.current?.isConnected()) {
         onlineSessionRef.current.send({
           type: 'input',
-          input: { x: 0, y: 0, dash: false, ability: false },
+          input: { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false },
         });
       }
     };
@@ -1080,7 +1110,15 @@ export default function App() {
     let lastTs = performance.now();
     let hudSyncAccum = 0;
     let netSyncAccum = 0;
-    let lastSentGuestInput: TouchInputState = { x: 0, y: 0, dash: false, ability: false };
+    let lastSentGuestInput: TouchInputState = {
+      x: 0,
+      y: 0,
+      dash: false,
+      ability: false,
+      skill2: false,
+      skill3: false,
+      skill4: false,
+    };
     let guestInputHeartbeatAccum = 0;
 
     const loop = (now: number) => {
@@ -1091,14 +1129,17 @@ export default function App() {
       const role = activeOnlineRoleRef.current;
 
       if (role === 'guest') {
-        // Guest thin-client: stream Player 2 inputs & render 60fps interpolated Host snapshots
+        // Guest thin-client: stream inputs & render 60fps interpolated Host snapshots
         if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal) {
           const curInput = readLocalGuestInput(keysRef.current, controlsRef.current, touchInputRef.current);
           const changed =
             Math.abs(curInput.x - lastSentGuestInput.x) > 0.02 ||
             Math.abs(curInput.y - lastSentGuestInput.y) > 0.02 ||
             curInput.dash !== lastSentGuestInput.dash ||
-            curInput.ability !== lastSentGuestInput.ability;
+            curInput.ability !== lastSentGuestInput.ability ||
+            Boolean(curInput.skill2) !== Boolean(lastSentGuestInput.skill2) ||
+            Boolean(curInput.skill3) !== Boolean(lastSentGuestInput.skill3) ||
+            Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4);
           guestInputHeartbeatAccum += dt;
           if (changed || guestInputHeartbeatAccum >= 0.035) {
             guestInputHeartbeatAccum = 0;
@@ -1417,7 +1458,7 @@ export default function App() {
           onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
           onToggleMute={handleToggleMute}
           onPause={() => {
-            touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
+            touchInputRef.current = { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false };
             if (activeOnlineRole === 'guest') {
               onlineSessionRef.current?.send({
                 type: 'cmd',
@@ -1468,6 +1509,11 @@ export default function App() {
           }}
           onTouchAbility={(pressed) => {
             touchInputRef.current.ability = pressed;
+          }}
+          onTouchSkillSlot={(slot, pressed) => {
+            if (slot === 2) touchInputRef.current.skill2 = pressed;
+            else if (slot === 3) touchInputRef.current.skill3 = pressed;
+            else if (slot === 4) touchInputRef.current.skill4 = pressed;
           }}
         >
           <canvas
@@ -1573,6 +1619,33 @@ export default function App() {
           onlineRole={activeOnlineRole}
           onPlayAgain={beginRun}
           onMainMenu={handleReturnToMenu}
+        />
+      )}
+
+      {screen === 'PLAYING' && hud?.finalVote?.active && (
+        <FinalBossVoteModal
+          finalVote={hud.finalVote}
+          players={hud.players}
+          localPlayerId={localPlayerNum}
+          playerColors={hudColorMap}
+          onVote={(choice) => {
+            if (activeOnlineRole === 'guest') {
+              onlineSessionRef.current?.send({ type: 'cast_vote', choice });
+              return;
+            }
+            const rt = runtimeRef.current;
+            if (!rt) return;
+            castFinalVote(rt, 1, choice);
+            setHud(extractHudSnapshot(rt));
+            if (activeOnlineRole === 'host' && onlineSessionRef.current?.isConnected()) {
+              const sfx = pendingSfxRef.current.splice(0);
+              onlineSessionRef.current.send({
+                type: 'sync',
+                snap: serializeRuntimeForSync(rt),
+                sfx,
+              });
+            }
+          }}
         />
       )}
 

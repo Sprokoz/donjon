@@ -1,5 +1,5 @@
 import Peer, { DataConnection } from 'peerjs';
-import { TouchInputState, GameRuntime } from './engine';
+import { TouchInputState, GameRuntime, PersistedRoomState } from './engine';
 import { SfxSyncEvent } from './soundEngine';
 import {
   AmbientMote,
@@ -24,7 +24,9 @@ import {
   EclipsePylon,
   Enemy,
   EnergyWave,
+  FinalVoteState,
   FloatingText,
+  FloorMapHudSnapshot,
   GameMode,
   HeroClassId,
   Knife,
@@ -41,6 +43,8 @@ import {
   RoomKind,
   RunSummary,
   ShopItem,
+  SkillScrollDrop,
+  SkillZone,
   SlashArc,
   StageKey,
   TelegraphLine,
@@ -137,17 +141,26 @@ export interface SyncedPlayer {
   postDashInvulnerability: number;
   hp: number;
   maxHp: number;
+  bonusMaxHp: number;
   dash2Ready: boolean;
   dash2CooldownTimer: number;
   dash2Active: boolean;
   usingDash2: boolean;
   invulnFrames: number;
+  unlockedSkillTier: number;
+  skillCooldowns: [number, number, number, number];
+  skillMaxCooldowns: [number, number, number, number];
   abilityReady: boolean;
   abilityCooldown: number;
   abilityCooldownTimer: number;
   cloakTimer: number;
   empoweredStrike: boolean;
   shieldRegenTimer: number;
+  bladeHealCd: number;
+  whirlwindTimer: number;
+  fortifyTimer: number;
+  bloodlustTimer: number;
+  chargeTimer: number;
   sealed: boolean;
   sealTimer: number;
   hasShield: boolean;
@@ -165,11 +178,18 @@ export interface SyncedRuntimeSnapshot {
   isOnlineCampaign: boolean;
   roomKind: RoomKind;
   roomDepth: number;
+  floorNumber: number;
+  loopLevel: number;
+  currentRoomKey: string;
+  floorMap: FloorMapHudSnapshot | null;
   bossesDefeatedCount: number;
   chests: ChestDrop[];
   weaponDrops: WeaponDrop[];
+  scrollDrops: SkillScrollDrop[];
+  skillZones: SkillZone[];
   gates: DungeonGate[];
   shopItems: ShopItem[];
+  finalVote: FinalVoteState | null;
   pingByPlayer: Record<number, number | null>;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
@@ -266,7 +286,8 @@ export type OnlineMessage =
       summary?: RunSummary | null;
       pausedBy?: PlayerId;
     }
-  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' };
+  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' }
+  | { type: 'cast_vote'; choice: 'end' | 'deeper' };
 
 function r1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -290,15 +311,46 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     isOnlineCampaign: rt.isOnlineCampaign,
     roomKind: rt.roomKind,
     roomDepth: rt.roomDepth,
+    floorNumber: rt.floorNumber,
+    loopLevel: rt.loopLevel,
+    currentRoomKey: rt.currentRoomKey,
+    floorMap: rt.isOnlineCampaign
+      ? {
+          floorNumber: rt.floorNumber,
+          loopLevel: rt.loopLevel,
+          currentRoomKey: rt.currentRoomKey,
+          gridSize: 5,
+          nodes: Object.values(rt.floorGrid).map((r) => ({
+            key: r.key,
+            gx: r.gx,
+            gy: r.gy,
+            kind: r.kind,
+            visited: r.visited,
+            cleared: r.cleared,
+            revealed: r.revealed,
+            connections: { ...r.connections },
+          })),
+        }
+      : null,
     bossesDefeatedCount: rt.bossesDefeatedCount,
     chests: rt.chests.map((c) => ({ ...c })),
     weaponDrops: rt.weaponDrops.map((w) => ({ ...w, bob: r2(w.bob), swapLockTimer: r2(w.swapLockTimer) })),
+    scrollDrops: rt.scrollDrops.map((sd) => ({ ...sd, bob: r2(sd.bob), lockTimer: r2(sd.lockTimer) })),
+    skillZones: rt.skillZones.map((sz) => ({ ...sz, timer: r2(sz.timer), tickTimer: r2(sz.tickTimer) })),
     gates: rt.gates.map((g) => ({
       ...g,
       playersInside: [...g.playersInside],
       holdProgress: r2(g.holdProgress),
     })),
     shopItems: rt.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
+    finalVote: rt.finalVote
+      ? {
+          active: rt.finalVote.active,
+          timer: r1(rt.finalVote.timer),
+          votes: { ...rt.finalVote.votes },
+          loopLevel: rt.finalVote.loopLevel,
+        }
+      : null,
     pingByPlayer: { ...rt.pingByPlayer },
     playerColors: { ...rt.playerColors },
     playerClasses: { ...rt.playerClasses },
@@ -350,17 +402,36 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       postDashInvulnerability: r2(p.postDashInvulnerability),
       hp: Math.round(p.hp),
       maxHp: p.maxHp,
+      bonusMaxHp: p.bonusMaxHp,
       dash2Ready: p.dash2Ready,
       dash2CooldownTimer: r1(p.dash2CooldownTimer),
       dash2Active: p.dash2Active,
       usingDash2: p.usingDash2,
       invulnFrames: r2(p.invulnFrames),
+      unlockedSkillTier: p.unlockedSkillTier,
+      skillCooldowns: [
+        r1(p.skillCooldowns[0] || 0),
+        r1(p.skillCooldowns[1] || 0),
+        r1(p.skillCooldowns[2] || 0),
+        r1(p.skillCooldowns[3] || 0),
+      ],
+      skillMaxCooldowns: [
+        p.skillMaxCooldowns[0] || 12,
+        p.skillMaxCooldowns[1] || 15,
+        p.skillMaxCooldowns[2] || 18,
+        p.skillMaxCooldowns[3] || 22,
+      ],
       abilityReady: p.abilityReady,
       abilityCooldown: p.abilityCooldown,
       abilityCooldownTimer: r1(p.abilityCooldownTimer),
       cloakTimer: r2(p.cloakTimer),
       empoweredStrike: p.empoweredStrike,
       shieldRegenTimer: r1(p.shieldRegenTimer),
+      bladeHealCd: r1(p.bladeHealCd),
+      whirlwindTimer: r2(p.whirlwindTimer),
+      fortifyTimer: r2(p.fortifyTimer),
+      bloodlustTimer: r2(p.bloodlustTimer),
+      chargeTimer: r2(p.chargeTimer),
       sealed: p.sealed,
       sealTimer: r1(p.sealTimer),
       hasShield: p.hasShield,
@@ -553,9 +624,46 @@ function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
     grazedIds: prev ? prev.grazedIds : new Set<number>(),
     _lastDashPressed: false,
     _lastAbilityPressed: false,
+    _lastSkill2Pressed: false,
+    _lastSkill3Pressed: false,
+    _lastSkill4Pressed: false,
     cleanDodgeFailed: false,
   };
   return base;
+}
+
+function hydrateFloorGrid(floorMap: FloorMapHudSnapshot | null | undefined, stage: StageKey): Record<string, PersistedRoomState> {
+  const grid: Record<string, PersistedRoomState> = {};
+  if (!floorMap) return grid;
+  for (const n of floorMap.nodes) {
+    const labelMap: Record<RoomKind, string> = {
+      start: 'ENTRY HALL',
+      combat: 'COMBAT CHAMBER',
+      shop: 'MERCHANT SHOP',
+      treasure: 'TREASURE VAULT',
+      boss: 'BOSS SANCTUM',
+    };
+    grid[n.key] = {
+      key: n.key,
+      gx: n.gx,
+      gy: n.gy,
+      kind: n.kind,
+      stage,
+      label: labelMap[n.kind] || 'CHAMBER',
+      connections: { ...n.connections },
+      visited: n.visited,
+      cleared: n.cleared,
+      revealed: n.revealed,
+      enemies: [],
+      chests: [],
+      weaponDrops: [],
+      scrollDrops: [],
+      shopItems: [],
+      medkits: [],
+      relics: [],
+    };
+  }
+  return grid;
 }
 
 function cloneCombos(src: Record<number, { count: number; timer: number }>): Record<number, { count: number; timer: number }> {
@@ -580,7 +688,13 @@ export function applySyncedSnapshotToGuest(
 ): GameRuntime {
   const lerpAlpha = 1 - Math.exp(-28 * Math.max(0.004, Math.min(dt, 0.05)));
 
-  if (!displayRt || displayRt.stage !== snap.stage || displayRt.roomDepth !== snap.roomDepth) {
+  if (
+    !displayRt ||
+    displayRt.stage !== snap.stage ||
+    displayRt.roomDepth !== snap.roomDepth ||
+    displayRt.currentRoomKey !== snap.currentRoomKey ||
+    displayRt.loopLevel !== snap.loopLevel
+  ) {
     const players: Player[] = snap.players.map((sp) => hydratePlayer(sp));
     return {
       difficulty: snap.difficulty,
@@ -590,13 +704,21 @@ export function applySyncedSnapshotToGuest(
       isOnlineCampaign: snap.isOnlineCampaign,
       roomKind: snap.roomKind,
       roomDepth: snap.roomDepth,
+      floorNumber: snap.floorNumber,
+      loopLevel: snap.loopLevel,
+      currentRoomKey: snap.currentRoomKey,
+      floorGrid: hydrateFloorGrid(snap.floorMap, snap.stage),
       bossesDefeatedCount: snap.bossesDefeatedCount,
       chests: snap.chests.map((c) => ({ ...c })),
       weaponDrops: snap.weaponDrops.map((w) => ({ ...w })),
+      scrollDrops: snap.scrollDrops.map((sd) => ({ ...sd })),
+      skillZones: snap.skillZones.map((sz) => ({ ...sz })),
       gates: snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] })),
       shopItems: snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
       lastKilledPos: null,
       shopBuyTimers: {},
+      finalVote: snap.finalVote ? { ...snap.finalVote, votes: { ...snap.finalVote.votes } } : null,
+      finalVoteResolveDelay: 0,
       pingByPlayer: { ...snap.pingByPlayer },
       playerColors: { ...snap.playerColors },
       playerClasses: { ...snap.playerClasses },
@@ -705,11 +827,18 @@ export function applySyncedSnapshotToGuest(
   displayRt.isOnlineCampaign = snap.isOnlineCampaign;
   displayRt.roomKind = snap.roomKind;
   displayRt.roomDepth = snap.roomDepth;
+  displayRt.floorNumber = snap.floorNumber;
+  displayRt.loopLevel = snap.loopLevel;
+  displayRt.currentRoomKey = snap.currentRoomKey;
+  displayRt.floorGrid = hydrateFloorGrid(snap.floorMap, snap.stage);
   displayRt.bossesDefeatedCount = snap.bossesDefeatedCount;
   displayRt.chests = snap.chests.map((c) => ({ ...c }));
   displayRt.weaponDrops = snap.weaponDrops.map((w) => ({ ...w }));
+  displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd }));
+  displayRt.skillZones = snap.skillZones.map((sz) => ({ ...sz }));
   displayRt.gates = snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] }));
   displayRt.shopItems = snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] }));
+  displayRt.finalVote = snap.finalVote ? { ...snap.finalVote, votes: { ...snap.finalVote.votes } } : null;
   displayRt.pingByPlayer = { ...snap.pingByPlayer };
   displayRt.playerColors = { ...snap.playerColors };
   displayRt.playerClasses = { ...snap.playerClasses };

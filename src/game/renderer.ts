@@ -295,6 +295,56 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
     ctx.stroke();
   }
 
+  // Active Skill Buff Auras (Whirlwind, Fortify, Bloodlust, Shield Charge)
+  if (p.state === 'alive') {
+    if (p.whirlwindTimer > 0) {
+      const spin = now / 65;
+      ctx.strokeStyle = 'rgba(248, 113, 113, 0.85)';
+      ctx.lineWidth = 4;
+      for (let b = 0; b < 3; b++) {
+        const a0 = spin + (b * Math.PI * 2) / 3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + 38, a0, a0 + 0.95);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(253, 224, 71, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 28, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (p.fortifyTimer > 0) {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 13 + Math.sin(now / 120) * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (p.bloodlustTimer > 0) {
+      ctx.strokeStyle = 'rgba(244, 63, 94, 0.85)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (let s = 0; s < 8; s++) {
+        const a = (s / 8) * Math.PI * 2 + now / 220;
+        const innerR = r + 7;
+        const outerR = r + 15 + Math.sin(now / 80 + s) * 2;
+        ctx.moveTo(cx + Math.cos(a) * innerR, cy + Math.sin(a) * innerR);
+        ctx.lineTo(cx + Math.cos(a) * outerR, cy + Math.sin(a) * outerR);
+      }
+      ctx.stroke();
+    }
+    if (p.chargeTimer > 0) {
+      const fa = p.facingAngle;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 18, fa - 0.85, fa + 0.85);
+      ctx.stroke();
+      ctx.fill();
+    }
+  }
+
   ctx.translate(cx, cy);
   const bob = p.state === 'alive' ? Math.sin(p.animTime * 9) * 1.4 : 0;
   ctx.translate(0, bob);
@@ -2308,6 +2358,10 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
       const wDef = WEAPONS_CATALOG.find((w) => w.id === wd.weaponId);
       drawEdgeIndicator(ctx, wd.x, wd.y, refX, refY, wDef?.accent || '#38bdf8', '⚔', wDef?.shortTag || 'WPN', rt, now);
     }
+    for (let i = 0; i < rt.scrollDrops.length; i++) {
+      const sd = rt.scrollDrops[i];
+      drawEdgeIndicator(ctx, sd.x, sd.y, refX, refY, '#c084fc', '✦', 'SCROLL', rt, now);
+    }
     for (let i = 0; i < rt.gates.length; i++) {
       const g = rt.gates[i];
       drawEdgeIndicator(
@@ -2317,8 +2371,8 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
         refX,
         refY,
         g.accent,
-        g.roomType === 'boss' ? '☠' : g.roomType === 'shop' ? '$' : '⛩',
-        g.dir.toUpperCase(),
+        g.isNextFloorPortal ? '⬇' : g.roomType === 'boss' ? '☠' : g.roomType === 'shop' ? '$' : g.roomType === 'treasure' ? '◈' : '⛩',
+        g.isNextFloorPortal ? 'FLOOR+' : g.dir.toUpperCase(),
         rt,
         now
       );
@@ -2487,20 +2541,23 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
   }
   ctx.stroke();
 
-  // Arena outer wall boundary (atmospheric molten gold / amethyst / ember in Phase 2 — never harsh red)
+  // Arena outer wall boundary (Abyssal Loop rim tint & Phase 2 molten edge)
   const isBossRage = rt.isBossLevel && rt.boss.phase === 2;
-  ctx.strokeStyle = isBossRage
-    ? realm === 'void'
-      ? 'rgba(192, 132, 252, 0.58)'
-      : 'rgba(245, 158, 11, 0.58)'
-    : realm === 'eclipse'
-    ? 'rgba(251, 191, 36, 0.45)'
-    : realm === 'oni'
-    ? 'rgba(239, 68, 68, 0.5)'
-    : realm === 'void'
-    ? 'rgba(168, 85, 247, 0.5)'
-    : 'rgba(56, 189, 248, 0.45)';
-  ctx.lineWidth = isBossRage ? 3.5 : 3;
+  ctx.strokeStyle =
+    rt.loopLevel > 1 && !isBossRage
+      ? 'rgba(244, 63, 94, 0.58)'
+      : isBossRage
+      ? realm === 'void'
+        ? 'rgba(192, 132, 252, 0.58)'
+        : 'rgba(245, 158, 11, 0.58)'
+      : realm === 'eclipse'
+      ? 'rgba(251, 191, 36, 0.45)'
+      : realm === 'oni'
+      ? 'rgba(239, 68, 68, 0.5)'
+      : realm === 'void'
+      ? 'rgba(168, 85, 247, 0.5)'
+      : 'rgba(56, 189, 248, 0.45)';
+  ctx.lineWidth = isBossRage || rt.loopLevel > 1 ? 3.5 : 3;
   ctx.strokeRect(1.5, 1.5, rt.arenaWidth - 3, rt.arenaHeight - 3);
 
   // 3. Ambient floating motes (batched, no shadows)
@@ -2554,23 +2611,92 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     }
   }
 
-  // Online Campaign: Soul Knight Gates, Shop Pedestals, Chests & Ground Weapon Drops
+  // Persistent Skill Zones (Holy Ground, Frost Trap, Arrow Rain)
+  for (let i = 0; i < rt.skillZones.length; i++) {
+    const sz = rt.skillZones[i];
+    const lifeFrac = Math.max(0, Math.min(1, sz.timer / sz.maxTimer));
+    ctx.save();
+    if (sz.kind === 'holy_ground') {
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.14 * lifeFrac})`;
+      ctx.beginPath();
+      ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(253, 224, 71, ${0.85 * lifeFrac})`;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([12, 8]);
+      ctx.lineDashOffset = -(now / 30);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Inner sanctuary cross rune
+      ctx.strokeStyle = `rgba(254, 240, 138, ${0.55 * lifeFrac})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sz.x - 18, sz.y);
+      ctx.lineTo(sz.x + 18, sz.y);
+      ctx.moveTo(sz.x, sz.y - 18);
+      ctx.lineTo(sz.x, sz.y + 18);
+      ctx.stroke();
+    } else if (sz.kind === 'frost_trap') {
+      ctx.fillStyle = `rgba(56, 189, 248, ${0.16 * lifeFrac})`;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + now / 1100;
+        const px = sz.x + Math.cos(a) * sz.radius;
+        const py = sz.y + Math.sin(a) * sz.radius;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(125, 211, 252, ${0.85 * lifeFrac})`;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    } else {
+      // arrow_rain emerald barrage circle
+      ctx.fillStyle = `rgba(52, 211, 153, ${0.14 * lifeFrac})`;
+      ctx.beginPath();
+      ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(52, 211, 153, ${0.82 * lifeFrac})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 6]);
+      ctx.lineDashOffset = now / 25;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Animated falling emerald rain streaks
+      ctx.strokeStyle = `rgba(167, 243, 208, ${0.75 * lifeFrac})`;
+      ctx.lineWidth = 2;
+      for (let rIdx = 0; rIdx < 7; rIdx++) {
+        const ang = (rIdx / 7) * Math.PI * 2 + Math.floor(now / 120);
+        const rad = ((rIdx * 37) % 75) * (sz.radius / 100);
+        const ax = sz.x + Math.cos(ang) * rad;
+        const ay = sz.y + Math.sin(ang) * rad - ((now / 3 + rIdx * 23) % 36);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - 3, ay + 16);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Online Campaign: Soul Knight Gates, Shop Pedestals, Chests & Ground Weapon/Scroll Drops
   if (rt.isOnlineCampaign) {
-    // 1. Directional Gates (Top, Bottom, Left, Right)
+    // 1. Directional Gates (Top, Bottom, Left, Right) + Next Floor Portal
     if (rt.gates.length > 0) {
       const aliveTotal = Math.max(1, rt.players.filter((pl) => pl.state === 'alive').length);
       rt.gates.forEach((g) => {
         const gcx = g.x + g.width / 2;
         const gcy = g.y + g.height / 2;
-        const pulse = 0.7 + Math.sin(now / 180) * 0.25;
+        const pulse = 0.72 + Math.sin(now / 180) * 0.25;
 
         ctx.save();
-        ctx.fillStyle = `${g.accent}24`;
+        ctx.fillStyle = `${g.accent}28`;
         ctx.strokeStyle = g.accent;
-        ctx.lineWidth = g.playersInside.length > 0 ? 3.5 : 2.2;
+        ctx.lineWidth = g.playersInside.length > 0 ? 3.8 : g.isNextFloorPortal ? 3.2 : 2.2;
         ctx.globalAlpha = pulse;
         ctx.beginPath();
-        ctx.roundRect(g.x, g.y, g.width, g.height, 8);
+        ctx.roundRect(g.x, g.y, g.width, g.height, g.isNextFloorPortal ? 999 : 8);
         ctx.fill();
         ctx.stroke();
 
@@ -2580,7 +2706,13 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         ctx.lineWidth = 1.5;
         ctx.setLineDash([6, 6]);
         ctx.lineDashOffset = -(now / 35);
-        ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
+        if (g.isNextFloorPortal) {
+          ctx.beginPath();
+          ctx.roundRect(g.x + 8, g.y + 8, g.width - 16, g.height - 16, 999);
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
+        }
         ctx.setLineDash([]);
 
         // Hold lock-in progress bar
@@ -2591,17 +2723,31 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
 
         // Destination Label & Party Readiness Count
         const isVert = g.dir === 'left' || g.dir === 'right';
-        const tx = g.dir === 'left' ? g.x + g.width + 64 : g.dir === 'right' ? g.x - 64 : gcx;
-        const ty = g.dir === 'top' ? g.y + g.height + 16 : g.dir === 'bottom' ? g.y - 22 : gcy - 4;
+        const tx = g.isNextFloorPortal
+          ? gcx
+          : g.dir === 'left'
+          ? g.x + g.width + 64
+          : g.dir === 'right'
+          ? g.x - 64
+          : gcx;
+        const ty = g.isNextFloorPortal
+          ? g.y - 14
+          : g.dir === 'top'
+          ? g.y + g.height + 16
+          : g.dir === 'bottom'
+          ? g.y - 22
+          : gcy - 4;
 
         ctx.textAlign = 'center';
         ctx.globalAlpha = 1;
         ctx.font = 'bold 9px "Press Start 2P", monospace';
         ctx.strokeStyle = '#020617';
         ctx.lineWidth = 4;
-        ctx.strokeText(g.label, tx, ty);
+        const tagSuffix = g.clearedTarget ? ' [✓]' : g.visitedTarget ? ' [•]' : '';
+        const titleTxt = `${g.label}${tagSuffix}`;
+        ctx.strokeText(titleTxt, tx, ty);
         ctx.fillStyle = g.accent;
-        ctx.fillText(g.label, tx, ty);
+        ctx.fillText(titleTxt, tx, ty);
 
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
         const subLine = `${g.subLabel} (${g.playersInside.length}/${aliveTotal})`;
@@ -2662,7 +2808,15 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         }
 
         const icon =
-          item.kind === 'potion' ? '♥' : item.kind === 'max_hp' ? '✚' : item.kind === 'shield' ? '⛨' : '⚔';
+          item.kind === 'potion'
+            ? '♥'
+            : item.kind === 'max_hp'
+            ? '✚'
+            : item.kind === 'shield'
+            ? '⛨'
+            : item.kind === 'skill_scroll'
+            ? '✦'
+            : '⚔';
         ctx.fillStyle = item.accent;
         ctx.font = 'bold 18px sans-serif';
         ctx.textAlign = 'center';
@@ -2767,6 +2921,45 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.strokeText(hint, wd.x, wy + 26);
       ctx.fillStyle = '#e2e8f0';
       ctx.fillText(hint, wd.x, wy + 26);
+      ctx.restore();
+    });
+
+    // 5. Skill Scroll / Relic Drops (Unlock Skills [Q], [R], [F])
+    rt.scrollDrops.forEach((sd) => {
+      const bobY = Math.sin(sd.bob) * 4.5;
+      const sy = sd.y + bobY;
+      ctx.save();
+      ctx.fillStyle = 'rgba(192, 132, 252, 0.24)';
+      ctx.beginPath();
+      ctx.arc(sd.x, sy, 22 + Math.sin(now / 140) * 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glowing ancient scroll silhouette
+      ctx.fillStyle = '#fef3c7';
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(sd.x - 10, sy - 12, 20, 24, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#a855f7';
+      ctx.fillRect(sd.x - 6, sy - 5, 12, 2.5);
+      ctx.fillRect(sd.x - 6, sy, 12, 2.5);
+      ctx.fillRect(sd.x - 6, sy + 5, 8, 2.5);
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      ctx.strokeText('SKILL SCROLL', sd.x, sy - 21);
+      ctx.fillStyle = '#e879f9';
+      ctx.fillText('SKILL SCROLL', sd.x, sy - 21);
+
+      ctx.font = 'bold 8px "JetBrains Mono", monospace';
+      ctx.strokeText('WALK TO UNLOCK SKILL', sd.x, sy + 27);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText('WALK TO UNLOCK SKILL', sd.x, sy + 27);
       ctx.restore();
     });
   }
@@ -3037,38 +3230,64 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     else drawOniBoss(ctx, rt, now);
   }
 
-  // Player Projectiles (Crescent Wave, Arc Bolt & Ranger Arrow)
+  // Player Projectiles (Crescent, Cataclysm Wave, Arc Bolt, Ranger/Sniper Arrow, Shadow Kunai, Frost Shard)
   for (let i = 0; i < rt.playerProjectiles.length; i++) {
     const pp = rt.playerProjectiles[i];
     ctx.save();
     ctx.translate(pp.x, pp.y);
     ctx.rotate(pp.angle);
-    if (pp.kind === 'crescent') {
+    if (pp.kind === 'crescent' || pp.kind === 'cataclysm') {
       ctx.strokeStyle = pp.color;
-      ctx.lineWidth = 7;
+      ctx.lineWidth = pp.kind === 'cataclysm' ? 11 : 7;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(-8, 0, pp.radius, -0.95, 0.95);
+      ctx.arc(-8, 0, pp.radius, -1.05, 1.05);
       ctx.stroke();
 
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = pp.kind === 'cataclysm' ? '#fef08a' : '#ffffff';
+      ctx.lineWidth = pp.kind === 'cataclysm' ? 4.5 : 3;
       ctx.stroke();
-    } else if (pp.kind === 'ranger_arrow') {
-      ctx.fillStyle = '#34d399';
+    } else if (pp.kind === 'ranger_arrow' || pp.kind === 'sniper_arrow') {
+      const isSniper = pp.kind === 'sniper_arrow';
+      ctx.fillStyle = isSniper ? '#fef08a' : '#34d399';
       ctx.strokeStyle = '#ecfdf5';
+      ctx.lineWidth = isSniper ? 2.4 : 1.6;
+      const sx = isSniper ? 1.45 : 1;
+      ctx.beginPath();
+      ctx.moveTo(18 * sx, 0);
+      ctx.lineTo(4 * sx, -5);
+      ctx.lineTo(7 * sx, -1.5);
+      ctx.lineTo(-14 * sx, -1.5);
+      ctx.lineTo(-18 * sx, -5);
+      ctx.lineTo(-14 * sx, 0);
+      ctx.lineTo(-18 * sx, 5);
+      ctx.lineTo(-14 * sx, 1.5);
+      ctx.lineTo(7 * sx, 1.5);
+      ctx.lineTo(4 * sx, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (pp.kind === 'shadow_kunai') {
+      ctx.fillStyle = pp.color || '#c084fc';
+      ctx.strokeStyle = '#faf5ff';
       ctx.lineWidth = 1.6;
       ctx.beginPath();
-      ctx.moveTo(18, 0);
-      ctx.lineTo(4, -5);
-      ctx.lineTo(7, -1.5);
-      ctx.lineTo(-14, -1.5);
-      ctx.lineTo(-18, -5);
-      ctx.lineTo(-14, 0);
-      ctx.lineTo(-18, 5);
-      ctx.lineTo(-14, 1.5);
-      ctx.lineTo(7, 1.5);
-      ctx.lineTo(4, 5);
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-4, -5);
+      ctx.lineTo(-12, 0);
+      ctx.lineTo(-4, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (pp.kind === 'frost_shard') {
+      ctx.fillStyle = pp.color || '#38bdf8';
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(17, 0);
+      ctx.lineTo(0, -6);
+      ctx.lineTo(-15, 0);
+      ctx.lineTo(0, 6);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();

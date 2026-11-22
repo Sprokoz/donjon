@@ -27,6 +27,7 @@ interface TitleMenuProps {
   onContinue: () => void;
   onOpenTutorial: () => void;
   onOpenCheats: () => void;
+  onBackToSplash?: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
   menuAudioBlocked: boolean;
@@ -44,6 +45,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onContinue,
   onOpenTutorial,
   onOpenCheats,
+  onBackToSplash,
   anyCheatActive,
   isMuted,
   menuAudioBlocked,
@@ -88,10 +90,36 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         <div className="arcade-scanlines absolute inset-0" />
       </div>
 
-      <div className="relative z-10 w-full max-w-4xl my-auto flex flex-col gap-5 sm:gap-6">
-        {/* Title Header */}
-        <header className="relative text-center space-y-2">
-          <div className="flex items-center justify-end gap-2 sm:absolute sm:right-0 sm:top-0 mb-1 sm:mb-0">
+      <div className="relative z-10 w-full max-w-5xl my-auto flex flex-col gap-5 sm:gap-6">
+        {/* Arranged 3-Zone Top Bar */}
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            {onBackToSplash && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onBackToSplash();
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-md bg-[#09090e]/90 border border-slate-800 hover:border-slate-600 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                title="Return to Title Screen"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Title</span>
+              </button>
+            )}
+            <div className="min-w-0">
+              <h1 className="font-souls text-xl sm:text-3xl font-extrabold text-stone-100 tracking-widest truncate">
+                DUNGEON BOUNCER
+              </h1>
+              <p className="font-mono-num text-[11px] text-amber-400/85 truncate">
+                Preparation Sanctum · Choose Mode &amp; Threat Level
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -137,15 +165,6 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
             </button>
           </div>
-          <p className="font-mono-num text-xs tracking-[0.26em] text-amber-400/85 uppercase">
-            Iron Depths · The Abyss · Oni Sanctum · Eclipse Zenith
-          </p>
-          <h1 className="font-souls text-3xl sm:text-5xl font-extrabold text-stone-100 tracking-widest drop-shadow-[0_0_24px_rgba(217,119,6,0.35)]">
-            DUNGEON BOUNCER
-          </h1>
-          <p className="text-sm text-stone-400 max-w-xl mx-auto">
-            Select your combat frame, dash through bullet hell to trigger Graze, and fell the four Lords of Ash.
-          </p>
         </header>
 
         {/* Main 2-Column Setup Grid */}

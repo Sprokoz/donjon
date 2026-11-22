@@ -3,6 +3,8 @@ export type GameMode = 'campaign' | 'boss_rush' | 'tutorial';
 export type HeroClassId = 'ronin' | 'phantom' | 'vanguard' | 'volt';
 
 export type AppScreen =
+  | 'INTRO'
+  | 'LANDING'
   | 'TITLE_MENU'
   | 'HERO_SETUP'
   | 'PLAYING'

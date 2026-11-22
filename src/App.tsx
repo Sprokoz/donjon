@@ -10,6 +10,7 @@ import {
   StageTransitionModal,
 } from './components/Modals';
 import { HeroSetup, TitleMenu } from './components/TitleFlow';
+import { LandingSplash, SprokozIntro } from './components/IntroSequence';
 import { TutorialModal } from './components/TutorialModal';
 import {
   advanceTutorialStep,
@@ -109,7 +110,7 @@ export default function App() {
   const initialRoomFromUrl = useRef<string | null>(getInitialRoomCodeFromUrl());
 
   const [screen, setScreen] = useState<AppScreen>(() =>
-    initialRoomFromUrl.current ? 'HERO_SETUP' : 'TITLE_MENU'
+    initialRoomFromUrl.current ? 'HERO_SETUP' : 'INTRO'
   );
   const [difficulty, setDifficulty] = useState<DifficultyKey>('medium');
   const [mode, setMode] = useState<GameMode>('campaign');
@@ -269,7 +270,12 @@ export default function App() {
 
   useEffect(() => {
     screenRef.current = screen;
-    if (screen === 'TITLE_MENU' || screen === 'HERO_SETUP') {
+    if (
+      screen === 'INTRO' ||
+      screen === 'LANDING' ||
+      screen === 'TITLE_MENU' ||
+      screen === 'HERO_SETUP'
+    ) {
       soundEngine.playMenuMusic();
     } else {
       soundEngine.stopMenuMusic(true);
@@ -277,7 +283,14 @@ export default function App() {
   }, [screen]);
 
   useEffect(() => {
-    if (screen !== 'TITLE_MENU' && screen !== 'HERO_SETUP') return;
+    if (
+      screen !== 'INTRO' &&
+      screen !== 'LANDING' &&
+      screen !== 'TITLE_MENU' &&
+      screen !== 'HERO_SETUP'
+    ) {
+      return;
+    }
     const handleFirstInteraction = () => {
       soundEngine.unlock();
     };
@@ -989,6 +1002,39 @@ export default function App() {
     </div>
   ) : null;
 
+  if (screen === 'INTRO') {
+    return (
+      <>
+        <SprokozIntro
+          isMuted={isMuted}
+          menuAudioBlocked={menuAudioBlocked}
+          onToggleMute={handleToggleMute}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
+          onComplete={() => setScreen('LANDING')}
+        />
+        {fullscreenToast}
+      </>
+    );
+  }
+
+  if (screen === 'LANDING') {
+    return (
+      <>
+        <LandingSplash
+          isMuted={isMuted}
+          menuAudioBlocked={menuAudioBlocked}
+          onToggleMute={handleToggleMute}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
+          onStart={() => setScreen('TITLE_MENU')}
+          onReplayIntro={() => setScreen('INTRO')}
+        />
+        {fullscreenToast}
+      </>
+    );
+  }
+
   if (screen === 'TITLE_MENU') {
     return (
       <>
@@ -1000,6 +1046,7 @@ export default function App() {
           onContinue={() => setScreen('HERO_SETUP')}
           onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenCheats={() => setShowCheatsModal(true)}
+          onBackToSplash={() => setScreen('LANDING')}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
           menuAudioBlocked={menuAudioBlocked}

@@ -14,18 +14,30 @@ import {
   Gamepad2,
   Maximize2,
   Minimize2,
+  Wifi,
+  Coins,
 } from 'lucide-react';
-import { BOONS_CATALOG, DifficultyKey, HERO_CLASSES, HeroClassId, HudSnapshot, PlayerHudState } from '../game/types';
+import {
+  BOONS_CATALOG,
+  DifficultyKey,
+  HERO_CLASSES,
+  HeroClassId,
+  HudSnapshot,
+  PlayerHudState,
+  PlayerId,
+  WEAPONS_CATALOG,
+} from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { MobileControls } from './MobileControls';
 
 interface GameHudProps {
   hud: HudSnapshot;
   difficulty: DifficultyKey;
-  numPlayers: 1 | 2;
-  localPlayerNum?: 1 | 2;
+  numPlayers: number;
+  localPlayerNum?: PlayerId;
   isOnline?: boolean;
-  playerColors: { 1: string; 2: string };
+  playerColors: Record<number, string>;
+  pingByPlayer?: Record<number, number | null>;
   isMuted: boolean;
   isFullscreen: boolean;
   showTouchControls: boolean;
@@ -54,46 +66,98 @@ const STYLE_COLORS: Record<HudSnapshot['styleRank'], string> = {
   SSS: '#e879f9',
 };
 
+function pingTextColor(ms: number | null): string {
+  if (ms === null) return 'text-stone-400';
+  if (ms <= 70) return 'text-emerald-300';
+  if (ms <= 140) return 'text-amber-300';
+  return 'text-rose-300';
+}
+
 interface PlayerCardProps {
   label: string;
   p: PlayerHudState;
   color: string;
   combo: number;
   skillKeyLabel: string;
+  isOnlineCampaign?: boolean;
+  isOnline?: boolean;
+  pingMs?: number | null;
+  compact?: boolean;
 }
 
-const PlayerSideCard: React.FC<PlayerCardProps> = ({ label, p, color, combo, skillKeyLabel }) => {
+const PlayerSideCard: React.FC<PlayerCardProps> = ({
+  label,
+  p,
+  color,
+  combo,
+  skillKeyLabel,
+  isOnlineCampaign = false,
+  isOnline = false,
+  pingMs = null,
+  compact = false,
+}) => {
   const clsDef = HERO_CLASSES.find((c) => c.id === p.heroClass);
+  const weaponDef =
+    isOnlineCampaign && p.weapon !== 'none'
+      ? WEAPONS_CATALOG.find((w) => w.id === p.weapon)
+      : undefined;
   const hpPct = p.maxHp > 0 ? Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100)) : 0;
+
+  const titleRole = isOnlineCampaign
+    ? weaponDef
+      ? weaponDef.shortTag
+      : 'ADVENTURER'
+    : clsDef?.name || 'HERO';
+
+  const subtitleText = isOnlineCampaign
+    ? weaponDef
+      ? `${weaponDef.roleLabel} · ${weaponDef.skillName}`
+      : 'Unarmed · Loot Weapon Drop'
+    : clsDef?.passiveName || '';
 
   return (
     <div
-      className="bg-[#0b0a0e] border rounded-md p-3 space-y-2.5"
+      className={`bg-[#0b0a0e] border rounded-md ${compact ? 'p-2.5 space-y-1.5' : 'p-3 space-y-2.5'}`}
       style={{ borderColor: `${color}88` }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="font-souls text-xs font-bold truncate" style={{ color }}>
-            {label} · {clsDef?.name || 'HERO'}
+            {label} · <span style={{ color: weaponDef ? weaponDef.accent : undefined }}>{titleRole}</span>
           </div>
-          <div className="font-mono-num text-[10px] text-stone-400 truncate">
-            {clsDef?.passiveName || ''}
-          </div>
+          {!compact && (
+            <div className="font-mono-num text-[10px] text-stone-400 truncate">
+              {subtitleText}
+            </div>
+          )}
         </div>
-        {combo > 1 && (
-          <span className="font-arcade text-[10px] text-amber-300 shrink-0">{combo}x</span>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isOnlineCampaign && (
+            <span className="inline-flex items-center gap-0.5 font-mono-num text-[10px] font-bold text-amber-300">
+              <Coins className="w-3 h-3" />
+              {p.coins}g
+            </span>
+          )}
+          {isOnline && (
+            <span className={`font-mono-num text-[10px] font-bold ${pingTextColor(pingMs)}`}>
+              {pingMs === null ? '--ms' : `${pingMs}ms`}
+            </span>
+          )}
+          {combo > 1 && (
+            <span className="font-arcade text-[10px] text-amber-300 shrink-0">{combo}x</span>
+          )}
+        </div>
       </div>
 
       {/* 100-HP Crimson Bar */}
       <div className="space-y-1">
         <div className="flex items-center justify-between font-mono-num text-[11px]">
-          <span className="text-stone-400">VITALITY</span>
+          <span className="text-stone-400">{compact ? 'HP' : 'VITALITY'}</span>
           <span className="font-bold text-stone-100">
             {p.hp} / {p.maxHp}
           </span>
         </div>
-        <div className="relative w-full h-2.5 bg-stone-950 border border-stone-700/90 overflow-hidden">
+        <div className={`relative w-full ${compact ? 'h-2' : 'h-2.5'} bg-stone-950 border border-stone-700/90 overflow-hidden`}>
           <div
             className="absolute inset-y-0 left-0 bg-amber-400/80 transition-all duration-500 ease-out"
             style={{ width: `${hpPct}%` }}
@@ -109,13 +173,13 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({ label, p, color, combo, ski
       </div>
 
       {p.state === 'down' ? (
-        <div className="font-mono-num text-[11px] text-rose-400 font-semibold py-1">
+        <div className="font-mono-num text-[11px] text-rose-400 font-semibold py-0.5">
           DOWNED · Stand nearby to revive
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-1.5 font-mono-num text-[11px]">
+        <div className="grid grid-cols-2 gap-1.5 font-mono-num text-[10px]">
           <div
-            className={`px-2 py-1 rounded border ${
+            className={`px-2 py-1 rounded border truncate ${
               p.dashReady
                 ? 'bg-emerald-950/35 border-emerald-700/60 text-emerald-300'
                 : 'bg-black/60 border-stone-800 text-stone-400'
@@ -128,13 +192,19 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({ label, p, color, combo, ski
               : `DASH ${p.dashCooldown}s`}
           </div>
           <div
-            className={`px-2 py-1 rounded border ${
-              p.abilityReady
+            className={`px-2 py-1 rounded border truncate ${
+              isOnlineCampaign && p.weapon === 'none'
+                ? 'bg-black/60 border-stone-800 text-stone-400'
+                : p.abilityReady
                 ? 'bg-amber-950/35 border-amber-700/60 text-amber-300 font-semibold'
                 : 'bg-black/60 border-stone-800 text-stone-400'
             }`}
           >
-            {p.abilityReady ? `SKILL [${skillKeyLabel}]` : `CD ${p.abilityCooldown}s`}
+            {isOnlineCampaign && p.weapon === 'none'
+              ? `NO WPN [${skillKeyLabel}]`
+              : p.abilityReady
+              ? `${weaponDef ? weaponDef.shortTag : 'SKILL'} [${skillKeyLabel}]`
+              : `CD ${p.abilityCooldown}s`}
           </div>
         </div>
       )}
@@ -185,6 +255,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   localPlayerNum = 1,
   isOnline = false,
   playerColors,
+  pingByPlayer,
   isMuted,
   isFullscreen,
   showTouchControls,
@@ -213,6 +284,17 @@ export const GameHud: React.FC<GameHudProps> = ({
     return () => window.removeEventListener('resize', updateOrientation);
   }, []);
 
+  const activePlayers = hud.players && hud.players.length > 0 ? hud.players : [hud.p1];
+  const localPlayer = activePlayers.find((pl) => pl.id === localPlayerNum) || activePlayers[0] || hud.p1;
+  const teammates = activePlayers.filter((pl) => pl.id !== localPlayer.id);
+
+  const resolvePing = (pid: PlayerId): number | null => {
+    if (pid === 1) return isOnline ? 0 : null;
+    if (pingByPlayer && pingByPlayer[pid] !== undefined) return pingByPlayer[pid];
+    return null;
+  };
+  const myPingMs = resolvePing(localPlayer.id);
+
   const bossPct = hud.bossMaxHealth > 0 ? Math.max(0, (hud.bossHealth / hud.bossMaxHealth) * 100) : 0;
   const showBossBar = hud.isBossLevel && hud.bossHealth > 0 && hud.bossState !== 'comic_intro';
   const bossStatusText =
@@ -222,9 +304,20 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   const mobileQuickButtons = (
     <div className="flex lg:hidden w-full items-center justify-between gap-1.5 bg-[#0b0a0e] border border-stone-800 rounded px-2 py-1 shrink-0">
-      <span className="font-mono-num text-[10px] font-bold tracking-wider text-amber-400/90 uppercase truncate">
-        {hud.isTutorial ? 'TRAINING ARENA' : `${difficulty} · ${numPlayers}P`}
-      </span>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-mono-num text-[10px] font-bold tracking-wider text-amber-400/90 uppercase truncate">
+          {hud.isTutorial
+            ? 'TRAINING ARENA'
+            : hud.isOnlineCampaign
+            ? `RM ${hud.roomDepth} · ${numPlayers}P`
+            : `${difficulty} · ${numPlayers}P`}
+        </span>
+        {isOnline && (
+          <span className={`font-mono-num text-[10px] font-bold shrink-0 ${pingTextColor(myPingMs)}`}>
+            {myPingMs === null ? '--ms' : `${myPingMs}ms`}
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           type="button"
@@ -279,18 +372,36 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Stage & Run Metrics */}
         <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-3 space-y-2.5">
           <div>
-            <div className="font-souls text-xs font-bold text-amber-400 tracking-wider leading-snug">
-              {hud.stageLabel}
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="font-souls text-xs font-bold text-amber-400 tracking-wider leading-snug truncate">
+                {hud.isOnlineCampaign
+                  ? `ROOM ${hud.roomDepth} · ${hud.roomKind.toUpperCase()}`
+                  : hud.stageLabel}
+              </div>
+              {isOnline && (
+                <span className={`inline-flex items-center gap-1 font-mono-num text-[10px] font-bold shrink-0 ${pingTextColor(myPingMs)}`}>
+                  <Wifi className="w-3 h-3" />
+                  {myPingMs === null ? '--ms' : `${myPingMs}ms`}
+                </span>
+              )}
             </div>
-            <div className="font-mono-num text-[11px] text-stone-400 mt-0.5">
-              {hud.isBossLevel ? hud.waveText : `${hud.waveText} · ${hud.enemiesRemaining} Remaining`}
+            <div className="font-mono-num text-[11px] text-stone-400 mt-0.5 truncate">
+              {hud.isBossLevel
+                ? hud.waveText
+                : hud.gatesActive
+                ? 'Gates Open · Choose Next Room'
+                : `${hud.waveText} · ${hud.enemiesRemaining} Remaining`}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-stone-800/80 font-mono-num text-xs">
             <div className="bg-black/60 border border-stone-800/80 rounded p-2">
-              <div className="text-[9px] text-stone-500">SOULS</div>
-              <div className="text-amber-300 font-bold text-sm">{hud.score.toLocaleString()}</div>
+              <div className="text-[9px] text-stone-500">
+                {hud.isOnlineCampaign ? 'GOLD COINS' : 'SOULS'}
+              </div>
+              <div className="text-amber-300 font-bold text-sm">
+                {hud.isOnlineCampaign ? `${localPlayer.coins}g` : hud.score.toLocaleString()}
+              </div>
             </div>
             <div className="bg-black/60 border border-stone-800/80 rounded p-2">
               <div className="text-[9px] text-stone-500">STYLE RANK</div>
@@ -299,8 +410,12 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             </div>
             <div className="bg-black/60 border border-stone-800/80 rounded p-2">
-              <div className="text-[9px] text-stone-500">DODGES</div>
-              <div className="text-cyan-300 font-semibold">{hud.grazes}</div>
+              <div className="text-[9px] text-stone-500">
+                {hud.isOnlineCampaign ? 'BOSSES SLAIN' : 'DODGES'}
+              </div>
+              <div className="text-cyan-300 font-semibold">
+                {hud.isOnlineCampaign ? `${hud.bossesDefeatedCount} / 4` : hud.grazes}
+              </div>
             </div>
             <div className="bg-black/60 border border-stone-800/80 rounded p-2">
               <div className="text-[9px] text-stone-500">TIME</div>
@@ -320,13 +435,16 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         )}
 
-        {/* P1 Card */}
+        {/* Local Player Card (Always shown on Left Sidebar) */}
         <PlayerSideCard
-          label={isOnline && localPlayerNum === 1 ? 'PLAYER 1 (YOU)' : 'PLAYER 1'}
-          p={hud.p1}
-          color={playerColors[1]}
-          combo={hud.comboP1}
-          skillKeyLabel={isOnline && localPlayerNum === 2 ? 'HOST' : 'E'}
+          label={isOnline || teammates.length > 0 ? `PLAYER ${localPlayer.id} (YOU)` : 'PLAYER 1'}
+          p={localPlayer}
+          color={playerColors[localPlayer.id] || localPlayer.color}
+          combo={localPlayer.combo}
+          skillKeyLabel="E"
+          isOnlineCampaign={hud.isOnlineCampaign}
+          isOnline={isOnline}
+          pingMs={myPingMs}
         />
 
         {/* Tutorial Drill & Frame Switcher */}
@@ -515,17 +633,22 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
 
         {/* Narrow-screen Player Vital & Score Strip (< lg) */}
-        <div className="flex lg:hidden w-full items-center justify-between gap-2 bg-[#0b0a0e] border border-stone-800 rounded px-3 py-1.5 text-[11px] font-mono-num shrink-0">
+        <div className="flex lg:hidden w-full items-center justify-between gap-2 bg-[#0b0a0e] border border-stone-800 rounded px-2.5 py-1.5 text-[10px] font-mono-num shrink-0 overflow-x-auto">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span style={{ color: playerColors[1] }} className="font-bold whitespace-nowrap">
-              P1: {hud.p1.hp}/{hud.p1.maxHp}
-            </span>
-            {hud.p1.hasKnife && <span className="text-cyan-300 font-bold text-[10px]">ARMED</span>}
-            {hud.p1.empowered && <span className="text-amber-300 font-bold text-[10px]">EMP</span>}
-            {numPlayers === 2 && (
-              <span style={{ color: playerColors[2] }} className="font-bold whitespace-nowrap">
-                P2: {hud.p2.hp}/{hud.p2.maxHp}
-              </span>
+            {activePlayers.map((pl) => {
+              const pCol = playerColors[pl.id] || pl.color;
+              const pWpn = hud.isOnlineCampaign && pl.weapon !== 'none'
+                ? WEAPONS_CATALOG.find((w) => w.id === pl.weapon)?.shortTag
+                : null;
+              return (
+                <span key={pl.id} style={{ color: pCol }} className="font-bold whitespace-nowrap">
+                  P{pl.id}: {pl.state === 'down' ? 'DOWN' : `${pl.hp}HP`}
+                  {pWpn ? `(${pWpn})` : ''}
+                </span>
+              );
+            })}
+            {hud.isOnlineCampaign && (
+              <span className="text-amber-300 font-bold whitespace-nowrap">{localPlayer.coins}g</span>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -546,8 +669,9 @@ export const GameHud: React.FC<GameHudProps> = ({
             }
           >
             <MobileControls
-              p1={localPlayerNum === 2 ? hud.p2 : hud.p1}
-              playerColor={localPlayerNum === 2 ? playerColors[2] : playerColors[1]}
+              p1={localPlayer}
+              playerColor={playerColors[localPlayer.id] || localPlayer.color}
+              isOnlineCampaign={hud.isOnlineCampaign}
               compact={isLandscapeMobile}
               showSkipIntro={hud.isBossLevel && hud.bossState === 'comic_intro'}
               onMoveChange={onTouchMove}
@@ -604,15 +728,24 @@ export const GameHud: React.FC<GameHudProps> = ({
           </button>
         </div>
 
-        {/* P2 Card in 2P Co-op OR Combat Field Guide in 1P */}
-        {numPlayers === 2 ? (
-          <PlayerSideCard
-            label={isOnline && localPlayerNum === 2 ? 'PLAYER 2 (YOU)' : isOnline ? 'PLAYER 2 (ONLINE)' : 'PLAYER 2'}
-            p={hud.p2}
-            color={playerColors[2]}
-            combo={hud.comboP2}
-            skillKeyLabel={isOnline && localPlayerNum === 2 ? 'E / /' : isOnline ? 'ONLINE' : '/'}
-          />
+        {/* Teammates in Co-op OR Solo Threat & Weapon Info */}
+        {teammates.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {teammates.map((tm) => (
+              <PlayerSideCard
+                key={tm.id}
+                label={isOnline ? `PLAYER ${tm.id}` : `PLAYER ${tm.id}`}
+                p={tm}
+                color={playerColors[tm.id] || tm.color}
+                combo={tm.combo}
+                skillKeyLabel={isOnline ? 'ONLINE' : '/'}
+                isOnlineCampaign={hud.isOnlineCampaign}
+                isOnline={isOnline}
+                pingMs={resolvePing(tm.id)}
+                compact={teammates.length >= 2}
+              />
+            ))}
+          </div>
         ) : (
           <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-3 space-y-2 text-[11px] font-mono-num">
             <div className="text-[10px] text-stone-500 uppercase tracking-wider">Threat &amp; Sustenance</div>
@@ -620,6 +753,16 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span className="text-stone-400">Difficulty</span>
               <span className="text-amber-300 font-bold uppercase">{difficulty}</span>
             </div>
+            {hud.isOnlineCampaign && (
+              <div className="flex items-center justify-between">
+                <span className="text-stone-400">Weapon</span>
+                <span className="text-cyan-300 font-bold">
+                  {localPlayer.weapon === 'none'
+                    ? 'UNARMED'
+                    : WEAPONS_CATALOG.find((w) => w.id === localPlayer.weapon)?.shortTag || 'ARMED'}
+                </span>
+              </div>
+            )}
             {difficulty === 'hard' && (
               <div className="flex items-center justify-between">
                 <span className="text-stone-400">Estus Kits</span>

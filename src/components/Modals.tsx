@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2 } from 'lucide-react';
-import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, PlayerControls, RunSummary, StageKey } from '../game/types';
+import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, PlayerControls, PlayerId, RunSummary, StageKey } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 
@@ -15,7 +15,7 @@ function formatKeyName(key: string): string {
 
 interface ControlsModalProps {
   controls: ControlsConfig;
-  numPlayers: 1 | 2;
+  numPlayers: number;
   onChange: (next: ControlsConfig) => void;
   onClose: () => void;
 }
@@ -114,7 +114,7 @@ interface PauseModalProps {
   fullscreenNote?: string | null;
   showTouchControls: boolean;
   onlineRole?: 'none' | 'host' | 'guest';
-  pausedBy?: 1 | 2;
+  pausedBy?: PlayerId;
   onMusicChange: (v: number) => void;
   onSfxChange: (v: number) => void;
   onToggleFullscreen: () => void;
@@ -788,11 +788,11 @@ export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
           <AlertTriangle className="w-8 h-8 text-amber-400" />
         </div>
         <h2 className="font-arcade text-sm text-white">
-          {isHost ? 'PARTNER DISCONNECTED' : 'HOST DISCONNECTED'}
+          {isHost ? 'PLAYERS DISCONNECTED' : 'HOST DISCONNECTED'}
         </h2>
         <p className="text-xs text-slate-300 leading-relaxed">
           {isHost
-            ? 'Your online co-op partner left the match. You can continue this run solo or return to the main menu.'
+            ? 'All online teammates left the match. You can continue this run solo or return to the main menu.'
             : 'The Host ended the session or lost connection.'}
         </p>
         <div className="flex flex-col gap-2.5 pt-1">

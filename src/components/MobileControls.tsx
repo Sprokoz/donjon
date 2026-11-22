@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FastForward, Sparkles, Wind } from 'lucide-react';
-import { HERO_CLASSES, PlayerHudState } from '../game/types';
+import { HERO_CLASSES, PlayerHudState, WEAPONS_CATALOG } from '../game/types';
 import { soundEngine } from '../game/soundEngine';
 
 interface MobileControlsProps {
   p1: PlayerHudState;
   playerColor: string;
+  isOnlineCampaign?: boolean;
   compact?: boolean;
   showSkipIntro?: boolean;
   onMoveChange: (x: number, y: number) => void;
@@ -17,6 +18,7 @@ interface MobileControlsProps {
 export const MobileControls: React.FC<MobileControlsProps> = ({
   p1,
   playerColor,
+  isOnlineCampaign = false,
   compact = false,
   showSkipIntro = false,
   onMoveChange,
@@ -25,7 +27,13 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onSkipIntro,
 }) => {
   const clsDef = HERO_CLASSES.find((c) => c.id === p1.heroClass);
-  const skillColor = clsDef?.accent || '#f59e0b';
+  const weaponDef = isOnlineCampaign && p1.weapon !== 'none' ? WEAPONS_CATALOG.find((w) => w.id === p1.weapon) : undefined;
+  const skillColor = isOnlineCampaign ? weaponDef?.accent || '#71717a' : clsDef?.accent || '#f59e0b';
+  const skillCaption = isOnlineCampaign
+    ? weaponDef
+      ? weaponDef.skillName.split(' ')[0]
+      : 'INTERACT'
+    : clsDef?.skillName.split(' ')[0] || 'SKILL';
 
   const padRef = useRef<HTMLDivElement | null>(null);
   const stickPointerIdRef = useRef<number | null>(null);
@@ -229,7 +237,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
             aria-label="Hero Skill"
             className={`${skillBtnSizeClass} rounded-full border-2 flex flex-col items-center justify-center gap-0.5 transition-transform touch-none cursor-pointer ${
               abilityPressed ? 'scale-95' : 'scale-100'
-            } ${p1.abilityReady ? 'shadow-lg' : 'opacity-75'}`}
+            } ${p1.abilityReady || (isOnlineCampaign && p1.weapon === 'none') ? 'shadow-lg' : 'opacity-75'}`}
             style={{
               touchAction: 'none',
               background: p1.abilityReady
@@ -247,12 +255,16 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               className="font-mono-num text-[10px] font-bold leading-none"
               style={{ color: p1.abilityReady ? '#fafaf9' : '#a1a1aa' }}
             >
-              {p1.abilityReady ? 'SKILL' : `${p1.abilityCooldown}s`}
+              {isOnlineCampaign && p1.weapon === 'none'
+                ? 'LOOT'
+                : p1.abilityReady
+                ? 'SKILL'
+                : `${p1.abilityCooldown}s`}
             </span>
           </button>
           {!compact && (
             <span className="font-mono-num text-[10px] text-stone-400 truncate max-w-[72px]">
-              {clsDef?.skillName.split(' ')[0] || 'SKILL'}
+              {skillCaption}
             </span>
           )}
         </div>

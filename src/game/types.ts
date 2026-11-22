@@ -1,6 +1,33 @@
+export type PlayerId = 1 | 2 | 3 | 4 | 5;
+
 export type DifficultyKey = 'easy' | 'medium' | 'hard';
 export type GameMode = 'campaign' | 'boss_rush' | 'tutorial';
 export type HeroClassId = 'ronin' | 'phantom' | 'vanguard' | 'volt';
+
+export type WeaponId =
+  | 'none'
+  | 'holy_staff'
+  | 'tank_shield'
+  | 'assassin_blades'
+  | 'warrior_greatsword'
+  | 'ranger_bow';
+
+export type RoomKind = 'combat' | 'shop' | 'treasure' | 'boss';
+
+export interface WeaponDef {
+  id: Exclude<WeaponId, 'none'>;
+  name: string;
+  roleLabel: string;
+  skillName: string;
+  skillDesc: string;
+  passiveDesc: string;
+  skillCooldown: number;
+  dashCooldown: number;
+  speedMult: number;
+  bonusHp: number;
+  accent: string;
+  shortTag: string;
+}
 
 export type AppScreen =
   | 'INTRO'
@@ -118,8 +145,10 @@ export interface DashTrailPoint {
 }
 
 export interface Player {
-  id: 1 | 2;
+  id: PlayerId;
   heroClass: HeroClassId;
+  weapon: WeaponId;
+  coins: number;
   x: number;
   y: number;
   vx: number;
@@ -151,7 +180,7 @@ export interface Player {
   invulnFrames: number;
   _lastDashPressed: boolean;
   _lastAbilityPressed: boolean;
-  // Class active skill
+  // Class / Weapon active skill
   abilityReady: boolean;
   abilityCooldown: number;
   abilityCooldownTimer: number;
@@ -173,8 +202,8 @@ export interface Player {
 
 export interface PlayerProjectile {
   uid: number;
-  ownerId: 1 | 2;
-  kind: 'crescent' | 'arc_bolt';
+  ownerId: PlayerId;
+  kind: 'crescent' | 'arc_bolt' | 'ranger_arrow';
   x: number;
   y: number;
   dx: number;
@@ -192,7 +221,7 @@ export interface VoidDecoy {
   timer: number;
   maxTimer: number;
   color: string;
-  ownerId: 1 | 2;
+  ownerId: PlayerId;
 }
 
 export interface TelegraphLine {
@@ -213,7 +242,7 @@ export interface Knife {
   y: number;
   size: number;
   color: string;
-  owner: 1 | 2;
+  owner: PlayerId;
   bobPhase: number;
   luckyTimer?: number;
 }
@@ -454,7 +483,7 @@ export interface EclipseBeacon {
   y: number;
   radius: number;
   role: 'solar' | 'lunar' | 'solo';
-  ownerId: 1 | 2 | null;
+  ownerId: PlayerId | null;
   active: boolean;
   occupied: boolean;
 }
@@ -471,7 +500,7 @@ export interface EclipsePylon {
 }
 
 export interface EclipsePrison {
-  targetPlayerId: 1 | 2;
+  targetPlayerId: PlayerId;
   x: number;
   y: number;
   radius: number;
@@ -481,12 +510,75 @@ export interface EclipsePrison {
 
 export interface EclipseMirror {
   role: 'solar' | 'lunar';
-  ownerId: 1 | 2;
+  ownerId: PlayerId;
   x: number;
   y: number;
   radius: number;
   charge: number;
   locked: boolean;
+}
+
+export interface ChestDrop {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  opened: boolean;
+  openAnim: number;
+  rewardKind: 'coins' | 'weapon';
+  coinsTotal?: number;
+  weaponId?: Exclude<WeaponId, 'none'>;
+}
+
+export interface WeaponDrop {
+  id: number;
+  weaponId: Exclude<WeaponId, 'none'>;
+  x: number;
+  y: number;
+  size: number;
+  bob: number;
+  swapLockTimer: number;
+}
+
+export interface DungeonGate {
+  id: string;
+  dir: 'top' | 'bottom' | 'left' | 'right';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  roomType: RoomKind;
+  targetStage: StageKey;
+  label: string;
+  subLabel: string;
+  accent: string;
+  playersInside: number[];
+  holdProgress: number;
+}
+
+export interface ShopItem {
+  id: number;
+  kind: 'potion' | 'max_hp' | 'shield' | 'weapon_crate';
+  label: string;
+  subLabel: string;
+  cost: number;
+  x: number;
+  y: number;
+  size: number;
+  accent: string;
+  weaponId?: Exclude<WeaponId, 'none'>;
+  purchasedBy: number[];
+  globalSold?: boolean;
+}
+
+export interface LobbyPlayerInfo {
+  id: PlayerId;
+  connected: boolean;
+  isHost: boolean;
+  colorHex: string;
+  heroClass: HeroClassId;
+  ready: boolean;
+  pingMs: number | null;
 }
 
 export interface AmbientMote {
@@ -500,7 +592,12 @@ export interface AmbientMote {
 }
 
 export interface PlayerHudState {
+  id: PlayerId;
   heroClass: HeroClassId;
+  weapon: WeaponId;
+  coins: number;
+  color: string;
+  combo: number;
   hp: number;
   maxHp: number;
   state: Player['state'];
@@ -533,6 +630,11 @@ export interface HudSnapshot {
   comboP1: number;
   comboP2: number;
   isBossLevel: boolean;
+  isOnlineCampaign: boolean;
+  roomKind: RoomKind;
+  roomDepth: number;
+  bossesDefeatedCount: number;
+  gatesActive: boolean;
   bossType: BossType;
   bossName: string;
   bossAttackLabel: string;
@@ -553,6 +655,7 @@ export interface HudSnapshot {
   tutorialObjective: string;
   tutorialProgress: number;
   tutorialTotal: number;
+  players: PlayerHudState[];
   p1: PlayerHudState;
   p2: PlayerHudState;
 }
@@ -588,7 +691,7 @@ export interface RunSummary {
   kills: number;
   difficulty: DifficultyKey;
   mode: GameMode;
-  numPlayers: 1 | 2;
+  numPlayers: number;
   rank: 'S' | 'A' | 'B' | 'C';
   boons: BoonId[];
   cheated?: boolean;
@@ -600,7 +703,7 @@ export interface LeaderboardEntry {
   rank: 'S' | 'A' | 'B' | 'C';
   difficulty: DifficultyKey;
   mode: GameMode;
-  numPlayers: 1 | 2;
+  numPlayers: number;
   elapsedSeconds: number;
   maxCombo: number;
   victory: boolean;
@@ -610,6 +713,8 @@ export interface LeaderboardEntry {
 
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
+export const DUNGEON_ARENA_WIDTH = 1220;
+export const DUNGEON_ARENA_HEIGHT = 860;
 export const BOSS_ARENA_WIDTH = 1360;
 export const BOSS_ARENA_HEIGHT = 960;
 
@@ -804,6 +909,79 @@ export const BOONS_CATALOG: BoonDef[] = [
     description: 'Your spawned Blade drifts toward you and Clean Dodges shave 2.5s off Dash CD.',
     accent: '#c084fc',
     icon: '◎',
+  },
+];
+
+export const WEAPONS_CATALOG: WeaponDef[] = [
+  {
+    id: 'holy_staff',
+    name: 'SERAPHIC HOLY STAFF',
+    roleLabel: 'CLERIC / HEALER',
+    skillName: 'Sanctuary Hymn',
+    skillDesc: 'Heals self & nearby allies +30 HP, boosts revive, & cleanses Seals.',
+    passiveDesc: 'Picking up your Blade Orb restores +5 HP.',
+    skillCooldown: 9.0,
+    dashCooldown: 8.5,
+    speedMult: 1.0,
+    bonusHp: 0,
+    accent: '#fde047',
+    shortTag: 'STAFF',
+  },
+  {
+    id: 'tank_shield',
+    name: 'AEGIS BASTION',
+    roleLabel: 'TANK / GUARDIAN',
+    skillName: 'Bastion Dome',
+    skillDesc: 'Shields nearby allies & deletes boss projectiles in a 270px AoE + stuns foes.',
+    passiveDesc: '+25 Max HP & auto-regenerates Aegis Shield every 24s.',
+    skillCooldown: 9.5,
+    dashCooldown: 9.2,
+    speedMult: 0.94,
+    bonusHp: 25,
+    accent: '#38bdf8',
+    shortTag: 'TANK',
+  },
+  {
+    id: 'assassin_blades',
+    name: 'NIGHTBLADE TWINS',
+    roleLabel: 'ASSASSIN',
+    skillName: 'Shadow Execution',
+    skillDesc: '1.7s Shadow Cloak invulnerability + empowers strike + Void Decoy bomb.',
+    passiveDesc: 'Fastest Dash (6.5s) & +8% Move Speed.',
+    skillCooldown: 9.5,
+    dashCooldown: 6.5,
+    speedMult: 1.08,
+    bonusHp: 0,
+    accent: '#a855f7',
+    shortTag: 'BLADES',
+  },
+  {
+    id: 'warrior_greatsword',
+    name: 'CRIMSON GREATSWORD',
+    roleLabel: 'WARRIOR',
+    skillName: 'Crescent Cleave',
+    skillDesc: 'Unleashes a wide Crescent Wave that slices bullets, mobs & bosses.',
+    passiveDesc: '+20px extended Dash slash reach while armed.',
+    skillCooldown: 7.5,
+    dashCooldown: 8.2,
+    speedMult: 1.02,
+    bonusHp: 10,
+    accent: '#ef4444',
+    shortTag: 'SWORD',
+  },
+  {
+    id: 'ranger_bow',
+    name: 'TEMPEST LONGBOW',
+    roleLabel: 'RANGER',
+    skillName: 'Storm Volley',
+    skillDesc: 'Fires 3 piercing Storm Arrows + triggers 3.5s Overdrive & recalls Blade.',
+    passiveDesc: '+15% Move Speed while wielding the bow.',
+    skillCooldown: 8.5,
+    dashCooldown: 7.8,
+    speedMult: 1.15,
+    bonusHp: 0,
+    accent: '#34d399',
+    shortTag: 'BOW',
   },
 ];
 

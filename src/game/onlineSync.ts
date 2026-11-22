@@ -11,10 +11,13 @@ import {
   CameraState,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
+  ChestDrop,
   ComicSlash,
   DeathEffect,
+  DEFAULT_CHEATS,
   DIFFICULTY_SETTINGS,
   DifficultyKey,
+  DungeonGate,
   EclipseBeacon,
   EclipseMirror,
   EclipsePrison,
@@ -25,22 +28,27 @@ import {
   GameMode,
   HeroClassId,
   Knife,
+  LobbyPlayerInfo,
   Medkit,
   OniCursedZone,
   OniShrine,
   OniSpiritBomb,
   Particle,
   Player,
+  PlayerId,
   PlayerProjectile,
   RelicDrop,
+  RoomKind,
   RunSummary,
+  ShopItem,
   SlashArc,
   StageKey,
   TelegraphLine,
   VoidDecoy,
   VoidRift,
   VoidTentacle,
-  DEFAULT_CHEATS,
+  WeaponDrop,
+  WeaponId,
 } from './types';
 
 export type CoopMode = 'solo' | 'local' | 'online';
@@ -95,13 +103,16 @@ export function getInviteLink(code: string): string {
 export interface LobbyLoadoutPayload {
   heroClass: HeroClassId;
   colorHex: string;
+  ready?: boolean;
   difficulty?: DifficultyKey;
   mode?: GameMode;
 }
 
 export interface SyncedPlayer {
-  id: 1 | 2;
+  id: PlayerId;
   heroClass: HeroClassId;
+  weapon: WeaponId;
+  coins: number;
   x: number;
   y: number;
   vx: number;
@@ -150,9 +161,18 @@ export interface SyncedPlayer {
 export interface SyncedRuntimeSnapshot {
   difficulty: DifficultyKey;
   mode: GameMode;
-  numPlayers: 1 | 2;
-  playerColors: { 1: string; 2: string };
-  playerClasses: { 1: HeroClassId; 2: HeroClassId };
+  numPlayers: number;
+  isOnlineCampaign: boolean;
+  roomKind: RoomKind;
+  roomDepth: number;
+  bossesDefeatedCount: number;
+  chests: ChestDrop[];
+  weaponDrops: WeaponDrop[];
+  gates: DungeonGate[];
+  shopItems: ShopItem[];
+  pingByPlayer: Record<number, number | null>;
+  playerColors: Record<number, string>;
+  playerClasses: Record<number, HeroClassId>;
   stage: StageKey;
   waveNumber: number;
   bossType: GameRuntime['bossType'];
@@ -178,7 +198,7 @@ export interface SyncedRuntimeSnapshot {
   eclipsePylons: EclipsePylon[];
   eclipsePrison: EclipsePrison | null;
   eclipseMirrors: EclipseMirror[];
-  eclipseMarkedBy: null | 1 | 2;
+  eclipseMarkedBy: PlayerId | null;
   eclipseMarkTimer: number;
   eclipseCounterFlashTimer: number;
   eclipseSyncTimer: number;
@@ -201,7 +221,7 @@ export interface SyncedRuntimeSnapshot {
   elapsedSeconds: number;
   stageElapsed: number;
   maxCombo: number;
-  playerCombos: { 1: { count: number; timer: number }; 2: { count: number; timer: number } };
+  playerCombos: Record<number, { count: number; timer: number }>;
   medkitInventoryCount: number;
   medkitNotif: string | null;
   phaseAnnounce: { text: string; color: string } | null;
@@ -222,6 +242,18 @@ export interface SyncedRuntimeSnapshot {
 }
 
 export type OnlineMessage =
+  | { type: 'welcome'; playerId: PlayerId }
+  | { type: 'room_full' }
+  | { type: 'ping'; ts: number }
+  | { type: 'pong'; ts: number }
+  | {
+      type: 'lobby_state';
+      roster: LobbyPlayerInfo[];
+      difficulty: DifficultyKey;
+      mode: GameMode;
+      maxPlayers: number;
+    }
+  | { type: 'guest_config'; colorHex: string; heroClass: HeroClassId; ready: boolean }
   | { type: 'loadout'; payload: LobbyLoadoutPayload }
   | { type: 'input'; input: TouchInputState }
   | { type: 'sync'; snap: SyncedRuntimeSnapshot; sfx: SfxSyncEvent[] }
@@ -232,7 +264,7 @@ export type OnlineMessage =
       boonDraft?: { clearedStage: StageKey; nextStage: StageKey; choices: BoonDef[] };
       transitionTarget?: StageKey | null;
       summary?: RunSummary | null;
-      pausedBy?: 1 | 2;
+      pausedBy?: PlayerId;
     }
   | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' };
 
@@ -245,10 +277,29 @@ function r2(n: number): number {
 }
 
 export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot {
+  const playerCombos: Record<number, { count: number; timer: number }> = {};
+  for (const k of Object.keys(rt.playerCombos)) {
+    const id = Number(k);
+    playerCombos[id] = { ...rt.playerCombos[id] };
+  }
+
   return {
     difficulty: rt.difficulty,
     mode: rt.mode,
     numPlayers: rt.numPlayers,
+    isOnlineCampaign: rt.isOnlineCampaign,
+    roomKind: rt.roomKind,
+    roomDepth: rt.roomDepth,
+    bossesDefeatedCount: rt.bossesDefeatedCount,
+    chests: rt.chests.map((c) => ({ ...c })),
+    weaponDrops: rt.weaponDrops.map((w) => ({ ...w, bob: r2(w.bob), swapLockTimer: r2(w.swapLockTimer) })),
+    gates: rt.gates.map((g) => ({
+      ...g,
+      playersInside: [...g.playersInside],
+      holdProgress: r2(g.holdProgress),
+    })),
+    shopItems: rt.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
+    pingByPlayer: { ...rt.pingByPlayer },
     playerColors: { ...rt.playerColors },
     playerClasses: { ...rt.playerClasses },
     stage: rt.stage,
@@ -267,6 +318,8 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     players: rt.players.map((p) => ({
       id: p.id,
       heroClass: p.heroClass,
+      weapon: p.weapon,
+      coins: p.coins,
       x: r1(p.x),
       y: r1(p.y),
       vx: r1(p.vx),
@@ -451,10 +504,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     elapsedSeconds: r1(rt.elapsedSeconds),
     stageElapsed: r1(rt.stageElapsed),
     maxCombo: rt.maxCombo,
-    playerCombos: {
-      1: { ...rt.playerCombos[1] },
-      2: { ...rt.playerCombos[2] },
-    },
+    playerCombos,
     medkitInventoryCount: rt.medkitInventoryCount,
     medkitNotif: rt.medkitNotif,
     phaseAnnounce: rt.phaseAnnounce,
@@ -508,6 +558,21 @@ function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
   return base;
 }
 
+function cloneCombos(src: Record<number, { count: number; timer: number }>): Record<number, { count: number; timer: number }> {
+  const out: Record<number, { count: number; timer: number }> = {
+    1: { count: 0, timer: 0 },
+    2: { count: 0, timer: 0 },
+    3: { count: 0, timer: 0 },
+    4: { count: 0, timer: 0 },
+    5: { count: 0, timer: 0 },
+  };
+  for (const key of Object.keys(src)) {
+    const id = Number(key);
+    out[id] = { ...src[id] };
+  }
+  return out;
+}
+
 export function applySyncedSnapshotToGuest(
   displayRt: GameRuntime | null,
   snap: SyncedRuntimeSnapshot,
@@ -515,13 +580,24 @@ export function applySyncedSnapshotToGuest(
 ): GameRuntime {
   const lerpAlpha = 1 - Math.exp(-28 * Math.max(0.004, Math.min(dt, 0.05)));
 
-  if (!displayRt || displayRt.stage !== snap.stage) {
+  if (!displayRt || displayRt.stage !== snap.stage || displayRt.roomDepth !== snap.roomDepth) {
     const players: Player[] = snap.players.map((sp) => hydratePlayer(sp));
     return {
       difficulty: snap.difficulty,
       diffSettings: DIFFICULTY_SETTINGS[snap.difficulty],
       mode: snap.mode,
       numPlayers: snap.numPlayers,
+      isOnlineCampaign: snap.isOnlineCampaign,
+      roomKind: snap.roomKind,
+      roomDepth: snap.roomDepth,
+      bossesDefeatedCount: snap.bossesDefeatedCount,
+      chests: snap.chests.map((c) => ({ ...c })),
+      weaponDrops: snap.weaponDrops.map((w) => ({ ...w })),
+      gates: snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] })),
+      shopItems: snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
+      lastKilledPos: null,
+      shopBuyTimers: {},
+      pingByPlayer: { ...snap.pingByPlayer },
       playerColors: { ...snap.playerColors },
       playerClasses: { ...snap.playerClasses },
       stage: snap.stage,
@@ -573,10 +649,7 @@ export function applySyncedSnapshotToGuest(
       elapsedSeconds: snap.elapsedSeconds,
       stageElapsed: snap.stageElapsed,
       maxCombo: snap.maxCombo,
-      playerCombos: {
-        1: { ...snap.playerCombos[1] },
-        2: { ...snap.playerCombos[2] },
-      },
+      playerCombos: cloneCombos(snap.playerCombos),
       medkitSpawnTimer: 0,
       relicSpawnTimer: 0,
       medkitInventoryCount: snap.medkitInventoryCount,
@@ -607,13 +680,12 @@ export function applySyncedSnapshotToGuest(
       tutorialFireTimer: 0,
       cheats: { ...DEFAULT_CHEATS },
       cheatsUsed: snap.cheatsUsed,
-      bossHitCooldowns: { 1: 0, 2: 0 },
+      bossHitCooldowns: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       dungeonCleanDodgeTimer: 0,
       pendingEvent: null,
     };
   }
 
-  // Smoothly interpolate entities against displayRt's previous frame positions
   const prevEnemiesById = new Map<number, Enemy>();
   displayRt.enemies.forEach((e) => prevEnemiesById.set(e.id, e));
 
@@ -623,13 +695,22 @@ export function applySyncedSnapshotToGuest(
   const prevPlayerProjsByUid = new Map<number, PlayerProjectile>();
   displayRt.playerProjectiles.forEach((pp) => prevPlayerProjsByUid.set(pp.uid, pp));
 
-  const prevKnivesByOwner = new Map<1 | 2, Knife>();
+  const prevKnivesByOwner = new Map<PlayerId, Knife>();
   displayRt.knives.forEach((k) => prevKnivesByOwner.set(k.owner, k));
 
   displayRt.difficulty = snap.difficulty;
   displayRt.diffSettings = DIFFICULTY_SETTINGS[snap.difficulty];
   displayRt.mode = snap.mode;
   displayRt.numPlayers = snap.numPlayers;
+  displayRt.isOnlineCampaign = snap.isOnlineCampaign;
+  displayRt.roomKind = snap.roomKind;
+  displayRt.roomDepth = snap.roomDepth;
+  displayRt.bossesDefeatedCount = snap.bossesDefeatedCount;
+  displayRt.chests = snap.chests.map((c) => ({ ...c }));
+  displayRt.weaponDrops = snap.weaponDrops.map((w) => ({ ...w }));
+  displayRt.gates = snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] }));
+  displayRt.shopItems = snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] }));
+  displayRt.pingByPlayer = { ...snap.pingByPlayer };
   displayRt.playerColors = { ...snap.playerColors };
   displayRt.playerClasses = { ...snap.playerClasses };
   displayRt.waveNumber = snap.waveNumber;
@@ -739,7 +820,6 @@ export function applySyncedSnapshotToGuest(
   displayRt.voidRifts = snap.voidRifts.map((vr) => ({ ...vr }));
   displayRt.energyWaves = snap.energyWaves.map((ew) => ({ ...ew }));
 
-  // Advance local ambient motes at 60fps for smooth background depth
   displayRt.ambientMotes.forEach((m) => {
     m.x += m.vx * dt;
     m.y += m.vy * dt;
@@ -758,10 +838,7 @@ export function applySyncedSnapshotToGuest(
   displayRt.elapsedSeconds = snap.elapsedSeconds;
   displayRt.stageElapsed = snap.stageElapsed;
   displayRt.maxCombo = snap.maxCombo;
-  displayRt.playerCombos = {
-    1: { ...snap.playerCombos[1] },
-    2: { ...snap.playerCombos[2] },
-  };
+  displayRt.playerCombos = cloneCombos(snap.playerCombos);
   displayRt.medkitInventoryCount = snap.medkitInventoryCount;
   displayRt.medkitNotif = snap.medkitNotif;
   displayRt.phaseAnnounce = snap.phaseAnnounce;
@@ -785,24 +862,41 @@ export function applySyncedSnapshotToGuest(
 
 export interface OnlineSessionCallbacks {
   onStatusChange: (status: OnlineConnectionStatus, error?: string) => void;
-  onMessage: (msg: OnlineMessage) => void;
-  onPartnerDisconnect: () => void;
+  onMessage: (msg: OnlineMessage, fromPlayerId: PlayerId) => void;
+  onGuestJoin?: (playerId: PlayerId) => void;
+  onPartnerDisconnect: (disconnectedPlayerId?: PlayerId) => void;
+  onPingUpdate?: (pings: Record<number, number | null>) => void;
+  onAssignedSlot?: (playerId: PlayerId) => void;
+}
+
+interface GuestSlot {
+  conn: DataConnection;
+  pingMs: number | null;
 }
 
 export class OnlineSession {
   private peer: Peer | null = null;
-  private conn: DataConnection | null = null;
+  private hostConn: DataConnection | null = null;
+  private guests = new Map<PlayerId, GuestSlot>();
   private role: 'host' | 'guest';
   private roomCode: string;
+  private maxPlayers: number;
   private callbacks: OnlineSessionCallbacks;
   private destroyed = false;
   private connectTimer: number | null = null;
-  private partnerWasConnected = false;
+  private pingTimer: number | null = null;
+  private hostWasConnected = false;
 
-  constructor(role: 'host' | 'guest', roomCode: string, callbacks: OnlineSessionCallbacks) {
+  constructor(
+    role: 'host' | 'guest',
+    roomCode: string,
+    callbacks: OnlineSessionCallbacks,
+    maxPlayers = 5
+  ) {
     this.role = role;
     this.roomCode = sanitizeRoomCode(roomCode);
     this.callbacks = callbacks;
+    this.maxPlayers = Math.max(2, Math.min(5, maxPlayers));
     this.start();
   }
 
@@ -814,24 +908,110 @@ export class OnlineSession {
     return this.roomCode;
   }
 
-  isConnected(): boolean {
-    return Boolean(this.conn && this.conn.open);
+  setMaxPlayers(maxPlayers: number) {
+    this.maxPlayers = Math.max(2, Math.min(5, maxPlayers));
+    if (this.role === 'host') {
+      for (const [slotId, slot] of this.guests.entries()) {
+        if (slotId > this.maxPlayers) {
+          try {
+            slot.conn.close();
+          } catch {
+            // ignore
+          }
+          this.guests.delete(slotId);
+        }
+      }
+    }
   }
 
-  send(msg: OnlineMessage) {
-    if (this.destroyed || !this.conn || !this.conn.open) return;
+  getConnectedGuestIds(): PlayerId[] {
+    const ids: PlayerId[] = [];
+    for (const [id, slot] of this.guests.entries()) {
+      if (slot.conn.open) ids.push(id);
+    }
+    return ids.sort((a, b) => a - b);
+  }
+
+  getPingByPlayer(): Record<number, number | null> {
+    const map: Record<number, number | null> = { 1: 1 };
+    for (const [id, slot] of this.guests.entries()) {
+      if (slot.conn.open) {
+        map[id] = slot.pingMs;
+      }
+    }
+    return map;
+  }
+
+  isConnected(): boolean {
+    if (this.role === 'host') {
+      for (const slot of this.guests.values()) {
+        if (slot.conn.open) return true;
+      }
+      return false;
+    }
+    return Boolean(this.hostConn && this.hostConn.open);
+  }
+
+  send(msg: OnlineMessage, targetPlayerId?: PlayerId) {
+    if (this.destroyed) return;
+    if (this.role === 'host') {
+      if (targetPlayerId !== undefined) {
+        const slot = this.guests.get(targetPlayerId);
+        if (slot && slot.conn.open) {
+          try {
+            slot.conn.send(msg);
+          } catch {
+            // ignore
+          }
+        }
+        return;
+      }
+      for (const slot of this.guests.values()) {
+        if (slot.conn.open) {
+          try {
+            slot.conn.send(msg);
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return;
+    }
+
+    if (!this.hostConn || !this.hostConn.open) return;
     try {
-      this.conn.send(msg);
+      this.hostConn.send(msg);
     } catch {
       // ignore transient channel send error
     }
   }
 
-  private clearTimer() {
+  private clearTimers() {
     if (this.connectTimer !== null) {
       window.clearTimeout(this.connectTimer);
       this.connectTimer = null;
     }
+    if (this.pingTimer !== null) {
+      window.clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private ensurePingLoop() {
+    if (this.role !== 'host' || this.pingTimer !== null) return;
+    this.pingTimer = window.setInterval(() => {
+      if (this.destroyed) return;
+      const now = performance.now();
+      for (const slot of this.guests.values()) {
+        if (slot.conn.open) {
+          try {
+            slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }, 1200);
   }
 
   private start() {
@@ -859,10 +1039,11 @@ export class OnlineSession {
       if (this.destroyed) return;
       if (this.role === 'host') {
         this.callbacks.onStatusChange('waiting');
+        this.ensurePingLoop();
       } else {
         const targetId = `${PEER_PREFIX}${this.roomCode}`;
         const conn = peer.connect(targetId, { reliable: true });
-        this.attachConnection(conn);
+        this.attachGuestToHostConnection(conn);
       }
     });
 
@@ -872,18 +1053,41 @@ export class OnlineSession {
           incomingConn.close();
           return;
         }
-        // Single 2P slot: replace closed conn, reject duplicate if active partner exists
-        if (this.conn && this.conn.open) {
-          incomingConn.close();
+        let assignedSlot: PlayerId | null = null;
+        const candidateSlots: PlayerId[] = [2, 3, 4, 5];
+        for (const s of candidateSlots) {
+          if (s <= this.maxPlayers && !this.guests.has(s)) {
+            assignedSlot = s;
+            break;
+          }
+        }
+        if (assignedSlot === null) {
+          incomingConn.on('open', () => {
+            try {
+              incomingConn.send({ type: 'room_full' } as OnlineMessage);
+            } catch {
+              // ignore
+            }
+            window.setTimeout(() => {
+              try {
+                incomingConn.close();
+              } catch {
+                // ignore
+              }
+            }, 150);
+          });
           return;
         }
-        this.attachConnection(incomingConn);
+        this.attachHostToGuestConnection(incomingConn, assignedSlot);
       });
     }
 
     peer.on('error', (err) => {
       if (this.destroyed) return;
-      this.clearTimer();
+      if (this.connectTimer !== null) {
+        window.clearTimeout(this.connectTimer);
+        this.connectTimer = null;
+      }
       const errType = (err as { type?: string })?.type || '';
       if (errType === 'unavailable-id') {
         this.callbacks.onStatusChange('error', 'Room code already in use. Regenerating...');
@@ -892,14 +1096,12 @@ export class OnlineSession {
       } else {
         this.callbacks.onStatusChange(
           'error',
-          'Connection error. Ensure both players have internet access.'
+          'Connection error. Ensure players have internet access.'
         );
       }
     });
 
     peer.on('disconnected', () => {
-      // If peer signaling server disconnects while WebRTC DataChannel is already open,
-      // DataChannel continues working P2P. Only reconnect signaling if not connected yet.
       if (!this.destroyed && !this.isConnected() && peer && !peer.destroyed) {
         try {
           peer.reconnect();
@@ -910,43 +1112,110 @@ export class OnlineSession {
     });
   }
 
-  private attachConnection(conn: DataConnection) {
-    this.conn = conn;
+  private attachHostToGuestConnection(conn: DataConnection, slotId: PlayerId) {
+    const slot: GuestSlot = { conn, pingMs: null };
+    this.guests.set(slotId, slot);
 
     conn.on('open', () => {
       if (this.destroyed) return;
-      this.clearTimer();
-      this.partnerWasConnected = true;
+      try {
+        conn.send({ type: 'welcome', playerId: slotId } as OnlineMessage);
+        conn.send({ type: 'ping', ts: performance.now() } as OnlineMessage);
+      } catch {
+        // ignore
+      }
+      this.ensurePingLoop();
+      this.callbacks.onStatusChange('connected');
+      this.callbacks.onGuestJoin?.(slotId);
+    });
+
+    conn.on('data', (raw) => {
+      if (this.destroyed || !raw || typeof raw !== 'object') return;
+      const msg = raw as OnlineMessage;
+      if (msg.type === 'pong') {
+        const rtt = Math.max(1, Math.round(performance.now() - msg.ts));
+        slot.pingMs = rtt;
+        this.callbacks.onPingUpdate?.(this.getPingByPlayer());
+        return;
+      }
+      if ('type' in msg) {
+        this.callbacks.onMessage(msg, slotId);
+      }
+    });
+
+    const handleDrop = () => {
+      if (this.destroyed) return;
+      if (this.guests.get(slotId)?.conn === conn) {
+        this.guests.delete(slotId);
+        if (this.guests.size === 0) {
+          this.callbacks.onStatusChange('waiting');
+        }
+        this.callbacks.onPingUpdate?.(this.getPingByPlayer());
+        this.callbacks.onPartnerDisconnect(slotId);
+      }
+    };
+
+    conn.on('close', handleDrop);
+    conn.on('error', handleDrop);
+  }
+
+  private attachGuestToHostConnection(conn: DataConnection) {
+    this.hostConn = conn;
+
+    conn.on('open', () => {
+      if (this.destroyed) return;
+      if (this.connectTimer !== null) {
+        window.clearTimeout(this.connectTimer);
+        this.connectTimer = null;
+      }
+      this.hostWasConnected = true;
       this.callbacks.onStatusChange('connected');
     });
 
     conn.on('data', (raw) => {
       if (this.destroyed || !raw || typeof raw !== 'object') return;
       const msg = raw as OnlineMessage;
+      if (msg.type === 'ping') {
+        try {
+          conn.send({ type: 'pong', ts: msg.ts } as OnlineMessage);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      if (msg.type === 'room_full') {
+        this.callbacks.onStatusChange('error', 'Room is full (max 5 players reached).');
+        this.destroy();
+        return;
+      }
+      if (msg.type === 'welcome') {
+        this.callbacks.onAssignedSlot?.(msg.playerId);
+        return;
+      }
       if ('type' in msg) {
-        this.callbacks.onMessage(msg);
+        this.callbacks.onMessage(msg, 1);
       }
     });
 
     conn.on('close', () => {
       if (this.destroyed) return;
-      this.clearTimer();
-      const wasConnected = this.partnerWasConnected;
-      this.partnerWasConnected = false;
-      this.conn = null;
+      this.clearTimers();
+      const wasConnected = this.hostWasConnected;
+      this.hostWasConnected = false;
+      this.hostConn = null;
       if (wasConnected) {
-        this.callbacks.onPartnerDisconnect();
+        this.callbacks.onPartnerDisconnect(1);
       } else {
-        this.callbacks.onStatusChange('error', 'Partner closed the connection.');
+        this.callbacks.onStatusChange('error', 'Host closed the connection.');
       }
     });
 
     conn.on('error', () => {
       if (this.destroyed) return;
-      this.clearTimer();
-      if (this.partnerWasConnected) {
-        this.partnerWasConnected = false;
-        this.callbacks.onPartnerDisconnect();
+      this.clearTimers();
+      if (this.hostWasConnected) {
+        this.hostWasConnected = false;
+        this.callbacks.onPartnerDisconnect(1);
       } else {
         this.callbacks.onStatusChange('error', 'Failed to establish peer channel.');
       }
@@ -956,13 +1225,21 @@ export class OnlineSession {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.clearTimer();
+    this.clearTimers();
     try {
-      this.conn?.close();
+      this.hostConn?.close();
     } catch {
       // ignore
     }
-    this.conn = null;
+    this.hostConn = null;
+    for (const slot of this.guests.values()) {
+      try {
+        slot.conn.close();
+      } catch {
+        // ignore
+      }
+    }
+    this.guests.clear();
     try {
       this.peer?.destroy();
     } catch {

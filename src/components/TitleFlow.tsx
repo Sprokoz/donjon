@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -9,6 +9,9 @@ import {
   HERO_CLASSES,
   HeroClassId,
   LeaderboardEntry,
+  LobbyPlayerInfo,
+  PlayerId,
+  WEAPONS_CATALOG,
 } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
@@ -432,6 +435,19 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   );
 };
 
+function pingBadgeClass(ms: number | null): string {
+  if (ms === null) return 'text-slate-400 border-slate-700 bg-slate-900/70';
+  if (ms <= 70) return 'text-emerald-300 border-emerald-600/60 bg-emerald-950/50';
+  if (ms <= 140) return 'text-amber-300 border-amber-600/60 bg-amber-950/50';
+  return 'text-rose-300 border-rose-600/60 bg-rose-950/50';
+}
+
+function formatPingLabel(ms: number | null, isHostSlot = false): string {
+  if (isHostSlot && (ms === null || ms <= 1)) return 'HOST · 0 ms';
+  if (ms === null) return '-- ms';
+  return `${ms} ms`;
+}
+
 interface HeroSetupProps {
   coopMode: CoopMode;
   onSelectCoopMode: (m: CoopMode) => void;
@@ -442,15 +458,20 @@ interface HeroSetupProps {
   onChangeJoinInput: (val: string) => void;
   onlineStatus: OnlineConnectionStatus;
   onlineError: string | null;
+  lobbyRoster: LobbyPlayerInfo[];
+  localPlayerId: PlayerId;
+  localReady: boolean;
+  onToggleReady: () => void;
+  pingByPlayer: Record<number, number | null>;
   onHostCreateRoom: () => void;
   onGuestJoinRoom: () => void;
   onDisconnectOnline: () => void;
   difficulty: DifficultyKey;
   mode: GameMode;
-  playerColors: { 1: ColorOption; 2: ColorOption };
-  onSelectColor: (playerNum: 1 | 2, col: ColorOption) => void;
-  playerClasses: { 1: HeroClassId; 2: HeroClassId };
-  onSelectClass: (playerNum: 1 | 2, cls: HeroClassId) => void;
+  playerColors: Record<number, ColorOption>;
+  onSelectColor: (playerNum: PlayerId, col: ColorOption) => void;
+  playerClasses: Record<number, HeroClassId>;
+  onSelectClass: (playerNum: PlayerId, cls: HeroClassId) => void;
   isMuted: boolean;
   menuAudioBlocked: boolean;
   onToggleMute: () => void;
@@ -470,6 +491,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onChangeJoinInput,
   onlineStatus,
   onlineError,
+  lobbyRoster,
+  localPlayerId,
+  localReady,
+  onToggleReady,
+  pingByPlayer,
   onHostCreateRoom,
   onGuestJoinRoom,
   onDisconnectOnline,
@@ -491,8 +517,29 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
   const numPlayers: 1 | 2 = coopMode === 'solo' ? 1 : 2;
   const isOnline = coopMode === 'online';
+  const isOnlineCampaign = isOnline && mode === 'campaign';
   const isOnlineConnected = onlineStatus === 'connected';
-  const localEditablePid: 1 | 2 | null = !isOnline ? null : onlineRole === 'host' ? 1 : 2;
+  const maxOnlineSlots = isOnlineCampaign ? 5 : 2;
+
+  const connectedRoster = lobbyRoster.filter((r) => r.connected);
+  const connectedCount = connectedRoster.length;
+  const allConnectedReady = connectedCount > 0 && connectedRoster.every((r) => r.ready);
+  const notReadyPlayers = connectedRoster.filter((r) => !r.ready);
+
+  const canHostDeploy = !isOnline
+    ? true
+    : isOnlineCampaign
+    ? allConnectedReady
+    : connectedCount >= 2 && allConnectedReady;
+
+  const localPingMs =
+    onlineRole === 'host'
+      ? 0
+      : pingByPlayer[localPlayerId] ??
+        lobbyRoster.find((r) => r.id === localPlayerId)?.pingMs ??
+        null;
+
+  const localEditablePid: PlayerId | null = !isOnline ? null : localPlayerId;
 
   const copyText = (value: string, kind: 'code' | 'link') => {
     if (!value) return;
@@ -519,7 +566,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             <span>Back</span>
           </button>
           <h2 className="font-arcade text-xs sm:text-base text-white tracking-wider text-center truncate">
-            COMBAT FRAME LOADOUT
+            {isOnlineCampaign ? 'ONLINE CAMPAIGN LOBBY' : 'COMBAT FRAME LOADOUT'}
           </h2>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
@@ -570,7 +617,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           </div>
         </div>
 
-        {/* 1P / 2P Local / 2P Online Selector */}
+        {/* 1P / 2P Local / Online Co-op Selector */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
@@ -630,15 +677,17 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
               <Globe className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <div className="font-arcade text-xs text-white">2P ONLINE</div>
-              <div className="text-[11px] text-slate-400 mt-1 truncate">Play With Friends Online</div>
+              <div className="font-arcade text-xs text-white">ONLINE CO-OP</div>
+              <div className="text-[11px] text-slate-400 mt-1 truncate">
+                {mode === 'campaign' ? '1–5P Dungeon Campaign' : '2P Boss Rush'}
+              </div>
             </div>
           </button>
         </div>
 
-        {/* Online Room Bar */}
+        {/* Online Room Bar + Party Roster */}
         {isOnline && (
-          <div className="bg-black/80 border border-emerald-700/50 rounded-md p-4 space-y-3">
+          <div className="bg-black/80 border border-emerald-700/50 rounded-md p-4 space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 p-1 bg-slate-950 border border-slate-800 rounded-md">
                 <button
@@ -647,7 +696,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     soundEngine.playUiClick();
                     onSelectOnlineRole('host');
                   }}
-                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                     onlineRole === 'host'
                       ? 'bg-emerald-600 text-white'
                       : 'text-slate-400 hover:text-white'
@@ -661,7 +710,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     soundEngine.playUiClick();
                     onSelectOnlineRole('guest');
                   }}
-                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                  className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                     onlineRole === 'guest'
                       ? 'bg-cyan-600 text-white'
                       : 'text-slate-400 hover:text-white'
@@ -671,7 +720,20 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 text-xs font-mono-num">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono-num">
+                {/* Live Ping / ms Meter */}
+                {(onlineRole === 'host' || isOnlineConnected) && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-bold ${pingBadgeClass(
+                      localPingMs
+                    )}`}
+                    title="Live WebRTC Round-Trip Latency"
+                  >
+                    <Wifi className="w-3.5 h-3.5" />
+                    <span>{formatPingLabel(localPingMs, onlineRole === 'host')}</span>
+                  </span>
+                )}
+
                 <span
                   className={`w-2 h-2 rounded-full ${
                     isOnlineConnected
@@ -693,17 +755,21 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                   }
                 >
                   {onlineRole === 'host'
-                    ? isOnlineConnected
-                      ? 'Partner Joined · Ready to Deploy'
+                    ? isOnlineCampaign
+                      ? `Party ${connectedCount}/5 · ${DIFFICULTY_SETTINGS[difficulty].label}`
+                      : isOnlineConnected
+                      ? '2/2 Joined · Ready Check'
                       : onlineStatus === 'creating'
                       ? 'Opening room...'
                       : onlineStatus === 'waiting'
-                      ? 'Waiting for partner to join...'
+                      ? 'Waiting for partner (1/2)...'
                       : onlineStatus === 'error'
                       ? 'Room error'
                       : 'Preparing room...'
                     : isOnlineConnected
-                    ? `Connected · ${DIFFICULTY_SETTINGS[difficulty].label} · ${mode === 'boss_rush' ? 'Boss Rush' : 'Campaign'}`
+                    ? `Joined as P${localPlayerId} · ${DIFFICULTY_SETTINGS[difficulty].label} · ${
+                        mode === 'boss_rush' ? 'Boss Rush' : 'Campaign'
+                      }`
                     : onlineStatus === 'connecting'
                     ? 'Joining room...'
                     : onlineStatus === 'error'
@@ -729,7 +795,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       copyText(roomCode, 'code');
                     }}
                     disabled={!roomCode}
-                    className="px-3 py-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                    className="px-3 py-2 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 whitespace-nowrap"
                   >
                     {copiedType === 'code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedType === 'code' ? 'Copied Code' : 'Copy Code'}</span>
@@ -741,7 +807,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       copyText(getInviteLink(roomCode), 'link');
                     }}
                     disabled={!roomCode}
-                    className="px-3 py-2 rounded bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/60 text-xs text-emerald-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                    className="px-3 py-2 rounded bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/60 text-xs text-emerald-200 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 whitespace-nowrap"
                   >
                     {copiedType === 'link' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link2 className="w-3.5 h-3.5" />}
                     <span>{copiedType === 'link' ? 'Link Copied' : 'Copy Invite Link'}</span>
@@ -784,7 +850,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       soundEngine.playUiClick();
                       onGuestJoinRoom();
                     }}
-                    className="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer transition-colors"
+                    className="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
                   >
                     {onlineStatus === 'connecting' ? 'Connecting...' : 'Connect'}
                   </button>
@@ -795,11 +861,119 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       soundEngine.playUiClick();
                       onDisconnectOnline();
                     }}
-                    className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors"
+                    className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
                   >
                     Leave Room
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Connected Party Slots + Ping + Ready Roster (1–5P Campaign or 2P Boss Rush) */}
+            {(onlineRole === 'host' || isOnlineConnected) && (
+              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-mono-num text-slate-400">
+                  <span>
+                    PARTY ROSTER ({connectedCount}/{maxOnlineSlots} JOINED ·{' '}
+                    {isOnlineCampaign
+                      ? `${Math.round((1 + Math.max(0, connectedCount - 1) * 0.5) * 10) / 10}x MOBS`
+                      : '2P CO-OP'}
+                    )
+                  </span>
+                  <span>
+                    {allConnectedReady
+                      ? 'ALL PLAYERS READY'
+                      : `${notReadyPlayers.length} WAITING ON READY`}
+                  </span>
+                </div>
+
+                <div
+                  className={`grid gap-2 ${
+                    maxOnlineSlots >= 5
+                      ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'
+                      : 'grid-cols-1 sm:grid-cols-2'
+                  }`}
+                >
+                  {Array.from({ length: maxOnlineSlots }, (_, idx) => {
+                    const slotId = (idx + 1) as PlayerId;
+                    const info = lobbyRoster.find((r) => r.id === slotId && r.connected);
+                    if (!info) {
+                      return (
+                        <div
+                          key={slotId}
+                          className="p-2.5 rounded border border-dashed border-slate-800 bg-slate-950/40 flex flex-col justify-center gap-1 min-h-[68px]"
+                        >
+                          <div className="font-mono-num text-[10px] text-slate-600 font-bold">
+                            SLOT P{slotId} · OPEN
+                          </div>
+                          <div className="font-mono-num text-[10px] text-slate-600">
+                            Waiting for join...
+                          </div>
+                        </div>
+                      );
+                    }
+                    const isYou = info.id === localPlayerId;
+                    const clsInfo = HERO_CLASSES.find((c) => c.id === info.heroClass);
+                    const slotPing =
+                      info.isHost ? 0 : pingByPlayer[info.id] ?? info.pingMs ?? null;
+                    return (
+                      <div
+                        key={slotId}
+                        className={`p-2.5 rounded border flex flex-col justify-between gap-2 min-h-[68px] ${
+                          info.ready
+                            ? 'bg-emerald-950/20 border-emerald-500/60'
+                            : 'bg-slate-950/80 border-slate-700/80'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="w-3 h-3 rounded-full shrink-0 border border-white/60"
+                              style={{ backgroundColor: info.colorHex }}
+                            />
+                            <span className="font-arcade text-[10px] text-white truncate">
+                              P{info.id}
+                              {info.isHost ? ' HOST' : ''}
+                              {isYou ? ' ★' : ''}
+                            </span>
+                          </div>
+                          <span
+                            className={`px-1.5 py-0.5 rounded border font-mono-num text-[9px] font-bold shrink-0 ${pingBadgeClass(
+                              slotPing
+                            )}`}
+                          >
+                            {slotPing === null ? '--ms' : `${slotPing}ms`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="font-mono-num text-[10px] text-slate-400 truncate">
+                            {isOnlineCampaign ? 'Adventurer' : clsInfo?.name || 'HERO'}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold shrink-0 ${
+                              info.ready
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                                : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                            }`}
+                          >
+                            {info.ready ? (
+                              <>
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                <span>READY</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="w-2.5 h-2.5" />
+                                <span>WAIT</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -809,151 +983,345 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           </div>
         )}
 
-        {/* Player Class + Color Selection */}
-        <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
-          {([1, ...(numPlayers === 2 ? [2] : [])] as (1 | 2)[]).map((pid) => {
-            const selectedColor = playerColors[pid];
-            const selectedClassId = playerClasses[pid];
-            const selectedClass = HERO_CLASSES.find((c) => c.id === selectedClassId) || HERO_CLASSES[0];
-            const lockedForLocalUser = isOnline && localEditablePid !== pid;
-            const roleBadge = !isOnline
-              ? pid === 1
-                ? 'WASD · Space Dash · E Skill'
-                : 'Arrows · Enter Dash · / Skill'
-              : localEditablePid === pid
-              ? 'YOUR FRAME · WASD/Arrows or Touch'
-              : pid === 1
-              ? 'HOST FRAME'
-              : isOnlineConnected
-              ? 'PARTNER FRAME'
-              : 'WAITING FOR PARTNER';
-
-            return (
-              <div
-                key={pid}
-                className={`p-4 rounded-md bg-black/75 border space-y-4 ${
-                  lockedForLocalUser ? 'border-slate-800/80 opacity-90' : 'border-slate-800'
-                }`}
-              >
+        {/* CAMPAIGN ONLINE: Color-Only + Ready Check + Dungeon Rules (NO Hero Class Selection) */}
+        {isOnlineCampaign ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left: Your Color Swatch & Ready Toggle */}
+            <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-slate-800 flex flex-col justify-between gap-4">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="font-arcade text-xs shrink-0" style={{ color: selectedColor.hex }}>
-                      PLAYER {pid}
+                    <span
+                      className="font-arcade text-xs shrink-0"
+                      style={{ color: (playerColors[localPlayerId] || COLOR_OPTIONS[0]).hex }}
+                    >
+                      PLAYER {localPlayerId} (YOU)
                     </span>
                     <span className="text-slate-600">·</span>
-                    <span className="font-mono-num text-xs text-white font-semibold truncate">
-                      {selectedClass.name}
+                    <span className="font-mono-num text-xs text-stone-200 font-semibold truncate">
+                      ADVENTURER
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono-num text-slate-400 shrink-0 truncate">
-                    {roleBadge}
+                  <span className="font-mono-num text-[10px] text-amber-300/90 shrink-0">
+                    COLOR PICK ONLY
                   </span>
                 </div>
 
-                {/* 4 Hero Class Selector */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {HERO_CLASSES.map((cls) => {
-                    const active = cls.id === selectedClassId;
-                    return (
-                      <button
-                        key={cls.id}
-                        type="button"
-                        disabled={lockedForLocalUser}
-                        onClick={() => {
-                          if (lockedForLocalUser) return;
-                          soundEngine.playUiClick();
-                          onSelectClass(pid, cls.id);
-                        }}
-                        className={`p-2.5 rounded border text-left transition-all ${
-                          lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
-                        } ${
-                          active
-                            ? 'bg-slate-900 border-white shadow-sm'
-                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-600'
-                        }`}
-                        style={{ borderColor: active ? cls.accent : undefined }}
-                      >
-                        <div className="font-arcade text-[10px] truncate" style={{ color: cls.accent }}>
-                          {cls.name}
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 truncate">{cls.role}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Selected Class Passive + Skill Breakdown */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs bg-slate-950/90 border border-slate-800/90 rounded p-3">
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-mono-num text-slate-400 uppercase">
-                      Passive · {selectedClass.passiveName}
-                    </div>
-                    <p className="text-slate-200 leading-snug">{selectedClass.passiveDesc}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-mono-num uppercase flex items-center justify-between" style={{ color: selectedClass.accent }}>
-                      <span>Skill · {selectedClass.skillName}</span>
-                      <span>{selectedClass.skillCooldown}s CD</span>
-                    </div>
-                    <p className="text-slate-200 leading-snug">{selectedClass.skillDesc}</p>
-                  </div>
-                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Classes are locked out before entering the dungeon. Pick your armor color below — your party will discover exclusive Weapons, Skills, and Gold inside dungeon chests and shops.
+                </p>
 
                 {/* Color Swatches */}
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-slate-400 shrink-0 font-mono-num">ARMOR COAT</span>
-                  <div className="grid grid-cols-8 gap-1.5 flex-1">
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-[11px] font-mono-num text-slate-300">
+                    <span>ARMOR COAT</span>
+                    <span style={{ color: (playerColors[localPlayerId] || COLOR_OPTIONS[0]).hex }}>
+                      {(playerColors[localPlayerId] || COLOR_OPTIONS[0]).name}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-8 gap-2">
                     {COLOR_OPTIONS.map((col) => {
-                      const isSel = selectedColor.hex === col.hex;
+                      const activeCol = playerColors[localPlayerId] || COLOR_OPTIONS[0];
+                      const isSel = activeCol.hex === col.hex;
+                      const lockedGuest = onlineRole === 'guest' && !isOnlineConnected;
                       return (
                         <button
                           key={col.hex}
                           type="button"
-                          disabled={lockedForLocalUser}
+                          disabled={lockedGuest}
                           title={col.name}
                           onClick={() => {
-                            if (lockedForLocalUser) return;
+                            if (lockedGuest) return;
                             soundEngine.playUiClick();
-                            onSelectColor(pid, col);
+                            onSelectColor(localPlayerId, col);
                           }}
-                          className={`h-7 rounded border-2 transition-transform ${
-                            lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                          className={`h-8 rounded border-2 transition-transform ${
+                            lockedGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                           } ${
-                            isSel ? 'border-white scale-105' : 'border-transparent opacity-70 hover:opacity-100'
+                            isSel ? 'border-white scale-105' : 'border-transparent opacity-75 hover:opacity-100'
                           }`}
                           style={{
                             backgroundColor: col.hex,
-                            boxShadow: isSel ? `0 0 10px ${col.hex}` : undefined,
+                            boxShadow: isSel ? `0 0 12px ${col.hex}` : undefined,
                           }}
-                          aria-label={`Player ${pid} ${col.name}`}
+                          aria-label={`Player ${localPlayerId} ${col.name}`}
                         />
                       );
                     })}
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
+
+              {/* Player Ready Button */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <button
+                  type="button"
+                  disabled={onlineRole === 'guest' && !isOnlineConnected}
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onToggleReady();
+                  }}
+                  className={`w-full py-3.5 px-4 rounded-md border font-arcade text-xs tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
+                    localReady
+                      ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                      : 'bg-amber-600/90 hover:bg-amber-500 border-amber-400 text-white'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{localReady ? 'READY! (CLICK TO UNREADY)' : 'CLICK TO MARK READY'}</span>
+                </button>
+                <p className="text-center font-mono-num text-[11px] text-slate-400">
+                  {allConnectedReady
+                    ? 'Everyone is Ready! Host may now deploy the expedition.'
+                    : 'Host can launch once all joined players mark Ready.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Soul Knight Dungeon Campaign Overview */}
+            <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-slate-800 space-y-3.5">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div className="flex items-center gap-2 text-amber-300 font-souls text-sm font-bold tracking-wider">
+                  <Compass className="w-4 h-4 text-amber-400" />
+                  <span>SOUL KNIGHT EXPEDITION RULES</span>
+                </div>
+                <span className="font-mono-num text-[10px] text-emerald-300">1–5P SCALED</span>
+              </div>
+
+              <div className="space-y-2.5 text-xs text-slate-300">
+                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                  <div className="font-semibold text-white">Larger Arena &amp; 1.5x Horde Scaling</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    Start in a sprawling 1220×860 combat room with dynamic Boss-Style Camera. Each teammate adds +50% enemies (up to 3.0x at 5P).
+                  </div>
+                </div>
+                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                  <div className="font-semibold text-amber-200 flex items-center gap-1.5">
+                    <PackageOpen className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Last-Mob Chests &amp; Exclusive Role Weapons</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    The final enemy drops a Chest containing shared <strong className="text-amber-300">Coins</strong> (split equally) OR a single-player <strong className="text-cyan-300">Weapon</strong>. Coordinate who takes Tank, Healer, Assassin, Warrior, or Ranger!
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+                  {WEAPONS_CATALOG.map((w) => (
+                    <div
+                      key={w.id}
+                      className="p-1.5 rounded bg-black/80 border border-slate-800 text-center"
+                      title={`${w.name}: ${w.skillDesc}`}
+                    >
+                      <div className="font-mono-num text-[10px] font-bold" style={{ color: w.accent }}>
+                        {w.shortTag}
+                      </div>
+                      <div className="text-[9px] text-slate-400 truncate mt-0.5">
+                        {w.skillName.split(' ')[0]}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                  <div className="font-semibold text-cyan-200">4 Directional Gates (Top · Bottom · Left · Right)</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    After clearing a room, step together into one of 4 random Gates leading to Combat Rooms, Merchant Shops, Treasure Vaults, or Boss Sanctums!
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* SOLO, 2P LOCAL, OR 2P ONLINE BOSS RUSH: Classic Class + Color Selection (+ Online Ready Button) */
+          <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+            {([1, ...(numPlayers === 2 ? [2] : [])] as PlayerId[]).map((pid) => {
+              const selectedColor = playerColors[pid] || COLOR_OPTIONS[0];
+              const selectedClassId = playerClasses[pid] || 'ronin';
+              const selectedClass = HERO_CLASSES.find((c) => c.id === selectedClassId) || HERO_CLASSES[0];
+              const lockedForLocalUser = isOnline && localEditablePid !== pid;
+              const rosterEntry = lobbyRoster.find((r) => r.id === pid);
+              const roleBadge = !isOnline
+                ? pid === 1
+                  ? 'WASD · Space Dash · E Skill'
+                  : 'Arrows · Enter Dash · / Skill'
+                : localEditablePid === pid
+                ? 'YOUR FRAME · WASD/Arrows or Touch'
+                : pid === 1
+                ? 'HOST FRAME'
+                : isOnlineConnected
+                ? 'PARTNER FRAME'
+                : 'WAITING FOR PARTNER';
+
+              return (
+                <div
+                  key={pid}
+                  className={`p-4 rounded-md bg-black/75 border space-y-4 ${
+                    lockedForLocalUser ? 'border-slate-800/80 opacity-90' : 'border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="font-arcade text-xs shrink-0" style={{ color: selectedColor.hex }}>
+                        PLAYER {pid}
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span className="font-mono-num text-xs text-white font-semibold truncate">
+                        {selectedClass.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isOnline && rosterEntry?.connected && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold ${
+                            rosterEntry.ready
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                              : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                          }`}
+                        >
+                          {rosterEntry.ready ? 'READY' : 'WAIT'}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-mono-num text-slate-400 truncate">
+                        {roleBadge}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 4 Hero Class Selector */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {HERO_CLASSES.map((cls) => {
+                      const active = cls.id === selectedClassId;
+                      return (
+                        <button
+                          key={cls.id}
+                          type="button"
+                          disabled={lockedForLocalUser}
+                          onClick={() => {
+                            if (lockedForLocalUser) return;
+                            soundEngine.playUiClick();
+                            onSelectClass(pid, cls.id);
+                          }}
+                          className={`p-2.5 rounded border text-left transition-all ${
+                            lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                          } ${
+                            active
+                              ? 'bg-slate-900 border-white shadow-sm'
+                              : 'bg-slate-950/60 border-slate-800 hover:border-slate-600'
+                          }`}
+                          style={{ borderColor: active ? cls.accent : undefined }}
+                        >
+                          <div className="font-arcade text-[10px] truncate" style={{ color: cls.accent }}>
+                            {cls.name}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-1 truncate">{cls.role}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected Class Passive + Skill Breakdown */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs bg-slate-950/90 border border-slate-800/90 rounded p-3">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-mono-num text-slate-400 uppercase">
+                        Passive · {selectedClass.passiveName}
+                      </div>
+                      <p className="text-slate-200 leading-snug">{selectedClass.passiveDesc}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-mono-num uppercase flex items-center justify-between" style={{ color: selectedClass.accent }}>
+                        <span>Skill · {selectedClass.skillName}</span>
+                        <span>{selectedClass.skillCooldown}s CD</span>
+                      </div>
+                      <p className="text-slate-200 leading-snug">{selectedClass.skillDesc}</p>
+                    </div>
+                  </div>
+
+                  {/* Color Swatches */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-slate-400 shrink-0 font-mono-num">ARMOR COAT</span>
+                    <div className="grid grid-cols-8 gap-1.5 flex-1">
+                      {COLOR_OPTIONS.map((col) => {
+                        const isSel = selectedColor.hex === col.hex;
+                        return (
+                          <button
+                            key={col.hex}
+                            type="button"
+                            disabled={lockedForLocalUser}
+                            title={col.name}
+                            onClick={() => {
+                              if (lockedForLocalUser) return;
+                              soundEngine.playUiClick();
+                              onSelectColor(pid, col);
+                            }}
+                            className={`h-7 rounded border-2 transition-transform ${
+                              lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                            } ${
+                              isSel ? 'border-white scale-105' : 'border-transparent opacity-70 hover:opacity-100'
+                            }`}
+                            style={{
+                              backgroundColor: col.hex,
+                              boxShadow: isSel ? `0 0 10px ${col.hex}` : undefined,
+                            }}
+                            aria-label={`Player ${pid} ${col.name}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Ready Button for Local Online Player in Online Boss Rush */}
+                  {isOnline && localEditablePid === pid && (
+                    <button
+                      type="button"
+                      disabled={onlineRole === 'guest' && !isOnlineConnected}
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onToggleReady();
+                      }}
+                      className={`w-full py-2.5 px-3 rounded border font-arcade text-[11px] tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
+                        localReady
+                          ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white'
+                          : 'bg-amber-600/90 hover:bg-amber-500 border-amber-400 text-white'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{localReady ? 'READY! (CLICK TO UNREADY)' : 'MARK READY'}</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {isOnline && onlineRole === 'guest' ? (
           <div className="w-full py-4 px-4 rounded-md bg-slate-900/90 border border-cyan-700/50 text-center font-arcade text-xs text-cyan-200 tracking-wider">
-            {isOnlineConnected
-              ? 'CONNECTED · WAITING FOR HOST TO DEPLOY'
-              : 'ENTER A ROOM CODE TO JOIN AN ONLINE MATCH'}
+            {!isOnlineConnected
+              ? 'ENTER A ROOM CODE TO JOIN AN ONLINE MATCH'
+              : !localReady
+              ? 'CLICK READY SO THE HOST CAN DEPLOY'
+              : allConnectedReady
+              ? 'ALL READY · WAITING FOR HOST TO DEPLOY'
+              : `READY! WAITING ON ${notReadyPlayers.length} PLAYER(S)...`}
           </div>
         ) : (
           <button
             type="button"
-            disabled={isOnline && !isOnlineConnected}
+            disabled={!canHostDeploy}
             onClick={() => {
               soundEngine.unlock();
               soundEngine.playBoonSelect();
               onStart();
             }}
-            className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)]"
+            className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)] whitespace-nowrap"
           >
-            {isOnline && !isOnlineConnected ? 'WAITING FOR PARTNER TO JOIN...' : 'DEPLOY INTO ARENA'}
+            {isOnline && !isOnlineCampaign && connectedCount < 2
+              ? 'WAITING FOR PARTNER TO JOIN...'
+              : isOnline && !allConnectedReady
+              ? !localReady
+                ? 'MARK YOURSELF READY TO DEPLOY'
+                : `WAITING ON ${notReadyPlayers.length} PLAYER(S) TO READY...`
+              : isOnlineCampaign
+              ? `DEPLOY ${connectedCount}P EXPEDITION`
+              : 'DEPLOY INTO ARENA'}
           </button>
         )}
       </div>

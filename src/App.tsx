@@ -63,6 +63,8 @@ import {
   HeroClassId,
   HudSnapshot,
   LeaderboardEntry,
+  LobbyPlayerInfo,
+  PlayerId,
   RunSummary,
   StageKey,
 } from './game/types';
@@ -124,16 +126,31 @@ export default function App() {
   const [joinInput, setJoinInput] = useState<string>(initialRoomFromUrl.current || '');
   const [onlineStatus, setOnlineStatus] = useState<OnlineConnectionStatus>('idle');
   const [onlineError, setOnlineError] = useState<string | null>(null);
-  const [pausedBy, setPausedBy] = useState<1 | 2 | undefined>(undefined);
+  const [pausedBy, setPausedBy] = useState<PlayerId | undefined>(undefined);
   const [disconnectModal, setDisconnectModal] = useState<{ isHost: boolean } | null>(null);
 
-  const [playerColors, setPlayerColors] = useState<{ 1: ColorOption; 2: ColorOption }>({
+  const [localPlayerId, setLocalPlayerId] = useState<PlayerId>(1);
+  const [localReady, setLocalReady] = useState<boolean>(false);
+  const [connectedGuestIds, setConnectedGuestIds] = useState<PlayerId[]>([]);
+  const [guestConfigs, setGuestConfigs] = useState<
+    Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>
+  >({});
+  const [guestLobbyRoster, setGuestLobbyRoster] = useState<LobbyPlayerInfo[]>([]);
+  const [pingByPlayer, setPingByPlayer] = useState<Record<number, number | null>>({ 1: 0 });
+
+  const [playerColors, setPlayerColors] = useState<Record<number, ColorOption>>({
     1: COLOR_OPTIONS[0],
     2: COLOR_OPTIONS[1],
+    3: COLOR_OPTIONS[2],
+    4: COLOR_OPTIONS[3],
+    5: COLOR_OPTIONS[4],
   });
-  const [playerClasses, setPlayerClasses] = useState<{ 1: HeroClassId; 2: HeroClassId }>({
+  const [playerClasses, setPlayerClasses] = useState<Record<number, HeroClassId>>({
     1: 'ronin',
     2: 'phantom',
+    3: 'vanguard',
+    4: 'volt',
+    5: 'ronin',
   });
 
   const [controls, setControls] = useState<ControlsConfig>(loadSavedControls);
@@ -163,14 +180,21 @@ export default function App() {
     return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
   });
 
-  const numPlayers: 1 | 2 = coopMode === 'solo' ? 1 : 2;
+  const numPlayers: number =
+    coopMode === 'solo'
+      ? 1
+      : coopMode === 'local'
+      ? 2
+      : onlineLobbyRole === 'host'
+      ? 1 + connectedGuestIds.length
+      : Math.max(1, guestLobbyRoster.filter((r) => r.connected).length);
   const activeOnlineRole: OnlineRole = coopMode === 'online' ? onlineLobbyRole : 'none';
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const runtimeRef = useRef<GameRuntime | null>(null);
   const guestDisplayRtRef = useRef<GameRuntime | null>(null);
   const latestGuestSnapRef = useRef<SyncedRuntimeSnapshot | null>(null);
-  const remoteP2InputRef = useRef<TouchInputState>({ x: 0, y: 0, dash: false, ability: false });
+  const remoteInputsRef = useRef<Record<number, TouchInputState>>({});
   const pendingSfxRef = useRef<SfxSyncEvent[]>([]);
 
   const keysRef = useRef<Record<string, boolean>>({});
@@ -183,12 +207,16 @@ export default function App() {
   const modeRef = useRef<GameMode>(mode);
   const playerClassesRef = useRef(playerClasses);
   const playerColorsRef = useRef(playerColors);
+  const localPlayerIdRef = useRef<PlayerId>(localPlayerId);
+  const localReadyRef = useRef<boolean>(localReady);
+  const guestConfigsRef = useRef(guestConfigs);
+  const pingByPlayerRef = useRef(pingByPlayer);
 
   const onlineSessionRef = useRef<OnlineSession | null>(null);
   const stageTransitionTimerRef = useRef<number | null>(null);
   const fullscreenNoteTimerRef = useRef<number | null>(null);
-  const hostMessageHandlerRef = useRef<(msg: OnlineMessage) => void>(() => {});
-  const guestMessageHandlerRef = useRef<(msg: OnlineMessage) => void>(() => {});
+  const hostMessageHandlerRef = useRef<(msg: OnlineMessage, fromPlayerId: PlayerId) => void>(() => {});
+  const guestMessageHandlerRef = useRef<(msg: OnlineMessage, fromPlayerId: PlayerId) => void>(() => {});
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -217,6 +245,22 @@ export default function App() {
   useEffect(() => {
     playerColorsRef.current = playerColors;
   }, [playerColors]);
+
+  useEffect(() => {
+    localPlayerIdRef.current = localPlayerId;
+  }, [localPlayerId]);
+
+  useEffect(() => {
+    localReadyRef.current = localReady;
+  }, [localReady]);
+
+  useEffect(() => {
+    guestConfigsRef.current = guestConfigs;
+  }, [guestConfigs]);
+
+  useEffect(() => {
+    pingByPlayerRef.current = pingByPlayer;
+  }, [pingByPlayer]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -322,9 +366,15 @@ export default function App() {
     }
     soundEngine.setSfxBroadcastHook(null);
     pendingSfxRef.current = [];
-    remoteP2InputRef.current = { x: 0, y: 0, dash: false, ability: false };
+    remoteInputsRef.current = {};
     latestGuestSnapRef.current = null;
     guestDisplayRtRef.current = null;
+    setConnectedGuestIds([]);
+    setGuestConfigs({});
+    setGuestLobbyRoster([]);
+    setLocalReady(false);
+    setLocalPlayerId(1);
+    setPingByPlayer({ 1: 0 });
     setOnlineStatus('idle');
     setOnlineError(null);
     setPausedBy(undefined);
@@ -430,6 +480,7 @@ export default function App() {
     }
 
     const isOnlineHost = coopMode === 'online' && onlineLobbyRole === 'host';
+    const isOnlineCampaign = isOnlineHost && mode === 'campaign';
     if (isOnlineHost) {
       pendingSfxRef.current = [];
       soundEngine.setSfxBroadcastHook((ev) => {
@@ -439,21 +490,46 @@ export default function App() {
       soundEngine.setSfxBroadcastHook(null);
     }
 
+    const guestIds = isOnlineHost ? onlineSessionRef.current?.getConnectedGuestIds() || [] : [];
+    const activePlayerIds: PlayerId[] = isOnlineHost
+      ? ([1, ...guestIds] as PlayerId[])
+      : coopMode === 'local'
+      ? [1, 2]
+      : [1];
+
+    const resolvedColors: Record<number, string> = {};
+    const resolvedClasses: Record<number, HeroClassId> = {};
+    for (let i = 1; i <= 5; i++) {
+      const pid = i as PlayerId;
+      resolvedColors[pid] =
+        (pid !== 1 && isOnlineHost && guestConfigs[pid]?.colorHex) ||
+        playerColors[pid]?.hex ||
+        COLOR_OPTIONS[i - 1]?.hex ||
+        '#ef4444';
+      resolvedClasses[pid] =
+        (pid !== 1 && isOnlineHost && guestConfigs[pid]?.heroClass) ||
+        playerClasses[pid] ||
+        'ronin';
+    }
+
     const rt = createInitialGameRuntime({
       difficulty,
       mode: mode === 'tutorial' ? 'campaign' : mode,
-      numPlayers,
-      playerColors: {
-        1: playerColors[1].hex,
-        2: playerColors[2].hex,
-      },
-      playerClasses,
+      numPlayers: activePlayerIds.length,
+      isOnlineCampaign,
+      activePlayerIds,
+      playerColors: resolvedColors,
+      playerClasses: resolvedClasses,
       cheats: isOnlineHost ? DEFAULT_CHEATS : cheats,
     });
+    rt.pingByPlayer = isOnlineHost
+      ? onlineSessionRef.current?.getPingByPlayer() || { 1: 0 }
+      : { 1: 0 };
+
     runtimeRef.current = rt;
     guestDisplayRtRef.current = null;
     latestGuestSnapRef.current = null;
-    remoteP2InputRef.current = { x: 0, y: 0, dash: false, ability: false };
+    remoteInputsRef.current = {};
     keysRef.current = {};
     touchInputRef.current = { x: 0, y: 0, dash: false, ability: false };
     setBoonDraftState(null);
@@ -473,7 +549,7 @@ export default function App() {
         sfx,
       });
     }
-  }, [coopMode, onlineLobbyRole, difficulty, mode, numPlayers, playerColors, playerClasses, cheats]);
+  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats]);
 
   const beginTutorial = useCallback(() => {
     soundEngine.unlock();
@@ -499,39 +575,116 @@ export default function App() {
     setScreen('PLAYING');
   }, [playerColors, playerClasses]);
 
-  const sendHostLoadout = useCallback(() => {
-    if (onlineSessionRef.current?.getRole() !== 'host' || !onlineSessionRef.current.isConnected()) return;
-    onlineSessionRef.current.send({
-      type: 'loadout',
-      payload: {
-        heroClass: playerClassesRef.current[1],
-        colorHex: playerColorsRef.current[1].hex,
-        difficulty: difficultyRef.current,
-        mode: modeRef.current,
-      },
-    });
-  }, []);
+  const buildHostRoster = useCallback(
+    (
+      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>,
+      overridePings?: Record<number, number | null>
+    ): LobbyPlayerInfo[] => {
+      const session = onlineSessionRef.current;
+      const guestIds = session ? session.getConnectedGuestIds() : [];
+      const gCfg = overrideGuests ?? guestConfigsRef.current;
+      const pings = overridePings ?? pingByPlayerRef.current;
 
-  const sendGuestLoadout = useCallback(() => {
-    if (onlineSessionRef.current?.getRole() !== 'guest' || !onlineSessionRef.current.isConnected()) return;
-    onlineSessionRef.current.send({
-      type: 'loadout',
-      payload: {
-        heroClass: playerClassesRef.current[2],
-        colorHex: playerColorsRef.current[2].hex,
-      },
+      const roster: LobbyPlayerInfo[] = [
+        {
+          id: 1,
+          connected: true,
+          isHost: true,
+          colorHex: playerColorsRef.current[1]?.hex || COLOR_OPTIONS[0].hex,
+          heroClass: playerClassesRef.current[1] || 'ronin',
+          ready: localReadyRef.current,
+          pingMs: 0,
+        },
+      ];
+      for (const gid of guestIds) {
+        const cfg = gCfg[gid];
+        roster.push({
+          id: gid,
+          connected: true,
+          isHost: false,
+          colorHex: cfg?.colorHex || COLOR_OPTIONS[gid - 1]?.hex || '#22d3ee',
+          heroClass: cfg?.heroClass || 'phantom',
+          ready: Boolean(cfg?.ready),
+          pingMs: pings[gid] ?? null,
+        });
+      }
+      return roster;
+    },
+    []
+  );
+
+  const broadcastHostLobbyState = useCallback(
+    (
+      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>,
+      overridePings?: Record<number, number | null>
+    ) => {
+      const session = onlineSessionRef.current;
+      if (!session || session.getRole() !== 'host') return;
+      const maxPlayers = modeRef.current === 'campaign' ? 5 : 2;
+      session.setMaxPlayers(maxPlayers);
+      const roster = buildHostRoster(overrideGuests, overridePings);
+      if (session.isConnected()) {
+        session.send({
+          type: 'lobby_state',
+          roster,
+          difficulty: difficultyRef.current,
+          mode: modeRef.current,
+          maxPlayers,
+        });
+      }
+    },
+    [buildHostRoster]
+  );
+
+  const sendGuestConfig = useCallback(() => {
+    const session = onlineSessionRef.current;
+    if (!session || session.getRole() !== 'guest' || !session.isConnected()) return;
+    const pid = localPlayerIdRef.current;
+    const colHex = playerColorsRef.current[pid]?.hex || COLOR_OPTIONS[Math.max(0, pid - 1)]?.hex || '#22d3ee';
+    const cls = playerClassesRef.current[pid] || 'phantom';
+    session.send({
+      type: 'guest_config',
+      colorHex: colHex,
+      heroClass: cls,
+      ready: localReadyRef.current,
     });
   }, []);
 
   useEffect(() => {
-    hostMessageHandlerRef.current = (msg: OnlineMessage) => {
-      if (msg.type === 'loadout') {
+    hostMessageHandlerRef.current = (msg: OnlineMessage, fromPlayerId: PlayerId) => {
+      if (msg.type === 'guest_config') {
+        const matchedColor = COLOR_OPTIONS.find((c) => c.hex === msg.colorHex) || COLOR_OPTIONS[fromPlayerId - 1] || COLOR_OPTIONS[1];
+        const nextGuests = {
+          ...guestConfigsRef.current,
+          [fromPlayerId]: {
+            colorHex: matchedColor.hex,
+            heroClass: msg.heroClass,
+            ready: msg.ready,
+          },
+        };
+        guestConfigsRef.current = nextGuests;
+        setGuestConfigs(nextGuests);
+        setPlayerClasses((prev) => ({ ...prev, [fromPlayerId]: msg.heroClass }));
+        setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
+        broadcastHostLobbyState(nextGuests);
+      } else if (msg.type === 'loadout') {
         const matchedColor =
-          COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[2];
-        setPlayerClasses((prev) => ({ ...prev, 2: msg.payload.heroClass }));
-        setPlayerColors((prev) => ({ ...prev, 2: matchedColor }));
+          COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[fromPlayerId] || COLOR_OPTIONS[1];
+        const nextGuests = {
+          ...guestConfigsRef.current,
+          [fromPlayerId]: {
+            colorHex: matchedColor.hex,
+            heroClass: msg.payload.heroClass,
+            ready: Boolean(msg.payload.ready),
+          },
+        };
+        guestConfigsRef.current = nextGuests;
+        setGuestConfigs(nextGuests);
+        setPlayerClasses((prev) => ({ ...prev, [fromPlayerId]: msg.payload.heroClass }));
+        setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
+        broadcastHostLobbyState(nextGuests);
       } else if (msg.type === 'input') {
-        remoteP2InputRef.current = msg.input;
+        remoteInputsRef.current[fromPlayerId] = msg.input;
       } else if (msg.type === 'cmd') {
         if (msg.action === 'skip_intro') {
           const rt = runtimeRef.current;
@@ -541,9 +694,9 @@ export default function App() {
           }
         } else if (msg.action === 'pause') {
           if (screenRef.current === 'PLAYING') {
-            setPausedBy(2);
+            setPausedBy(fromPlayerId);
             setScreen('PAUSED');
-            onlineSessionRef.current?.send({ type: 'screen', screen: 'PAUSED', pausedBy: 2 });
+            onlineSessionRef.current?.send({ type: 'screen', screen: 'PAUSED', pausedBy: fromPlayerId });
           }
         } else if (msg.action === 'resume') {
           if (screenRef.current === 'PAUSED') {
@@ -553,14 +706,44 @@ export default function App() {
           }
         } else if (msg.action === 'leave') {
           if (screenRef.current !== 'HERO_SETUP' && screenRef.current !== 'TITLE_MENU') {
-            setDisconnectModal({ isHost: true });
+            const rt = runtimeRef.current;
+            if (rt) {
+              const slot = rt.players.find((p) => p.id === fromPlayerId);
+              if (slot) {
+                slot.state = 'spectator';
+                slot.hasKnife = false;
+                rt.knives = rt.knives.filter((k) => k.owner !== fromPlayerId);
+              }
+              const aliveOrDown = rt.players.filter((p) => p.state !== 'spectator').length;
+              rt.numPlayers = Math.max(1, aliveOrDown);
+            }
+            const remaining = onlineSessionRef.current?.getConnectedGuestIds().filter((id) => id !== fromPlayerId) || [];
+            if (remaining.length === 0) {
+              setDisconnectModal({ isHost: true });
+            }
           }
         }
       }
     };
 
     guestMessageHandlerRef.current = (msg: OnlineMessage) => {
-      if (msg.type === 'loadout') {
+      if (msg.type === 'lobby_state') {
+        setGuestLobbyRoster(msg.roster);
+        setDifficulty(msg.difficulty);
+        setMode(msg.mode);
+        const pingMap: Record<number, number | null> = {};
+        const colMap: Record<number, ColorOption> = { ...playerColorsRef.current };
+        const clsMap: Record<number, HeroClassId> = { ...playerClassesRef.current };
+        msg.roster.forEach((entry) => {
+          pingMap[entry.id] = entry.pingMs;
+          const foundCol = COLOR_OPTIONS.find((c) => c.hex === entry.colorHex);
+          if (foundCol) colMap[entry.id] = foundCol;
+          clsMap[entry.id] = entry.heroClass;
+        });
+        setPingByPlayer(pingMap);
+        setPlayerColors(colMap);
+        setPlayerClasses(clsMap);
+      } else if (msg.type === 'loadout') {
         const matchedColor =
           COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[1];
         setPlayerClasses((prev) => ({ ...prev, 1: msg.payload.heroClass }));
@@ -569,6 +752,9 @@ export default function App() {
         if (msg.payload.mode) setMode(msg.payload.mode);
       } else if (msg.type === 'sync') {
         latestGuestSnapRef.current = msg.snap;
+        if (msg.snap.pingByPlayer) {
+          setPingByPlayer(msg.snap.pingByPlayer);
+        }
         if (msg.sfx && msg.sfx.length > 0) {
           msg.sfx.forEach((ev) => soundEngine.replaySfxEvent(ev));
         }
@@ -607,31 +793,86 @@ export default function App() {
     const code = generateRoomCode();
     setRoomCode(code);
     setOnlineError(null);
+    setLocalPlayerId(1);
+    setLocalReady(false);
 
-    const session = new OnlineSession('host', code, {
-      onStatusChange: (status, err) => {
-        setOnlineStatus(status);
-        setOnlineError(err || null);
-        if (status === 'connected') {
-          sendHostLoadout();
-        }
+    const maxP = modeRef.current === 'campaign' ? 5 : 2;
+    const session = new OnlineSession(
+      'host',
+      code,
+      {
+        onStatusChange: (status, err) => {
+          setOnlineStatus(status);
+          setOnlineError(err || null);
+        },
+        onGuestJoin: (playerId) => {
+          const curSession = onlineSessionRef.current;
+          setConnectedGuestIds(curSession ? curSession.getConnectedGuestIds() : [playerId]);
+          const defaultCol = COLOR_OPTIONS[playerId - 1]?.hex || '#22d3ee';
+          const nextGuests = {
+            ...guestConfigsRef.current,
+            [playerId]: {
+              colorHex: defaultCol,
+              heroClass: (['ronin', 'phantom', 'vanguard', 'volt', 'ronin'][playerId - 1] || 'phantom') as HeroClassId,
+              ready: false,
+            },
+          };
+          guestConfigsRef.current = nextGuests;
+          setGuestConfigs(nextGuests);
+          broadcastHostLobbyState(nextGuests);
+        },
+        onPingUpdate: (pings) => {
+          pingByPlayerRef.current = pings;
+          setPingByPlayer(pings);
+          if (runtimeRef.current) {
+            runtimeRef.current.pingByPlayer = pings;
+          }
+          if (screenRef.current === 'HERO_SETUP') {
+            broadcastHostLobbyState(undefined, pings);
+          }
+        },
+        onMessage: (msg, fromId) => hostMessageHandlerRef.current(msg, fromId),
+        onPartnerDisconnect: (disconnectedPlayerId) => {
+          const curSession = onlineSessionRef.current;
+          const remaining = curSession ? curSession.getConnectedGuestIds() : [];
+          setConnectedGuestIds(remaining);
+
+          if (disconnectedPlayerId !== undefined) {
+            delete remoteInputsRef.current[disconnectedPlayerId];
+            const nextGuests = { ...guestConfigsRef.current };
+            delete nextGuests[disconnectedPlayerId];
+            guestConfigsRef.current = nextGuests;
+            setGuestConfigs(nextGuests);
+          }
+
+          if (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP') {
+            const rt = runtimeRef.current;
+            if (rt && disconnectedPlayerId !== undefined) {
+              const slot = rt.players.find((p) => p.id === disconnectedPlayerId);
+              if (slot) {
+                slot.state = 'spectator';
+                slot.hasKnife = false;
+                rt.knives = rt.knives.filter((k) => k.owner !== disconnectedPlayerId);
+              }
+              rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+            }
+            if (remaining.length === 0) {
+              setDisconnectModal({ isHost: true });
+              soundEngine.setSfxBroadcastHook(null);
+            }
+          } else {
+            if (remaining.length === 0) {
+              setOnlineStatus('waiting');
+              setOnlineError('Player disconnected. Waiting for players to join...');
+            }
+            broadcastHostLobbyState();
+          }
+        },
       },
-      onMessage: (msg) => hostMessageHandlerRef.current(msg),
-      onPartnerDisconnect: () => {
-        if (
-          screenRef.current !== 'TITLE_MENU' &&
-          screenRef.current !== 'HERO_SETUP'
-        ) {
-          setDisconnectModal({ isHost: true });
-          soundEngine.setSfxBroadcastHook(null);
-        } else {
-          setOnlineStatus('waiting');
-          setOnlineError('Partner disconnected. Waiting for another player...');
-        }
-      },
-    });
+      maxP
+    );
     onlineSessionRef.current = session;
-  }, [destroyOnlineSession, sendHostLoadout]);
+  }, [destroyOnlineSession, broadcastHostLobbyState]);
 
   const joinGuestRoom = useCallback(
     (explicitCode?: string) => {
@@ -640,16 +881,26 @@ export default function App() {
       destroyOnlineSession();
       setJoinInput(code);
       setOnlineError(null);
+      setLocalReady(false);
 
       const session = new OnlineSession('guest', code, {
         onStatusChange: (status, err) => {
           setOnlineStatus(status);
           setOnlineError(err || null);
           if (status === 'connected') {
-            sendGuestLoadout();
+            sendGuestConfig();
           }
         },
-        onMessage: (msg) => guestMessageHandlerRef.current(msg),
+        onAssignedSlot: (assignedId) => {
+          localPlayerIdRef.current = assignedId;
+          setLocalPlayerId(assignedId);
+          setPlayerColors((prev) => ({
+            ...prev,
+            [assignedId]: prev[assignedId] || COLOR_OPTIONS[assignedId - 1] || COLOR_OPTIONS[1],
+          }));
+          window.setTimeout(() => sendGuestConfig(), 40);
+        },
+        onMessage: (msg, fromId) => guestMessageHandlerRef.current(msg, fromId),
         onPartnerDisconnect: () => {
           if (
             screenRef.current !== 'TITLE_MENU' &&
@@ -664,10 +915,10 @@ export default function App() {
       });
       onlineSessionRef.current = session;
     },
-    [joinInput, destroyOnlineSession, sendGuestLoadout]
+    [joinInput, destroyOnlineSession, sendGuestConfig]
   );
 
-  // Auto-open Host room when entering HERO_SETUP in 2P ONLINE Host mode
+  // Auto-open Host room when entering HERO_SETUP in ONLINE Host mode
   useEffect(() => {
     if (screen !== 'HERO_SETUP' || coopMode !== 'online') return;
     if (onlineLobbyRole === 'host') {
@@ -690,13 +941,27 @@ export default function App() {
     }
   }, [joinGuestRoom]);
 
-  // Sync loadout tweaks cleanly while in HERO_SETUP
+  // Sync lobby tweaks & readiness cleanly while in HERO_SETUP
   useEffect(() => {
-    if (screen === 'HERO_SETUP' && coopMode === 'online' && onlineStatus === 'connected') {
-      if (onlineLobbyRole === 'host') sendHostLoadout();
-      else sendGuestLoadout();
+    if (screen !== 'HERO_SETUP' || coopMode !== 'online') return;
+    if (onlineLobbyRole === 'host') {
+      broadcastHostLobbyState();
+    } else if (onlineStatus === 'connected') {
+      sendGuestConfig();
     }
-  }, [screen, coopMode, onlineLobbyRole, onlineStatus, playerClasses, playerColors, difficulty, mode, sendHostLoadout, sendGuestLoadout]);
+  }, [
+    screen,
+    coopMode,
+    onlineLobbyRole,
+    onlineStatus,
+    playerClasses,
+    playerColors,
+    localReady,
+    difficulty,
+    mode,
+    broadcastHostLobbyState,
+    sendGuestConfig,
+  ]);
 
   const handleSelectCoopMode = useCallback(
     (next: CoopMode) => {
@@ -866,7 +1131,7 @@ export default function App() {
               keysRef.current,
               controlsRef.current,
               touchInputRef.current,
-              role === 'host' ? remoteP2InputRef.current : undefined
+              role === 'host' ? remoteInputsRef.current : undefined
             );
 
             if (rt.pendingEvent) {
@@ -974,10 +1239,13 @@ export default function App() {
     setCoopMode('solo');
     if (rt) {
       rt.numPlayers = 1;
-      if (rt.players[1]) {
-        rt.players[1].state = 'spectator';
-        rt.players[1].hasKnife = false;
-      }
+      rt.players.forEach((pl) => {
+        if (pl.id > 1) {
+          pl.state = 'spectator';
+          pl.hasKnife = false;
+        }
+      });
+      rt.knives = rt.knives.filter((k) => k.owner === 1);
       setHud(extractHudSnapshot(rt));
       setScreen('PLAYING');
     } else {
@@ -1076,6 +1344,13 @@ export default function App() {
   }
 
   if (screen === 'HERO_SETUP') {
+    const hostRoster: LobbyPlayerInfo[] =
+      coopMode === 'online'
+        ? onlineLobbyRole === 'host'
+          ? buildHostRoster()
+          : guestLobbyRoster
+        : [];
+
     return (
       <>
         <HeroSetup
@@ -1088,6 +1363,11 @@ export default function App() {
           onChangeJoinInput={setJoinInput}
           onlineStatus={onlineStatus}
           onlineError={onlineError}
+          lobbyRoster={hostRoster}
+          localPlayerId={onlineLobbyRole === 'host' ? 1 : localPlayerId}
+          localReady={localReady}
+          onToggleReady={() => setLocalReady((r) => !r)}
+          pingByPlayer={pingByPlayer}
           onHostCreateRoom={createHostRoom}
           onGuestJoinRoom={() => joinGuestRoom()}
           onDisconnectOnline={destroyOnlineSession}
@@ -1113,7 +1393,11 @@ export default function App() {
     );
   }
 
-  const localPlayerNum: 1 | 2 = activeOnlineRole === 'guest' ? 2 : 1;
+  const localPlayerNum: PlayerId = activeOnlineRole === 'guest' ? localPlayerId : 1;
+  const hudColorMap: Record<number, string> = {};
+  for (let i = 1; i <= 5; i++) {
+    hudColorMap[i] = playerColors[i]?.hex || COLOR_OPTIONS[i - 1]?.hex || '#ef4444';
+  }
 
   return (
     <>
@@ -1121,10 +1405,11 @@ export default function App() {
         <GameHud
           hud={hud}
           difficulty={difficulty}
-          numPlayers={hud.isTutorial ? 1 : numPlayers}
+          numPlayers={hud.isTutorial ? 1 : hud.players?.length || numPlayers}
           localPlayerNum={localPlayerNum}
           isOnline={activeOnlineRole !== 'none'}
-          playerColors={{ 1: playerColors[1].hex, 2: playerColors[2].hex }}
+          playerColors={hudColorMap}
+          pingByPlayer={pingByPlayer}
           isMuted={isMuted}
           isFullscreen={isFullscreen}
           showTouchControls={showTouchControls}

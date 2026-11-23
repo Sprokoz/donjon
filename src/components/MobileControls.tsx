@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FastForward, Lock, Sparkles, Wind } from 'lucide-react';
+import { FastForward, FlaskConical, Lock, Repeat, Sparkles, Wind } from 'lucide-react';
 import { HERO_CLASSES, PlayerHudState, WEAPONS_CATALOG } from '../game/types';
 import { soundEngine } from '../game/soundEngine';
 
@@ -13,6 +13,8 @@ interface MobileControlsProps {
   onDashChange: (pressed: boolean) => void;
   onAbilityChange: (pressed: boolean) => void;
   onSkillSlotChange?: (slot: 2 | 3 | 4, pressed: boolean) => void;
+  onUsePotion?: () => void;
+  onCycleWeapon?: () => void;
   onSkipIntro?: () => void;
 }
 
@@ -26,6 +28,8 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onDashChange,
   onAbilityChange,
   onSkillSlotChange,
+  onUsePotion,
+  onCycleWeapon,
   onSkipIntro,
 }) => {
   const clsDef = HERO_CLASSES.find((c) => c.id === p1.heroClass);
@@ -257,8 +261,45 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         </button>
       )}
 
-      {/* Right: 4-Skill Cluster + Primary Dash */}
+      {/* Right: Flask + Weapon Swap + 4-Skill Cluster + Primary Dash */}
       <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+        {/* Compact Quick Belt Row: Flask + Weapon Bag Cycle */}
+        {(onUsePotion || (isOnlineCampaign && onCycleWeapon)) && (
+          <div className="flex items-center gap-1.5">
+            {isOnlineCampaign && onCycleWeapon && (p1.weaponInventory?.length || 0) > 1 && (
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  soundEngine.unlock();
+                  onCycleWeapon();
+                }}
+                className="min-h-[44px] px-2.5 rounded-full bg-black/80 border border-amber-500/60 text-amber-200 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
+                style={{ touchAction: 'none' }}
+              >
+                <Repeat className="w-3.5 h-3.5 text-amber-400" />
+                <span>BAG</span>
+              </button>
+            )}
+            {onUsePotion && (
+              <button
+                type="button"
+                disabled={p1.potions <= 0 || p1.potionCooldown > 0 || p1.hp >= p1.maxHp}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  soundEngine.unlock();
+                  onUsePotion();
+                }}
+                className="min-h-[44px] px-2.5 rounded-full bg-rose-950/75 disabled:bg-black/60 border border-rose-500/75 disabled:border-stone-700 text-rose-200 disabled:text-stone-500 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
+                style={{ touchAction: 'none' }}
+              >
+                <FlaskConical className="w-3.5 h-3.5" />
+                <span>{p1.potionCooldown > 0 ? `${p1.potionCooldown}s` : `x${p1.potions}`}</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Unlockable Skills [Q], [R], [F] (mini 44px+ buttons) */}
         {hasSkills && (
           <div className="flex items-center gap-1.5">

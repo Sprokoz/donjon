@@ -472,6 +472,10 @@ interface HeroSetupProps {
   onSelectColor: (playerNum: PlayerId, col: ColorOption) => void;
   playerClasses: Record<number, HeroClassId>;
   onSelectClass: (playerNum: PlayerId, cls: HeroClassId) => void;
+  localPlayerName: string;
+  onChangeLocalPlayerName: (val: string) => void;
+  p2LocalName?: string;
+  onChangeP2LocalName?: (val: string) => void;
   isMuted: boolean;
   menuAudioBlocked: boolean;
   onToggleMute: () => void;
@@ -505,6 +509,10 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onSelectColor,
   playerClasses,
   onSelectClass,
+  localPlayerName,
+  onChangeLocalPlayerName,
+  p2LocalName = 'Partner',
+  onChangeP2LocalName,
   isMuted,
   menuAudioBlocked,
   onToggleMute,
@@ -932,9 +940,9 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                               style={{ backgroundColor: info.colorHex }}
                             />
                             <span className="font-arcade text-[10px] text-white truncate">
-                              P{info.id}
-                              {info.isHost ? ' HOST' : ''}
-                              {isYou ? ' ★' : ''}
+                              {info.playerName?.trim() || `P${info.id}`}
+                              {info.isHost ? ' ★' : ''}
+                              {isYou ? ' (YOU)' : ''}
                             </span>
                           </div>
                           <span
@@ -948,7 +956,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
                         <div className="flex items-center justify-between gap-1.5">
                           <span className="font-mono-num text-[10px] text-slate-400 truncate">
-                            {isOnlineCampaign ? 'Adventurer' : clsInfo?.name || 'HERO'}
+                            P{info.id} · {isOnlineCampaign ? 'Adventurer' : clsInfo?.name || 'HERO'}
                           </span>
                           <span
                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold shrink-0 ${
@@ -995,20 +1003,34 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       className="font-arcade text-xs shrink-0"
                       style={{ color: (playerColors[localPlayerId] || COLOR_OPTIONS[0]).hex }}
                     >
-                      PLAYER {localPlayerId} (YOU)
+                      {localPlayerName.trim() || `PLAYER ${localPlayerId}`} (YOU)
                     </span>
                     <span className="text-slate-600">·</span>
                     <span className="font-mono-num text-xs text-stone-200 font-semibold truncate">
-                      ADVENTURER
+                      P{localPlayerId} ADVENTURER
                     </span>
                   </div>
                   <span className="font-mono-num text-[10px] text-amber-300/90 shrink-0">
-                    COLOR PICK ONLY
+                    COLOR &amp; NAME
                   </span>
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-mono-num text-slate-300 uppercase tracking-wider">
+                    Display Name (Shown Above Hero &amp; HUD)
+                  </label>
+                  <input
+                    type="text"
+                    value={localPlayerName}
+                    onChange={(e) => onChangeLocalPlayerName(e.target.value.slice(0, 14))}
+                    placeholder={`Player ${localPlayerId}`}
+                    maxLength={14}
+                    className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-mono-num text-xs text-white"
+                  />
+                </div>
+
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Classes are locked out before entering the dungeon. Pick your armor color below — your party will discover exclusive Weapons, Skills, and Gold inside dungeon chests and shops.
+                  Classes are locked out before entering the dungeon. Pick your armor color below — store up to <strong className="text-stone-200">3 Weapons in your Bag [X]</strong> and carry <strong className="text-rose-300">Crimson Flasks [C]</strong> from chests &amp; shops.
                 </p>
 
                 {/* Color Swatches */}
@@ -1098,10 +1120,10 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
                   <div className="font-semibold text-amber-200 flex items-center gap-1.5">
                     <PackageOpen className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Exclusive Weapons &amp; 4 Unlockable Skills</span>
+                    <span>3-Slot Weapon Bag [X], Flasks [C] &amp; Strict Roles</span>
                   </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    Chests drop shared Coins or single-player Weapons (unlocking <strong className="text-cyan-300">[E] Skill 1</strong>). Loot <strong className="text-purple-300">Skill Scrolls</strong> in Vaults, Chests &amp; Shops to unlock <strong className="text-amber-300">[Q] · [R] · [F]</strong>!
+                    Swap up to 3 carried weapons with <strong className="text-white">[X]</strong> &amp; sip Flasks with <strong className="text-rose-300">[C]</strong>. Only <strong className="text-sky-300">Tank</strong> casts Sanctuary Domes &amp; purges skills; only <strong className="text-amber-300">Staff</strong> heals.
                   </div>
                 </div>
                 <div className="grid grid-cols-5 gap-1.5 pt-0.5">
@@ -1109,21 +1131,21 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     <div
                       key={w.id}
                       className="p-1.5 rounded bg-black/80 border border-slate-800 text-center"
-                      title={`${w.name}: ${w.skillDesc}`}
+                      title={`${w.name} (${w.roleLabel}): ${w.skillDesc}`}
                     >
                       <div className="font-mono-num text-[10px] font-bold" style={{ color: w.accent }}>
                         {w.shortTag}
                       </div>
-                      <div className="text-[9px] text-slate-400 truncate mt-0.5">
-                        4 Skills
+                      <div className="text-[9px] text-slate-300 truncate mt-0.5">
+                        {w.roleLabel}
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-cyan-200">Boss Portals &amp; Abyssal Loop Voting</div>
+                  <div className="font-semibold text-cyan-200">Boss Teamwork Counters &amp; Loop 2+ Waves</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    Slay each Floor Boss to open Next-Floor Portals. After Eclipse falls, vote to <strong className="text-amber-300">End &amp; Claim Victory</strong> or <strong className="text-rose-300">Descend Deeper (Loop +1)</strong>!
+                    Shelter inside <strong className="text-sky-300">Tank Sanctuaries</strong> (or Ward Beacons if tankless) against Boss Calamity, and interrupt Rituals with <strong className="text-purple-300">Skills</strong>. Going Deeper adds <strong className="text-rose-300">Multi-HP Mobs &amp; Multi-Waves</strong>!
                   </div>
                 </div>
               </div>
@@ -1160,7 +1182,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                   <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="font-arcade text-xs shrink-0" style={{ color: selectedColor.hex }}>
-                        PLAYER {pid}
+                        {pid === 1 && !isOnline
+                          ? localPlayerName.trim() || 'PLAYER 1'
+                          : pid === 2 && !isOnline
+                          ? p2LocalName.trim() || 'PLAYER 2'
+                          : rosterEntry?.playerName?.trim() || (localEditablePid === pid ? localPlayerName.trim() || `PLAYER ${pid}` : `PLAYER ${pid}`)}
                       </span>
                       <span className="text-slate-600">·</span>
                       <span className="font-mono-num text-xs text-white font-semibold truncate">
@@ -1184,6 +1210,28 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {/* Display Name Input for Local Editable Player */}
+                  {!lockedForLocalUser && (
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[10px] font-mono-num text-slate-400 uppercase shrink-0">NAME</span>
+                      <input
+                        type="text"
+                        value={pid === 2 && !isOnline ? p2LocalName : localPlayerName}
+                        onChange={(e) => {
+                          const clean = e.target.value.slice(0, 14);
+                          if (pid === 2 && !isOnline) {
+                            onChangeP2LocalName?.(clean);
+                          } else {
+                            onChangeLocalPlayerName(clean);
+                          }
+                        }}
+                        placeholder={`Player ${pid}`}
+                        maxLength={14}
+                        className="flex-1 px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-mono-num text-xs text-white"
+                      />
+                    </div>
+                  )}
 
                   {/* 4 Hero Class Selector */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

@@ -65,6 +65,7 @@ import {
   VoidRift,
   VoidTentacle,
   WEAPONS_CATALOG,
+  WeaponClassId,
   WeaponDrop,
   WeaponId,
 } from './types';
@@ -107,10 +108,13 @@ export interface GameRuntime {
   isOnlineCampaign: boolean;
   roomKind: RoomKind;
   roomDepth: number;
+  roomWave: number;
+  roomTotalWaves: number;
   floorNumber: number;
   loopLevel: number;
   currentRoomKey: string;
   floorGrid: Record<string, PersistedRoomState>;
+  floorMapRev: number;
   bossesDefeatedCount: number;
   chests: ChestDrop[];
   weaponDrops: WeaponDrop[];
@@ -123,6 +127,7 @@ export interface GameRuntime {
   finalVote: FinalVoteState | null;
   finalVoteResolveDelay: number;
   pingByPlayer: Record<number, number | null>;
+  playerNames: Record<number, string>;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
   stage: StageKey;
@@ -203,6 +208,8 @@ export interface GameRuntime {
   tutorialSkillUses: number;
   tutorialGrazesStart: number;
   tutorialFireTimer: number;
+  tutorialWeapon: WeaponId;
+  tutorialCounterDone: boolean;
   cheats: CheatsConfig;
   cheatsUsed: boolean;
   bossHitCooldowns: Record<number, number>;
@@ -307,7 +314,8 @@ function createPlayer(
   color: string,
   diffSettings: DifficultyConfig,
   numPlayers: number,
-  isOnlineCampaign: boolean
+  isOnlineCampaign: boolean,
+  playerName?: string
 ): Player {
   const classDef = HERO_CLASSES.find((c) => c.id === heroClass) || HERO_CLASSES[0];
   const isActive = id <= numPlayers;
@@ -324,8 +332,13 @@ function createPlayer(
 
   return {
     id,
+    name: (playerName || `Player ${id}`).trim().slice(0, 14) || `Player ${id}`,
     heroClass,
     weapon: 'none',
+    weaponInventory: [],
+    potions: isOnlineCampaign ? 1 : 0,
+    potionCooldownTimer: 0,
+    swapCooldownTimer: 0,
     coins: 0,
     x,
     y,
@@ -362,7 +375,10 @@ function createPlayer(
     _lastSkill2Pressed: false,
     _lastSkill3Pressed: false,
     _lastSkill4Pressed: false,
+    _lastPotionPressed: false,
+    _lastCycleWeaponPressed: false,
     unlockedSkillTier: 1,
+    weaponSkillTiers: {},
     skillCooldowns: [0, 0, 0, 0],
     skillMaxCooldowns: sMax,
     abilityReady: isOnlineCampaign ? false : true,
@@ -374,6 +390,7 @@ function createPlayer(
     bladeHealCd: 0,
     whirlwindTimer: 0,
     fortifyTimer: 0,
+    frontShieldTimer: 0,
     bloodlustTimer: 0,
     chargeTimer: 0,
     sealed: false,
@@ -420,6 +437,17 @@ function createEmptyBoss(): Boss {
     postureDecayGrace: 0,
     postureUnlocked: false,
     wallDirection: null,
+    channelKind: null,
+    channelTimer: 0,
+    channelMaxTimer: 0,
+    channelHits: 0,
+    channelHitsNeeded: 1,
+    channelLabel: '',
+    channelSafeX: 0,
+    channelSafeY: 0,
+    channelSafeR: 92,
+    channelAngle: 0,
+    channelNodes: [],
   };
 }
 
@@ -541,6 +569,7 @@ export function createInitialGameRuntime(params: {
   numPlayers: number;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
+  playerNames?: Record<number, string>;
   isOnlineCampaign?: boolean;
   activePlayerIds?: PlayerId[];
   cheats?: CheatsConfig;
@@ -572,7 +601,8 @@ export function createInitialGameRuntime(params: {
       params.playerColors[pid] || '#ef4444',
       diffSettings,
       isIncluded ? Math.max(params.numPlayers, pid) : 0,
-      isOnlineCampaign
+      isOnlineCampaign,
+      params.playerNames?.[pid]
     );
     if (!isIncluded) {
       pl.state = 'spectator';
@@ -592,10 +622,13 @@ export function createInitialGameRuntime(params: {
     isOnlineCampaign,
     roomKind: 'combat',
     roomDepth: 1,
+    roomWave: 1,
+    roomTotalWaves: 1,
     floorNumber: 1,
     loopLevel: 1,
     currentRoomKey: '2,2',
     floorGrid: {},
+    floorMapRev: 1,
     bossesDefeatedCount: 0,
     chests: [],
     weaponDrops: [],
@@ -608,6 +641,7 @@ export function createInitialGameRuntime(params: {
     finalVote: null,
     finalVoteResolveDelay: 0,
     pingByPlayer: { 1: 1 },
+    playerNames: { ...(params.playerNames || {}) },
     playerColors: { ...params.playerColors },
     playerClasses: { ...params.playerClasses },
     stage: startStage,
@@ -702,6 +736,8 @@ export function createInitialGameRuntime(params: {
     tutorialSkillUses: 0,
     tutorialGrazesStart: 0,
     tutorialFireTimer: 0.8,
+    tutorialWeapon: 'none',
+    tutorialCounterDone: false,
     cheats: activeCheats,
     cheatsUsed: anyCheat,
     bossHitCooldowns: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
@@ -867,6 +903,10 @@ function triggerBossExposedWindow(rt: GameRuntime, message = 'BOSS EXPOSED — 2
   b.postureDecayGrace = 0;
   b.attackTimer = 0;
   b.entryPhase = 0;
+  b.channelKind = null;
+  b.channelTimer = 0;
+  b.channelLabel = '';
+  b.channelNodes = [];
   b.attackLabel = 'WEAKENED · 2X CRITICAL DMG';
   rt.telegraphLines = [];
   rt.oniCursedZones = rt.oniCursedZones.filter((z) => !(z.telegraphTimer && z.telegraphTimer > 0));
@@ -915,8 +955,8 @@ function awardCleanDodge(rt: GameRuntime, player: Player) {
     0.95
   );
 
-  // Volt class passive: Static Arc bolt on Clean Dodge!
-  if (player.heroClass === 'volt') {
+  // Volt class passive: Static Arc bolt on Clean Dodge (Classic modes only)!
+  if (!rt.isOnlineCampaign && player.heroClass === 'volt') {
     let ang = player.facingAngle;
     if (rt.isBossLevel) {
       ang = Math.atan2(
@@ -955,6 +995,496 @@ function awardCleanDodge(rt: GameRuntime, player: Player) {
   }
 }
 
+function partyHasTank(rt: GameRuntime): boolean {
+  return rt.players.some(
+    (p) =>
+      p.state === 'alive' &&
+      (rt.isOnlineCampaign ? p.weapon === 'tank_shield' : p.heroClass === 'vanguard')
+  );
+}
+
+function wrapAngleDiff(a: number, b: number): number {
+  let d = (a - b) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+function isTeamworkChaosActive(rt: GameRuntime): boolean {
+  return !rt.isTutorial && (rt.difficulty === 'hard' || rt.loopLevel >= 2);
+}
+
+function aimTankAtThreat(rt: GameRuntime, p: Player) {
+  // If tank isn't holding a movement direction, face boss or nearest foe automatically
+  if (Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1) return;
+  const pcx = p.x + p.size / 2;
+  const pcy = p.y + p.size / 2;
+  if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'dead') {
+    const bcx = rt.boss.x + rt.boss.size / 2;
+    const bcy = rt.boss.y + rt.boss.size / 2;
+    p.facingAngle = Math.atan2(bcy - pcy, bcx - pcx);
+    return;
+  }
+  if (rt.enemies.length > 0) {
+    let best = rt.enemies[0];
+    let bestD = Infinity;
+    for (const e of rt.enemies) {
+      const ed = Math.hypot(e.x + e.size / 2 - pcx, e.y + e.size / 2 - pcy);
+      if (ed < bestD) {
+        bestD = ed;
+        best = e;
+      }
+    }
+    p.facingAngle = Math.atan2(best.y + best.size / 2 - pcy, best.x + best.size / 2 - pcx);
+  }
+}
+
+function doesFrontShieldInterceptPoint(tank: Player, px: number, py: number, extraRadius = 0): boolean {
+  if (tank.state !== 'alive' || tank.frontShieldTimer <= 0) return false;
+  const tcx = tank.x + tank.size / 2;
+  const tcy = tank.y + tank.size / 2;
+  const dx = px - tcx;
+  const dy = py - tcy;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 6 || dist > 84 + extraRadius) return false;
+  const ang = Math.atan2(dy, dx);
+  return Math.abs(wrapAngleDiff(ang, tank.facingAngle)) <= 1.26;
+}
+
+function isBehindTankShield(rt: GameRuntime, ally: Player, threatX: number, threatY: number): boolean {
+  if (ally.state !== 'alive') return false;
+  const acx = ally.x + ally.size / 2;
+  const acy = ally.y + ally.size / 2;
+
+  // Tank themselves facing the threat
+  if (ally.frontShieldTimer > 0) {
+    const angToThreat = Math.atan2(threatY - acy, threatX - acx);
+    if (Math.abs(wrapAngleDiff(angToThreat, ally.facingAngle)) <= 1.32) {
+      return true;
+    }
+  }
+
+  // Allied players standing inside the Tank's protective rear shadow cone
+  for (const tank of rt.players) {
+    if (tank.state !== 'alive' || tank.frontShieldTimer <= 0 || tank.id === ally.id) continue;
+    const tcx = tank.x + tank.size / 2;
+    const tcy = tank.y + tank.size / 2;
+    const angToThreat = Math.atan2(threatY - tcy, threatX - tcx);
+    if (Math.abs(wrapAngleDiff(angToThreat, tank.facingAngle)) > 1.32) continue;
+
+    const toAllyX = acx - tcx;
+    const toAllyY = acy - tcy;
+    const dist = Math.hypot(toAllyX, toAllyY);
+    if (dist > 250) continue;
+
+    const fx = Math.cos(tank.facingAngle);
+    const fy = Math.sin(tank.facingAngle);
+    // Behind tank = negative dot with facing direction (with slight front tolerance of +14px right at the wall)
+    const alongBack = -(toAllyX * fx + toAllyY * fy);
+    const perp = Math.abs(-toAllyX * fy + toAllyY * fx);
+    if (alongBack >= -14 && perp <= 82 + alongBack * 0.28) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function startBossCounterChannel(
+  rt: GameRuntime,
+  forcedKind?: 'interrupt' | 'siege_beam' | 'cursed_floor' | 'sync_seals'
+) {
+  const b = rt.boss;
+  if (b.health <= 0 || b.state === 'dead' || b.state === 'weakened' || b.channelKind) return;
+  const alive = rt.players.filter((p) => p.state === 'alive');
+  if (alive.length === 0) return;
+
+  const hasTank = partyHasTank(rt);
+  const bossVarietyOffset =
+    rt.bossType === 'mecha' ? 0 : rt.bossType === 'void' ? 1 : rt.bossType === 'oni' ? 2 : 3;
+  const rotation: ('siege_beam' | 'cursed_floor' | 'sync_seals' | 'interrupt')[] = [
+    'siege_beam',
+    'cursed_floor',
+    'sync_seals',
+    'interrupt',
+  ];
+  const kind =
+    forcedKind ||
+    rotation[(b.attacksBeforeVulnerable + rt.bossesDefeatedCount + rt.loopLevel + bossVarietyOffset) % rotation.length];
+
+  const bx = b.x + b.size / 2;
+  const by = b.y + b.size / 2;
+  b.channelNodes = [];
+
+  if (kind === 'siege_beam') {
+    const dur = rt.loopLevel >= 2 ? 3.3 : 3.6;
+    const avgX = alive.reduce((sum, pl) => sum + pl.x + pl.size / 2, 0) / alive.length;
+    const avgY = alive.reduce((sum, pl) => sum + pl.y + pl.size / 2, 0) / alive.length;
+    const coneAngle = Math.atan2(avgY - by, avgX - bx);
+
+    b.channelKind = 'siege_beam';
+    b.channelTimer = dur;
+    b.channelMaxTimer = dur;
+    b.channelAngle = coneAngle;
+    b.channelHits = 0;
+    b.channelHitsNeeded = 1;
+    b.attackTimer = 0.35; // cadence timer for siege shots during charge
+    b.channelLabel = hasTank
+      ? 'APOCALYPSE CONE — TANK USE [E] FRONT SHIELD & ALLIES HIDE BEHIND!'
+      : 'APOCALYPSE BARRAGE — NO TANK! DODGE CONE LANES HARD!';
+
+    soundEngine.playBossTelegraph();
+    showPhaseAnnounce(rt, b.channelLabel, hasTank ? '#38bdf8' : '#f43f5e', 3.0);
+    addFloatingText(rt, bx, by - 46, 'APOCALYPSE SIEGE LOCK!', '#f43f5e', 1.25);
+  } else if (kind === 'cursed_floor') {
+    const dur = rt.loopLevel >= 2 ? 3.5 : 3.8;
+    const safeR = 92;
+    const side = (b.attacksBeforeVulnerable + Math.floor(Math.random() * 2)) % 2 === 0 ? -1 : 1;
+    const safeX = Math.max(170, Math.min(rt.arenaWidth - 170, rt.arenaWidth * 0.5 + side * (rt.arenaWidth * 0.22)));
+    const safeY = Math.max(190, Math.min(rt.arenaHeight - 150, rt.arenaHeight * 0.66));
+
+    b.channelKind = 'cursed_floor';
+    b.channelTimer = dur;
+    b.channelMaxTimer = dur;
+    b.channelSafeX = safeX;
+    b.channelSafeY = safeY;
+    b.channelSafeR = safeR;
+    b.channelHits = 0;
+    b.channelHitsNeeded = 1;
+    b.attackTimer = 0.42;
+    b.channelLabel = hasTank
+      ? 'ARENA INFERNO — ENTER SAFE ISLAND & TANK GUARD FRONT [E]!'
+      : 'ARENA INFERNO — CROWD SAFE ISLAND & DODGE SHOTS HARD!';
+
+    soundEngine.playBossTelegraph();
+    showPhaseAnnounce(rt, b.channelLabel, '#fbbf24', 3.0);
+    addFloatingText(rt, safeX, safeY - safeR - 14, 'TINY SAFE ISLAND!', '#34d399', 1.2);
+  } else if (kind === 'sync_seals') {
+    const dur = rt.loopLevel >= 2 ? 4.4 : 4.8;
+    const sealCount = Math.min(3, Math.max(1, alive.length));
+    const nodes: { x: number; y: number; r: number; activated: boolean }[] = [];
+    const baseRadius = Math.min(rt.arenaWidth, rt.arenaHeight) * 0.27;
+    const centerX = rt.arenaWidth * 0.5;
+    const centerY = rt.arenaHeight * 0.6;
+    for (let s = 0; s < sealCount; s++) {
+      const a =
+        sealCount === 1
+          ? Math.PI / 2
+          : sealCount === 2
+          ? s === 0
+            ? Math.PI
+            : 0
+          : -Math.PI / 2 + (s * Math.PI * 2) / sealCount;
+      nodes.push({
+        x: Math.max(130, Math.min(rt.arenaWidth - 130, centerX + Math.cos(a) * baseRadius)),
+        y: Math.max(160, Math.min(rt.arenaHeight - 120, centerY + Math.sin(a) * (baseRadius * 0.68))),
+        r: 58,
+        activated: false,
+      });
+    }
+
+    b.channelKind = 'sync_seals';
+    b.channelTimer = dur;
+    b.channelMaxTimer = dur;
+    b.channelNodes = nodes;
+    b.channelHits = 0;
+    b.channelHitsNeeded = sealCount;
+    b.channelLabel =
+      sealCount === 1
+        ? 'RUNIC SEAL — STAND INSIDE TO SHATTER BOSS!'
+        : `CONVERGENCE SEALS — SPLIT UP & STEP ON ALL ${sealCount} SEALS TOGETHER!`;
+
+    soundEngine.playBossTelegraph();
+    showPhaseAnnounce(rt, b.channelLabel, '#34d399', 3.0);
+    addFloatingText(rt, bx, by - 46, 'RUNIC CONVERGENCE!', '#34d399', 1.25);
+  } else {
+    const hasSkillBurst = alive.some(
+      (p) =>
+        p.weapon === 'assassin_blades' ||
+        p.weapon === 'warrior_greatsword' ||
+        p.weapon === 'ranger_bow' ||
+        (!rt.isOnlineCampaign && (p.heroClass === 'phantom' || p.heroClass === 'ronin' || p.heroClass === 'volt'))
+    );
+    const needed = alive.length <= 2 || !hasSkillBurst ? 1 : Math.min(3, alive.length >= 4 ? 3 : 2);
+    const dur = rt.loopLevel >= 2 ? 3.2 : 3.5;
+    b.channelKind = 'interrupt';
+    b.channelTimer = dur;
+    b.channelMaxTimer = dur;
+    b.channelHits = 0;
+    b.channelHitsNeeded = needed;
+    b.channelLabel = `OBLIVION RITUAL — HIT WITH SKILL (${needed}X) TO INTERRUPT!`;
+    soundEngine.playBossTelegraph();
+    showPhaseAnnounce(rt, b.channelLabel, '#c084fc', 2.8);
+    addFloatingText(rt, bx, by - 46, 'INTERRUPT RITUAL!', '#c084fc', 1.25);
+  }
+}
+
+function registerBossInterrupt(rt: GameRuntime, player: Player, amount = 1) {
+  const b = rt.boss;
+  if (b.channelKind !== 'interrupt' || (b.channelTimer || 0) <= 0) return;
+  b.channelHits = Math.min(b.channelHitsNeeded || 1, (b.channelHits || 0) + amount);
+  const cx = b.x + b.size / 2;
+  const cy = b.y + b.size / 2;
+  if ((b.channelHits || 0) >= (b.channelHitsNeeded || 1)) {
+    b.channelKind = null;
+    b.channelTimer = 0;
+    b.channelLabel = '';
+    b.channelNodes = [];
+    b.health = Math.max(0, b.health - 2);
+    rt.score += Math.round(450 * getScoreMult(rt));
+    rt.tutorialCounterDone = true;
+    addFloatingText(rt, cx, cy - 52, `${player.name.toUpperCase()} INTERRUPTED!`, '#c084fc', 1.3);
+    triggerBossExposedWindow(rt, 'RITUAL INTERRUPTED — 2X CRITICAL DMG!');
+  } else {
+    addFloatingText(
+      rt,
+      cx,
+      cy - 44,
+      `INTERRUPT ${b.channelHits}/${b.channelHitsNeeded}!`,
+      '#e879f9',
+      1.15
+    );
+  }
+}
+
+function updateBossCounterChannel(rt: GameRuntime, dt: number) {
+  const b = rt.boss;
+  if (!b.channelKind || b.health <= 0 || b.state === 'dead' || b.state === 'weakened') {
+    if (b.state === 'weakened' || b.state === 'dead') {
+      b.channelKind = null;
+      b.channelTimer = 0;
+      b.channelLabel = '';
+      b.channelNodes = [];
+    }
+    return;
+  }
+
+  const cx = b.x + b.size / 2;
+  const cy = b.y + b.size / 2;
+  const alive = rt.players.filter((p) => p.state === 'alive');
+  const hasTank = partyHasTank(rt);
+
+  // Active mid-channel harassment & teamwork checks
+  if (b.channelKind === 'siege_beam') {
+    b.attackTimer = (b.attackTimer || 0) - dt;
+    if (b.attackTimer <= 0) {
+      b.attackTimer = hasTank ? 0.36 : 0.44;
+      const baseAng = b.channelAngle || Math.PI / 2;
+      const count = hasTank ? 3 : 4;
+      for (let i = 0; i < count; i++) {
+        const offset = ((i / Math.max(1, count - 1)) - 0.5) * (hasTank ? 0.44 : 0.88);
+        const ang = baseAng + offset + Math.sin(rt.elapsedSeconds * 5 + i) * 0.06;
+        const spd = hasTank ? 6.4 : 7.0;
+        pushBossProj(rt, {
+          uid: rt.nextUid++,
+          x: cx,
+          y: cy,
+          dx: Math.cos(ang) * spd,
+          dy: Math.sin(ang) * spd,
+          size: 14,
+          speed: 1,
+          color: '#f43f5e',
+          damage: 16,
+          shape: 'lance',
+        });
+      }
+      soundEngine.playBossShoot();
+    }
+  } else if (b.channelKind === 'cursed_floor') {
+    b.attackTimer = (b.attackTimer || 0) - dt;
+    if (b.attackTimer <= 0) {
+      b.attackTimer = hasTank ? 0.4 : 0.52;
+      const sx = b.channelSafeX ?? rt.arenaWidth / 2;
+      const sy = b.channelSafeY ?? rt.arenaHeight * 0.66;
+      const baseAng = Math.atan2(sy - cy, sx - cx);
+      const count = hasTank ? 3 : 2;
+      for (let i = 0; i < count; i++) {
+        const spread = (i - (count - 1) / 2) * (hasTank ? 0.14 : 0.24);
+        const ang = baseAng + spread;
+        const spd = hasTank ? 6.2 : 5.6;
+        pushBossProj(rt, {
+          uid: rt.nextUid++,
+          x: cx,
+          y: cy,
+          dx: Math.cos(ang) * spd,
+          dy: Math.sin(ang) * spd,
+          size: 15,
+          speed: 1,
+          color: '#fb923c',
+          damage: 16,
+          shape: 'ember',
+        });
+      }
+      soundEngine.playBossShoot();
+    }
+  } else if (b.channelKind === 'sync_seals' && b.channelNodes && b.channelNodes.length > 0) {
+    let lit = 0;
+    for (const node of b.channelNodes) {
+      node.activated = alive.some(
+        (p) => Math.hypot(p.x + p.size / 2 - node.x, p.y + p.size / 2 - node.y) <= node.r + 14
+      );
+      if (node.activated) lit++;
+    }
+    b.channelHits = lit;
+    if (lit >= b.channelNodes.length) {
+      b.channelKind = null;
+      b.channelTimer = 0;
+      b.channelLabel = '';
+      b.channelNodes = [];
+      b.health = Math.max(0, b.health - 2);
+      rt.bossProjectiles = rt.bossProjectiles.filter((bp) => bp.type === 'phantom_clone');
+      rt.score += Math.round(520 * getScoreMult(rt));
+      soundEngine.playCoopResonance();
+      addFloatingText(rt, cx, cy - 52, 'SEALS CONVERGED!', '#34d399', 1.3);
+      triggerBossExposedWindow(rt, 'CONVERGENCE SHATTERED — 2X DMG!');
+      return;
+    }
+  }
+
+  b.channelTimer = Math.max(0, (b.channelTimer || 0) - dt);
+  if (b.channelTimer > 0) return;
+
+  const kind = b.channelKind;
+  const savedAngle = b.channelAngle || Math.PI / 2;
+  const savedSafeX = b.channelSafeX ?? rt.arenaWidth * 0.5;
+  const savedSafeY = b.channelSafeY ?? rt.arenaHeight * 0.66;
+  const savedSafeR = b.channelSafeR ?? 92;
+  b.channelKind = null;
+  b.channelLabel = '';
+  b.channelNodes = [];
+
+  if (kind === 'siege_beam') {
+    soundEngine.playShockwave();
+    rt.screenShake = Math.max(rt.screenShake, 26);
+    rt.warningFlash = 0.45;
+    rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: 950, alpha: 0.92, speed: 920, color: '#f43f5e' });
+
+    if (hasTank) {
+      let blockedCount = 0;
+      rt.players.forEach((p) => {
+        if (p.state !== 'alive') return;
+        const pcx = p.x + p.size / 2;
+        const pcy = p.y + p.size / 2;
+        const angToPlayer = Math.atan2(pcy - cy, pcx - cx);
+        const insideCone = Math.abs(wrapAngleDiff(angToPlayer, savedAngle)) <= 0.64;
+        if (!insideCone) return;
+
+        const inSanctuary = rt.skillZones.some(
+          (z) =>
+            (z.kind === 'sanctuary_dome' || z.kind === 'aegis_beacon') &&
+            Math.hypot(pcx - z.x, pcy - z.y) <= z.radius + 12
+        );
+        if (inSanctuary || isBehindTankShield(rt, p, cx, cy)) {
+          blockedCount++;
+          rt.tutorialCounterDone = true;
+          addFloatingText(rt, pcx, p.y - 16, 'AEGIS COVER!', '#38bdf8', 1.15);
+        } else {
+          damagePlayer(rt, p, 34);
+        }
+      });
+      if (blockedCount > 0) {
+        b.health = Math.max(1, b.health - Math.min(3, blockedCount));
+        rt.score += blockedCount * 240;
+        soundEngine.playParry();
+        addFloatingText(rt, cx, cy - 42, 'SIEGE CONE DEFLECTED!', '#38bdf8', 1.25);
+      }
+    } else {
+      // No Tank in party: unleashes intense dodgeable criss-cross lance barrage with weave lanes
+      const waveShots = 14;
+      for (let i = 0; i < waveShots; i++) {
+        // Leave narrow clear weave lanes at regular intervals
+        if (i % 5 === 2) continue;
+        const spread = ((i / (waveShots - 1)) - 0.5) * 1.18;
+        const ang = savedAngle + spread;
+        pushBossProj(rt, {
+          uid: rt.nextUid++,
+          x: cx,
+          y: cy,
+          dx: Math.cos(ang) * 7.8,
+          dy: Math.sin(ang) * 7.8,
+          size: 15,
+          speed: 1,
+          color: '#fb7185',
+          damage: 24,
+          shape: 'lance',
+        });
+      }
+      addFloatingText(rt, cx, cy - 42, 'CONE BARRAGE UNLEASHED!', '#fb7185', 1.2);
+    }
+  } else if (kind === 'cursed_floor') {
+    soundEngine.playShockwave();
+    rt.screenShake = Math.max(rt.screenShake, 26);
+    rt.warningFlash = 0.48;
+    rt.energyWaves.push({ x: cx, y: cy, radius: 24, maxRadius: 1200, alpha: 0.9, speed: 880, color: '#ef4444' });
+    rt.energyWaves.push({ x: savedSafeX, y: savedSafeY, radius: savedSafeR, maxRadius: savedSafeR + 120, alpha: 0.95, speed: 340, color: '#34d399' });
+
+    let survivedInIsland = 0;
+    rt.players.forEach((p) => {
+      if (p.state !== 'alive') return;
+      const pcx = p.x + p.size / 2;
+      const pcy = p.y + p.size / 2;
+      const insideIsland = Math.hypot(pcx - savedSafeX, pcy - savedSafeY) <= savedSafeR + 12;
+      const inSanctuary = rt.skillZones.some(
+        (z) =>
+          (z.kind === 'sanctuary_dome' || z.kind === 'aegis_beacon') &&
+          Math.hypot(pcx - z.x, pcy - z.y) <= z.radius + 12
+      );
+      if (insideIsland || inSanctuary) {
+        survivedInIsland++;
+        addFloatingText(rt, pcx, p.y - 16, 'SAFE ISLAND!', '#34d399', 1.15);
+      } else {
+        damagePlayer(rt, p, 34);
+      }
+    });
+    if (survivedInIsland > 0) {
+      b.health = Math.max(1, b.health - Math.min(2, survivedInIsland));
+      rt.score += survivedInIsland * 200;
+      soundEngine.playParry();
+      addFloatingText(rt, cx, cy - 42, 'INFERNO ENDURED!', '#34d399', 1.2);
+    }
+  } else if (kind === 'sync_seals') {
+    soundEngine.playBossPhase2();
+    rt.screenShake = Math.max(rt.screenShake, 18);
+    rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 520, alpha: 0.9, speed: 520, color: '#f43f5e' });
+    addFloatingText(rt, cx, cy - 44, 'CONVERGENCE FAILED!', '#f43f5e', 1.25);
+    for (let i = 0; i < 16; i++) {
+      const ang = (i / 16) * Math.PI * 2;
+      pushBossProj(rt, {
+        uid: rt.nextUid++,
+        x: cx,
+        y: cy,
+        dx: Math.cos(ang) * 5.2,
+        dy: Math.sin(ang) * 5.2,
+        size: 15,
+        speed: 1,
+        color: '#f43f5e',
+        damage: 20,
+        shape: 'shard',
+      });
+    }
+  } else if (kind === 'interrupt') {
+    const heal = Math.max(2, Math.round(b.maxHealth * 0.06));
+    b.health = Math.min(b.maxHealth, b.health + heal);
+    soundEngine.playBossPhase2();
+    rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 440, alpha: 0.9, speed: 460, color: '#c084fc' });
+    addFloatingText(rt, cx, cy - 44, `RITUAL COMPLETE (+${heal} BOSS HP)`, '#f43f5e', 1.2);
+    for (let i = 0; i < 14; i++) {
+      const ang = (i / 14) * Math.PI * 2;
+      pushBossProj(rt, {
+        uid: rt.nextUid++,
+        x: cx,
+        y: cy,
+        dx: Math.cos(ang) * 4.8,
+        dy: Math.sin(ang) * 4.8,
+        size: 15,
+        speed: 1,
+        color: '#c084fc',
+        damage: 18,
+        shape: 'shard',
+      });
+    }
+  }
+}
+
 function completeBossAttackCycle(rt: GameRuntime, isP2: boolean) {
   const b = rt.boss;
   rt.players.forEach((p) => {
@@ -971,6 +1501,11 @@ function completeBossAttackCycle(rt: GameRuntime, isP2: boolean) {
     return;
   }
 
+  // Trigger Nightmare / Loop 2+ All-Boss Teamwork Mechanics
+  if (!b.channelKind && isTeamworkChaosActive(rt) && b.attacksBeforeVulnerable >= 1) {
+    startBossCounterChannel(rt);
+  }
+
   const { pace } = getDiffScale(rt);
   b.state = 'idle';
   b.stateTimer = rt.difficulty === 'hard' ? (isP2 ? 0.34 : 0.54) : (isP2 ? 0.45 : 0.78) / pace;
@@ -984,12 +1519,23 @@ export function switchTutorialClass(rt: GameRuntime, heroClass: HeroClassId) {
   if (!rt.isTutorial) return;
   const p = rt.players[0];
   const def = HERO_CLASSES.find((c) => c.id === heroClass) || HERO_CLASSES[0];
+  rt.isOnlineCampaign = false;
+  rt.tutorialWeapon = 'none';
+  p.weapon = 'none';
   p.heroClass = heroClass;
+  p.unlockedSkillTier = 4;
   p.speed = def.baseSpeed;
   p.dashCooldown = def.dashCooldown;
+  p.skillMaxCooldowns = [
+    def.skills[0].cooldown,
+    def.skills[1].cooldown,
+    def.skills[2].cooldown,
+    def.skills[3].cooldown,
+  ];
+  p.skillCooldowns = [0, 0, 0, 0];
   p.abilityCooldown = def.skillCooldown;
   p.dashTime = heroClass === 'ronin' ? 0.18 : 0.16;
-  p.maxHp = rt.diffSettings.baseMaxHp + def.bonusHp;
+  p.maxHp = rt.diffSettings.baseMaxHp + def.bonusHp + (p.bonusMaxHp || 0);
   p.hp = p.maxHp;
   p.hasShield = heroClass === 'vanguard';
   p.shieldRegenTimer = heroClass === 'vanguard' ? 24 : 0;
@@ -1004,34 +1550,61 @@ export function switchTutorialClass(rt: GameRuntime, heroClass: HeroClassId) {
   addFloatingText(rt, p.x + p.size / 2, p.y - 18, `${def.name} EQUIPPED`, def.accent, 1.1);
 }
 
+export function switchTutorialWeapon(rt: GameRuntime, weaponId: WeaponId) {
+  if (!rt.isTutorial) return;
+  const p = rt.players[0];
+  rt.tutorialWeapon = weaponId;
+  if (weaponId === 'none') {
+    switchTutorialClass(rt, p.heroClass);
+    return;
+  }
+  rt.isOnlineCampaign = true;
+  p.weaponSkillTiers[weaponId] = 4;
+  equipWeapon(rt, p, weaponId);
+  p.unlockedSkillTier = 4;
+  p.weaponSkillTiers[weaponId] = 4;
+  p.hp = p.maxHp;
+}
+
 export function advanceTutorialStep(rt: GameRuntime) {
   if (!rt.isTutorial) return;
   rt.bossProjectiles = [];
   rt.telegraphLines = [];
   rt.enemies = [];
-  if (rt.tutorialStep < 4) {
+  rt.skillZones = [];
+  rt.boss.channelKind = null;
+  rt.boss.channelTimer = 0;
+  if (rt.tutorialStep < 5) {
     rt.tutorialStep++;
   } else {
     rt.tutorialStep = 1;
     rt.kills = 0;
   }
   rt.tutorialSkillUses = 0;
+  rt.tutorialCounterDone = false;
   rt.tutorialGrazesStart = rt.grazes;
   rt.tutorialFireTimer = 0.5;
-  rt.players[0].hp = rt.players[0].maxHp;
-  rt.players[0].abilityReady = true;
-  rt.players[0].abilityCooldownTimer = 0;
-  rt.players[0].dashReady = true;
-  rt.players[0].cleanDodgeFailed = false;
+  const p = rt.players[0];
+  p.hp = p.maxHp;
+  p.abilityReady = true;
+  p.abilityCooldownTimer = 0;
+  p.skillCooldowns = [0, 0, 0, 0];
+  p.dashReady = true;
+  p.cleanDodgeFailed = false;
+  if (rt.tutorialStep === 5) {
+    p.potions = Math.max(2, p.potions);
+    p.hp = Math.max(40, p.hp - 30);
+  }
   soundEngine.playParry();
 
   const titles: Record<number, string> = {
     1: 'DRILL 1 · GRAB BLADE ORB & SLICE',
     2: 'DRILL 2 · CLEAN DODGE WITHOUT TAKING HITS',
-    3: 'DRILL 3 · TEST CLASS PASSIVES & [E] SKILL',
+    3: 'DRILL 3 · TEST CLASS & WEAPON SKILLS [E/Q/R/F]',
     4: 'DRILL 4 · 100 HP & HEAVY ATTACK TIERS',
+    5: 'DRILL 5 · INVENTORY [X/C], MULTI-HP FOES & COUNTERS',
   };
-  showPhaseAnnounce(rt, titles[rt.tutorialStep] || 'TRAINING DRILL', '#fbbf24', 2.4);
+  showPhaseAnnounce(rt, titles[rt.tutorialStep] || 'TRAINING DRILL', '#fbbf24', 2.6);
 }
 
 function pushBossProj(rt: GameRuntime, proj: BossProjectile) {
@@ -1148,8 +1721,8 @@ function getNextCampaignBossStage(bossesDefeatedCount: number): {
   return { stage: 'eclipseBoss', label: 'ECLIPSE SOVEREIGNS' };
 }
 
-function pickRandomWeaponId(rt: GameRuntime, avoidHeld = true): Exclude<WeaponId, 'none'> {
-  const held = new Set(rt.players.map((p) => p.weapon).filter((w) => w !== 'none'));
+function pickRandomWeaponId(rt: GameRuntime, avoidHeld = true): WeaponClassId {
+  const held = new Set(rt.players.map((p) => p.weapon).filter((w): w is WeaponClassId => w !== 'none'));
   const dropped = new Set(rt.weaponDrops.map((d) => d.weaponId));
   let candidates = WEAPONS_CATALOG.map((w) => w.id).filter((id) =>
     avoidHeld ? !held.has(id) && !dropped.has(id) : true
@@ -1163,29 +1736,75 @@ function pickRandomWeaponId(rt: GameRuntime, avoidHeld = true): Exclude<WeaponId
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
+function pickTargetWeaponForScroll(rt: GameRuntime, exclude?: Set<WeaponClassId>): WeaponClassId {
+  const allWeapons = WEAPONS_CATALOG.map((w) => w.id);
+  const alive = rt.players.filter((p) => p.state !== 'spectator');
+  // 80% preference for a weapon currently equipped by an alive teammate whose mastery < 4
+  const heldNeeding = alive
+    .filter((p) => p.weapon !== 'none' && (!exclude || !exclude.has(p.weapon)))
+    .filter((p) => {
+      const w = p.weapon as WeaponClassId;
+      return (p.weaponSkillTiers[w] ?? p.unlockedSkillTier ?? 1) < 4;
+    })
+    .map((p) => p.weapon as WeaponClassId);
+
+  if (heldNeeding.length > 0 && Math.random() < 0.8) {
+    return heldNeeding[Math.floor(Math.random() * heldNeeding.length)];
+  }
+  const pool = allWeapons.filter((w) => !exclude || !exclude.has(w));
+  const finalPool = pool.length > 0 ? pool : allWeapons;
+  return finalPool[Math.floor(Math.random() * finalPool.length)];
+}
+
 export function equipWeapon(
   rt: GameRuntime,
   p: Player,
-  weaponId: Exclude<WeaponId, 'none'>,
+  weaponId: WeaponClassId,
   dropPos?: { x: number; y: number }
 ) {
   const wDef = WEAPONS_CATALOG.find((w) => w.id === weaponId);
   if (!wDef) return;
 
   if (p.weapon !== 'none' && p.weapon !== weaponId) {
-    const oldId = p.weapon as Exclude<WeaponId, 'none'>;
-    rt.weaponDrops.push({
-      id: rt.nextUid++,
-      weaponId: oldId,
-      x: dropPos ? dropPos.x : p.x + p.size / 2,
-      y: dropPos ? dropPos.y : p.y + p.size / 2,
-      size: 28,
-      bob: 0,
-      swapLockTimer: 0.75,
-    });
+    const oldId = p.weapon;
+    p.weaponSkillTiers[oldId] = Math.max(p.weaponSkillTiers[oldId] ?? 1, p.unlockedSkillTier);
+    if (!p.weaponInventory.includes(weaponId)) {
+      if (p.weaponInventory.length < 3) {
+        // Keep old weapon in Bag!
+        if (!p.weaponInventory.includes(oldId)) {
+          p.weaponInventory.push(oldId);
+        }
+        p.weaponInventory.push(weaponId);
+      } else {
+        // Bag full (max 3): replace equipped slot in bag & drop evicted weapon on floor
+        const oldIdx = p.weaponInventory.indexOf(oldId);
+        if (oldIdx !== -1) p.weaponInventory[oldIdx] = weaponId;
+        else p.weaponInventory[0] = weaponId;
+        rt.weaponDrops.push({
+          id: rt.nextUid++,
+          weaponId: oldId,
+          x: dropPos ? dropPos.x : p.x + p.size / 2,
+          y: dropPos ? dropPos.y : p.y + p.size / 2,
+          size: 28,
+          bob: 0,
+          swapLockTimer: 0.75,
+        });
+      }
+    }
+  } else if (!p.weaponInventory.includes(weaponId)) {
+    if (p.weaponInventory.length < 3) {
+      p.weaponInventory.push(weaponId);
+    } else {
+      p.weaponInventory[0] = weaponId;
+    }
   }
 
   p.weapon = weaponId;
+  // Restore learned tier for this specific weapon, or reset to Tier 1 if never learned yet!
+  const learnedTier = Math.max(1, Math.min(4, p.weaponSkillTiers[weaponId] ?? 1));
+  p.weaponSkillTiers[weaponId] = learnedTier;
+  p.unlockedSkillTier = learnedTier;
+
   p.speed = 5.2 * wDef.speedMult * (hasBoon(rt, 'twin_spark') ? 1.18 : 1.0);
   p.dashCooldown = wDef.dashCooldown * (hasBoon(rt, 'phantom_step') ? 0.72 : 1.0);
   const cdFactor = hasBoon(rt, 'phantom_step') ? 0.78 : 1.0;
@@ -1212,7 +1831,7 @@ export function equipWeapon(
 
   if (weaponId === 'tank_shield') {
     p.hasShield = true;
-    p.shieldRegenTimer = 24;
+    p.shieldRegenTimer = 26;
   } else {
     p.shieldRegenTimer = 0;
   }
@@ -1231,17 +1850,69 @@ export function equipWeapon(
     rt,
     p.x + p.size / 2,
     p.y - 18,
-    `EQUIPPED ${wDef.shortTag} · ${wDef.skills[0].name.toUpperCase()}!`,
+    learnedTier > 1
+      ? `${wDef.shortTag} EQUIPPED · LEARNED (${learnedTier}/4)!`
+      : `${wDef.shortTag} EQUIPPED · SKILLS RESET (1/4)`,
     wDef.accent,
     1.15
   );
 }
 
-function spawnSkillScroll(rt: GameRuntime, x: number, y: number, _label = 'SKILL SCROLL') {
+export function switchInventoryWeapon(rt: GameRuntime, p: Player, targetSlot?: number) {
+  if (p.state !== 'alive' || p.swapCooldownTimer > 0) return;
+  if (p.weaponInventory.length <= 1) {
+    if (p.weaponInventory.length === 1 && p.weapon !== p.weaponInventory[0]) {
+      equipWeapon(rt, p, p.weaponInventory[0]);
+      p.swapCooldownTimer = 0.4;
+    }
+    return;
+  }
+  let nextWeapon: WeaponClassId | undefined;
+  if (typeof targetSlot === 'number' && targetSlot >= 0 && targetSlot < p.weaponInventory.length) {
+    nextWeapon = p.weaponInventory[targetSlot];
+  } else {
+    const curIdx = p.weaponInventory.indexOf(p.weapon as WeaponClassId);
+    const nextIdx = (curIdx + 1) % p.weaponInventory.length;
+    nextWeapon = p.weaponInventory[nextIdx];
+  }
+  if (!nextWeapon || nextWeapon === p.weapon) return;
+  p.swapCooldownTimer = 0.4;
+  equipWeapon(rt, p, nextWeapon);
+}
+
+export function usePlayerPotion(rt: GameRuntime, p: Player) {
+  if (p.state !== 'alive' || p.potionCooldownTimer > 0) return;
+  if (p.potions <= 0) {
+    addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'NO FLASKS LEFT!', '#94a3b8', 0.9);
+    return;
+  }
+  if (p.hp >= p.maxHp) {
+    addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'HP ALREADY FULL!', '#34d399', 0.9);
+    return;
+  }
+  p.potions--;
+  p.potionCooldownTimer = 2.5;
+  p.hp = Math.min(p.maxHp, p.hp + 45);
+  soundEngine.playMedkit();
+  rt.energyWaves.push({
+    x: p.x + p.size / 2,
+    y: p.y + p.size / 2,
+    radius: 10,
+    maxRadius: 95,
+    alpha: 0.9,
+    speed: 340,
+    color: '#34d399',
+  });
+  addFloatingText(rt, p.x + p.size / 2, p.y - 18, `+45 HP FLASK (${p.potions} LEFT)`, '#34d399', 1.15);
+}
+
+function spawnSkillScroll(rt: GameRuntime, x: number, y: number, targetWeapon?: WeaponClassId) {
   const sx = Math.max(85, Math.min(rt.arenaWidth - 85, x));
   const sy = Math.max(95, Math.min(rt.arenaHeight - 95, y));
+  const chosen = targetWeapon || pickTargetWeaponForScroll(rt);
   rt.scrollDrops.push({
     id: rt.nextUid++,
+    targetWeapon: chosen,
     x: sx,
     y: sy,
     size: 26,
@@ -1254,22 +1925,23 @@ function spawnRoomChest(
   rt: GameRuntime,
   x: number,
   y: number,
-  forcedKind?: 'coins' | 'weapon'
+  forcedKind?: 'coins' | 'weapon' | 'treasure'
 ) {
   const activeCount = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
   const noWeaponHeld = rt.players.some((p) => p.state !== 'spectator' && p.weapon === 'none');
-  const rewardKind: 'coins' | 'weapon' =
-    forcedKind || (Math.random() < (noWeaponHeld ? 0.68 : 0.55) ? 'weapon' : 'coins');
+  const rewardKind: 'coins' | 'weapon' | 'treasure' =
+    forcedKind || (Math.random() < (noWeaponHeld ? 0.68 : 0.56) ? 'weapon' : 'coins');
 
   const cx = Math.max(100, Math.min(rt.arenaWidth - 100, x));
   const cy = Math.max(120, Math.min(rt.arenaHeight - 120, y));
 
-  if (rewardKind === 'coins') {
-    const perPlayer =
-      22 +
-      Math.floor(Math.random() * 4) * 5 +
-      Math.min(25, rt.roomDepth * 4) +
-      Math.max(0, rt.loopLevel - 1) * 10;
+  const basePerPlayer =
+    (rewardKind === 'coins' || rewardKind === 'treasure' ? 28 : 16) +
+    Math.floor(Math.random() * 4) * 5 +
+    Math.min(28, rt.roomDepth * 4) +
+    Math.max(0, rt.loopLevel - 1) * 14;
+
+  if (rewardKind === 'coins' || rewardKind === 'treasure') {
     rt.chests.push({
       id: rt.nextUid++,
       x: cx,
@@ -1277,8 +1949,10 @@ function spawnRoomChest(
       size: 36,
       opened: false,
       openAnim: 0,
-      rewardKind: 'coins',
-      coinsTotal: perPlayer * activeCount,
+      rewardKind,
+      coinsTotal: basePerPlayer * activeCount,
+      bonusPotions: rewardKind === 'treasure' || Math.random() < 0.7 ? 1 : 0,
+      bonusScrollWeapon: Math.random() < (rewardKind === 'treasure' ? 0.95 : 0.65) ? pickTargetWeaponForScroll(rt) : undefined,
     });
   } else {
     const weaponId = pickRandomWeaponId(rt, true);
@@ -1291,6 +1965,9 @@ function spawnRoomChest(
       openAnim: 0,
       rewardKind: 'weapon',
       weaponId,
+      coinsTotal: basePerPlayer * activeCount,
+      bonusPotions: Math.random() < 0.55 ? 1 : 0,
+      bonusScrollWeapon: Math.random() < 0.65 ? pickTargetWeaponForScroll(rt) : undefined,
     });
   }
 }
@@ -1426,6 +2103,7 @@ function generateFloorGrid(rt: GameRuntime) {
   }
 
   rt.floorGrid = grid;
+  rt.floorMapRev++;
   rt.currentRoomKey = startKey;
   rt.roomKind = 'start';
   rt.roomDepth = 1;
@@ -1538,17 +2216,34 @@ function spawnShopItems(rt: GameRuntime) {
   const cx = Math.round(rt.arenaWidth / 2);
   const cy = Math.round(rt.arenaHeight / 2);
   const crateWeapon = pickRandomWeaponId(rt, true);
+  const scrollWeaponA = pickTargetWeaponForScroll(rt);
+  const scrollWeaponB = pickTargetWeaponForScroll(rt, new Set([scrollWeaponA]));
+  const defA = WEAPONS_CATALOG.find((w) => w.id === scrollWeaponA)!;
+  const defB = WEAPONS_CATALOG.find((w) => w.id === scrollWeaponB)!;
+
   rt.shopItems = [
     {
       id: rt.nextUid++,
       kind: 'potion',
       label: 'HEALING POTION',
-      subLabel: '+45 HP + CLEANSE',
-      cost: 25,
-      x: cx - 320,
+      subLabel: '+35 HP & +1 FLASK',
+      cost: 28,
+      x: cx - 420,
       y: cy + 30,
-      size: 38,
+      size: 36,
       accent: '#34d399',
+      purchasedBy: [],
+    },
+    {
+      id: rt.nextUid++,
+      kind: 'potion_pack',
+      label: 'FLASK BELT PACK',
+      subLabel: '+2 BAG FLASKS [C]',
+      cost: 35,
+      x: cx - 280,
+      y: cy + 30,
+      size: 36,
+      accent: '#10b981',
       purchasedBy: [],
     },
     {
@@ -1557,22 +2252,36 @@ function spawnShopItems(rt: GameRuntime) {
       label: 'VITALITY TONIC',
       subLabel: '+20 MAX HP & +35 HP',
       cost: 50,
-      x: cx - 160,
+      x: cx - 140,
       y: cy + 30,
-      size: 38,
+      size: 36,
       accent: '#f43f5e',
       purchasedBy: [],
     },
     {
       id: rt.nextUid++,
       kind: 'skill_scroll',
-      label: 'SKILL SCROLL',
-      subLabel: 'UNLOCK NEXT SKILL [Q/R/F]',
+      label: `${defA.shortTag} SCROLL`,
+      subLabel: `UPGRADE ${defA.shortTag} [Q/R/F]`,
       cost: 40,
       x: cx,
       y: cy + 30,
-      size: 38,
-      accent: '#a855f7',
+      size: 36,
+      accent: defA.accent,
+      targetWeapon: scrollWeaponA,
+      purchasedBy: [],
+    },
+    {
+      id: rt.nextUid++,
+      kind: 'skill_scroll',
+      label: `${defB.shortTag} SCROLL`,
+      subLabel: `UPGRADE ${defB.shortTag} [Q/R/F]`,
+      cost: 40,
+      x: cx + 140,
+      y: cy + 30,
+      size: 36,
+      accent: defB.accent,
+      targetWeapon: scrollWeaponB,
       purchasedBy: [],
     },
     {
@@ -1581,9 +2290,9 @@ function spawnShopItems(rt: GameRuntime) {
       label: 'AEGIS CORE',
       subLabel: 'ENERGY SHIELD',
       cost: 35,
-      x: cx + 160,
+      x: cx + 280,
       y: cy + 30,
-      size: 38,
+      size: 36,
       accent: '#38bdf8',
       purchasedBy: [],
     },
@@ -1593,9 +2302,9 @@ function spawnShopItems(rt: GameRuntime) {
       label: 'ARMORY CRATE',
       subLabel: `DROP: ${WEAPONS_CATALOG.find((w) => w.id === crateWeapon)?.shortTag || 'WEAPON'}`,
       cost: 45,
-      x: cx + 320,
+      x: cx + 420,
       y: cy + 30,
-      size: 38,
+      size: 36,
       accent: '#fbbf24',
       weaponId: crateWeapon,
       purchasedBy: [],
@@ -1653,6 +2362,9 @@ function advanceToNextFloor(rt: GameRuntime) {
   rt.knives = spawnKnivesForPlayers(rt.players, rt.playerColors, rt.arenaWidth, rt.arenaHeight);
   rt.camera = { x: rt.arenaWidth / 2, y: rt.arenaHeight / 2, zoom: 0.72 };
   soundEngine.setMusicTrack(combatStage, false);
+  rt.roomTotalWaves = rt.isOnlineCampaign && rt.loopLevel >= 2 ? Math.min(3, rt.loopLevel) : 1;
+  rt.roomWave = 1;
+  rt.waveNumber = 1;
   spawnWaveEnemies(rt, combatStage, 1);
   showPhaseAnnounce(rt, `FLOOR ${rt.floorNumber} · FRESH MAP GENERATED`, '#22d3ee', 3.0);
 }
@@ -1698,6 +2410,7 @@ export function advanceToNextLoop(rt: GameRuntime) {
     p.dashImmune = false;
     p.dashTimeLeft = 0;
     p.cloakTimer = 0;
+    p.frontShieldTimer = 0;
     p.postDashInvulnerability = 0;
     p.hp = Math.min(p.maxHp, Math.max(Math.round(p.maxHp * 0.6), p.hp + 45));
     const spread = (idx - (rt.numPlayers - 1) / 2) * 76;
@@ -1713,8 +2426,11 @@ export function advanceToNextLoop(rt: GameRuntime) {
   rt.knives = spawnKnivesForPlayers(rt.players, rt.playerColors, rt.arenaWidth, rt.arenaHeight);
   rt.camera = { x: rt.arenaWidth / 2, y: rt.arenaHeight / 2, zoom: 0.72 };
   soundEngine.setMusicTrack('ironDungeon', false);
+  rt.roomTotalWaves = Math.min(3, rt.loopLevel);
+  rt.roomWave = 1;
+  rt.waveNumber = 1;
   spawnWaveEnemies(rt, 'ironDungeon', 1);
-  showPhaseAnnounce(rt, `ABYSSAL LOOP ${rt.loopLevel} · EVERYTHING GROWS DEADLIER!`, '#f43f5e', 3.4);
+  showPhaseAnnounce(rt, `ABYSSAL LOOP ${rt.loopLevel} · ${rt.roomTotalWaves} WAVES & MULTI-HP FOES!`, '#f43f5e', 3.4);
 }
 
 export function castFinalVote(rt: GameRuntime, playerId: PlayerId, choice: 'end' | 'deeper') {
@@ -1746,6 +2462,7 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
   Object.values(targetRoom.connections).forEach((nk) => {
     if (nk && rt.floorGrid[nk]) rt.floorGrid[nk].revealed = true;
   });
+  rt.floorMapRev++;
 
   rt.chests = [];
   rt.weaponDrops = [];
@@ -1869,18 +2586,26 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
     showPhaseAnnounce(rt, `MERCHANT OUTPOST (STAND OR [E] TO BUY)`, '#fbbf24', 2.8);
   } else if (targetRoom.kind === 'treasure') {
     targetRoom.cleared = true;
+    rt.floorMapRev++;
     spawnRoomChest(rt, Math.round(rt.arenaWidth / 2 - 120), Math.round(rt.arenaHeight / 2), 'weapon');
-    spawnRoomChest(rt, Math.round(rt.arenaWidth / 2 + 120), Math.round(rt.arenaHeight / 2), 'coins');
-    spawnSkillScroll(rt, Math.round(rt.arenaWidth / 2), Math.round(rt.arenaHeight / 2 - 70), 'ANCIENT SKILL SCROLL');
+    spawnRoomChest(rt, Math.round(rt.arenaWidth / 2 + 120), Math.round(rt.arenaHeight / 2), 'treasure');
+    const scrollW1 = pickTargetWeaponForScroll(rt);
+    const scrollW2 = pickTargetWeaponForScroll(rt, new Set([scrollW1]));
+    spawnSkillScroll(rt, Math.round(rt.arenaWidth / 2 - 55), Math.round(rt.arenaHeight / 2 - 75), scrollW1);
+    spawnSkillScroll(rt, Math.round(rt.arenaWidth / 2 + 55), Math.round(rt.arenaHeight / 2 - 75), scrollW2);
     spawnConnectedGates(rt, targetRoom);
     soundEngine.playBoonSelect();
-    showPhaseAnnounce(rt, `ANCIENT TREASURE VAULT · CHESTS & SKILL SCROLL!`, '#34d399', 2.8);
+    showPhaseAnnounce(rt, `ANCIENT TREASURE VAULT · CHESTS, FLASKS & SCROLLS!`, '#34d399', 2.8);
   } else {
+    rt.roomTotalWaves = rt.loopLevel >= 2 ? Math.min(3, rt.loopLevel) : 1;
+    rt.roomWave = 1;
     rt.waveNumber = 1;
     spawnWaveEnemies(rt, combatStage, 1);
     showPhaseAnnounce(
       rt,
-      `FLOOR ${rt.floorNumber} · ${targetRoom.label} (${Math.round(getEnemyScaleMult(rt) * 10) / 10}X)`,
+      rt.roomTotalWaves > 1
+        ? `FLOOR ${rt.floorNumber} · ${targetRoom.label} (${rt.roomTotalWaves} WAVES)`
+        : `FLOOR ${rt.floorNumber} · ${targetRoom.label} (${Math.round(getEnemyScaleMult(rt) * 10) / 10}X)`,
       '#38bdf8',
       2.6
     );
@@ -1889,6 +2614,7 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
 
 function spawnWaveEnemies(rt: GameRuntime, stage: StageKey, wave: number) {
   rt.enemies = [];
+  rt.roomWave = wave;
   const alive = rt.players.filter((p) => p.state === 'alive');
 
   const pickSafePos = (size: number) => {
@@ -1924,9 +2650,14 @@ function spawnWaveEnemies(rt: GameRuntime, stage: StageKey, wave: number) {
 
   const loopSpeedBoost = 1 + Math.max(0, rt.loopLevel - 1) * 0.14;
   const enemySpdMult = (rt.difficulty === 'hard' ? 1.32 : rt.difficulty === 'medium' ? 1.24 : 1.1) * loopSpeedBoost;
+  const individualHpBase = rt.loopLevel >= 2 ? Math.min(4, rt.loopLevel) : 1;
 
-  roster.forEach((type) => {
-    const size = type === 'splitter' ? 36 : type === 'charger' ? 32 : 30;
+  roster.forEach((type, idx) => {
+    const isElite =
+      (rt.loopLevel >= 2 && idx % 4 === 2) ||
+      (rt.loopLevel === 1 && rt.isOnlineCampaign && rt.roomDepth >= 3 && idx === targetCount - 1);
+    const baseSize = type === 'splitter' ? 36 : type === 'charger' ? 32 : 30;
+    const size = baseSize + (isElite ? 6 : 0);
     const { ex, ey } = pickSafePos(size);
     const angle = Math.random() * Math.PI * 2;
     const baseSpeed =
@@ -1938,6 +2669,13 @@ function spawnWaveEnemies(rt: GameRuntime, stage: StageKey, wave: number) {
         ? 2.1
         : 2.7 + Math.random() * 1.2) * enemySpdMult;
 
+    const hpMax =
+      rt.loopLevel >= 2
+        ? (type === 'charger' || type === 'splitter' ? individualHpBase + 1 : individualHpBase) + (isElite ? 2 : 0)
+        : isElite
+        ? 3
+        : 1;
+
     rt.enemies.push({
       id: rt.nextUid++,
       type,
@@ -1948,6 +2686,10 @@ function spawnWaveEnemies(rt: GameRuntime, stage: StageKey, wave: number) {
       dx: Math.cos(angle),
       dy: Math.sin(angle),
       rotation: Math.random() * Math.PI * 2,
+      hp: hpMax,
+      maxHp: hpMax,
+      isElite,
+      hitFlashTimer: 0,
       chargeState: type === 'charger' ? 'roam' : undefined,
       chargeTimer: type === 'charger' ? (1.4 + Math.random() * 1.6) / enemySpdMult : undefined,
       blinkTimer: type === 'void_stalker' ? (2 + Math.random() * 2) / enemySpdMult : undefined,
@@ -2032,6 +2774,7 @@ export function transitionToStage(rt: GameRuntime, targetStage: StageKey) {
     p.cloakTimer = 0;
     p.whirlwindTimer = 0;
     p.fortifyTimer = 0;
+    p.frontShieldTimer = 0;
     p.bloodlustTimer = 0;
     p.chargeTimer = 0;
     p.empoweredStrike = false;
@@ -2452,9 +3195,18 @@ function spawnRelic(rt: GameRuntime) {
 
 function purchaseShopItem(rt: GameRuntime, p: Player, item: ShopItem): boolean {
   if (item.globalSold || item.purchasedBy.includes(p.id)) return false;
-  if (item.kind === 'skill_scroll' && p.unlockedSkillTier >= 4) {
-    addFloatingText(rt, item.x, item.y - 24, 'ALL 4 SKILLS UNLOCKED!', '#c084fc', 0.9);
-    return false;
+  if (item.kind === 'skill_scroll') {
+    const tw = item.targetWeapon || (p.weapon !== 'none' ? p.weapon : undefined);
+    if (!tw) {
+      addFloatingText(rt, item.x, item.y - 24, 'EQUIP A WEAPON FIRST!', '#94a3b8', 0.9);
+      return false;
+    }
+    const curTier = p.weapon === tw ? p.unlockedSkillTier : p.weaponSkillTiers[tw] ?? 1;
+    if (curTier >= 4) {
+      const wDef = WEAPONS_CATALOG.find((w) => w.id === tw);
+      addFloatingText(rt, item.x, item.y - 24, `${wDef?.shortTag || 'CLASS'} ALREADY 4/4!`, '#c084fc', 0.9);
+      return false;
+    }
   }
   if (p.coins < item.cost) {
     addFloatingText(rt, item.x, item.y - 24, `NEED ${item.cost}g`, '#f43f5e', 0.9);
@@ -2466,28 +3218,39 @@ function purchaseShopItem(rt: GameRuntime, p: Player, item: ShopItem): boolean {
 
   if (item.kind === 'potion') {
     item.purchasedBy.push(p.id);
-    p.hp = Math.min(p.maxHp, p.hp + 45);
-    p.sealed = false;
-    p.sealTimer = 0;
-    addFloatingText(rt, p.x + p.size / 2, p.y - 16, '+45 HP POTION!', '#34d399', 1.15);
+    p.hp = Math.min(p.maxHp, p.hp + 35);
+    p.potions = Math.min(6, p.potions + 1);
+    addFloatingText(rt, p.x + p.size / 2, p.y - 16, '+35 HP & +1 BAG FLASK!', '#34d399', 1.15);
+  } else if (item.kind === 'potion_pack') {
+    item.purchasedBy.push(p.id);
+    p.potions = Math.min(6, p.potions + 2);
+    addFloatingText(rt, p.x + p.size / 2, p.y - 16, `+2 FLASKS (${p.potions} IN BAG)`, '#10b981', 1.15);
   } else if (item.kind === 'max_hp') {
     item.purchasedBy.push(p.id);
-    // Bug #2 Fix: Persist Vitality Tonic in p.bonusMaxHp so weapon swaps never erase purchased HP!
+    // Persist Vitality Tonic in p.bonusMaxHp so weapon swaps never erase purchased HP!
     p.bonusMaxHp += 20;
     p.maxHp += 20;
     p.hp = Math.min(p.maxHp, p.hp + 35);
     addFloatingText(rt, p.x + p.size / 2, p.y - 16, '+20 MAX HP!', '#f43f5e', 1.15);
   } else if (item.kind === 'skill_scroll') {
+    const tw = (item.targetWeapon || p.weapon) as WeaponClassId;
     item.purchasedBy.push(p.id);
-    p.unlockedSkillTier = Math.min(4, p.unlockedSkillTier + 1);
-    const wDef = WEAPONS_CATALOG.find((w) => w.id === p.weapon);
-    const sk = wDef?.skills[p.unlockedSkillTier - 1];
+    const prevTier = p.weapon === tw ? p.unlockedSkillTier : p.weaponSkillTiers[tw] ?? 1;
+    const nextTier = Math.min(4, prevTier + 1);
+    p.weaponSkillTiers[tw] = nextTier;
+    if (p.weapon === tw) {
+      p.unlockedSkillTier = nextTier;
+    }
+    const wDef = WEAPONS_CATALOG.find((w) => w.id === tw);
+    const sk = wDef?.skills[nextTier - 1];
     addFloatingText(
       rt,
       p.x + p.size / 2,
       p.y - 20,
-      sk ? `UNLOCKED [${sk.keyLabel}]: ${sk.name.toUpperCase()}!` : `SKILL SLOT ${p.unlockedSkillTier} UNLOCKED!`,
-      '#c084fc',
+      p.weapon === tw && sk
+        ? `UNLOCKED [${sk.keyLabel}]: ${sk.name.toUpperCase()}!`
+        : `LEARNED ${wDef?.shortTag || ''} TIER ${nextTier}/4!`,
+      wDef?.accent || '#c084fc',
       1.15
     );
   } else if (item.kind === 'shield') {
@@ -2537,8 +3300,85 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
     p.abilityCooldownTimer = cd;
   }
 
+// Tank exclusive utility: purges enemy projectiles, cursed zones, spirit bombs, telegraphs & ally Seals
+function purgeEnemyEffectsInRadius(
+  rt: GameRuntime,
+  cx: number,
+  cy: number,
+  radius: number,
+  shieldRadius = radius
+): { purgedCount: number; cleansedCount: number } {
+  let purgedCount = 0;
+  let cleansedCount = 0;
+
+  rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
+    if (bp.type === 'phantom_clone') return true;
+    if (Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) <= radius) {
+      purgedCount++;
+      return false;
+    }
+    return true;
+  });
+
+  if (rt.oniCursedZones.length > 0) {
+    rt.oniCursedZones = rt.oniCursedZones.filter((z) => {
+      if (Math.hypot(z.x - cx, z.y - cy) <= radius + z.radius * 0.45) {
+        purgedCount++;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  if (rt.oniSpiritBombs.length > 0) {
+    rt.oniSpiritBombs = rt.oniSpiritBombs.filter((b) => {
+      if (Math.hypot(b.x - cx, b.y - cy) <= radius) {
+        purgedCount++;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  rt.enemies.forEach((e) => {
+    if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= radius) {
+      if (e.type === 'charger' && e.chargeState === 'telegraph') {
+        e.chargeState = 'roam';
+        e.chargeTimer = 2.0;
+        purgedCount++;
+      }
+      if (e.type === 'oni_acolyte' && (e.shootTimer || 0) < 1.2) {
+        e.shootTimer = 2.6;
+        purgedCount++;
+      }
+    }
+  });
+
+  rt.players.forEach((ally) => {
+    if (ally.state !== 'alive') return;
+    const d = Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy);
+    if (d <= shieldRadius) {
+      if (!ally.hasShield) {
+        ally.hasShield = true;
+        addFloatingText(rt, ally.x + ally.size / 2, ally.y - 12, 'SHIELDED!', '#38bdf8', 0.95);
+      }
+      if (ally.sealed) {
+        ally.sealed = false;
+        ally.sealTimer = 0;
+        cleansedCount++;
+        addFloatingText(rt, ally.x + ally.size / 2, ally.y - 24, 'SEAL PURGED!', '#22d3ee', 1.0);
+      }
+    }
+  });
+
+  if (purgedCount > 0) {
+    rt.score += purgedCount * 35;
+  }
+  return { purgedCount, cleansedCount };
+}
+
   if (rt.isOnlineCampaign) {
-    // === HOLY STAFF (NERFED & REBALANCED 4-SKILL SUPPORT) ===
+    // === HOLY STAFF (PURE HEALER: heals & revives ONLY — NO shields, NO cleanse, NO bullet wipe!) ===
     if (p.weapon === 'holy_staff') {
       if (slot === 1) {
         soundEngine.playMedkit();
@@ -2549,8 +3389,6 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           if (Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 260) {
             if (ally.state === 'alive') {
               ally.hp = Math.min(ally.maxHp, ally.hp + 14);
-              ally.sealed = false;
-              ally.sealTimer = 0;
               count++;
               addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+14 HP', '#fde047', 1.0);
             } else if (ally.state === 'down') {
@@ -2562,27 +3400,6 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
         });
         addFloatingText(rt, cx, p.y - 24, `SANCTUARY HYMN (${count})`, '#fde047', 1.1);
       } else if (slot === 2) {
-        soundEngine.playShockwave();
-        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 225, alpha: 0.92, speed: 520, color: '#fef08a' });
-        let cleared = 0;
-        rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
-          if (bp.type === 'phantom_clone') return true;
-          if (Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) <= 225) {
-            cleared++;
-            return false;
-          }
-          return true;
-        });
-        rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 225) e.stunTimer = 2.0;
-        });
-        rt.players.forEach((ally) => {
-          if (ally.state === 'alive' && Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 225) {
-            ally.hp = Math.min(ally.maxHp, ally.hp + 8);
-          }
-        });
-        addFloatingText(rt, cx, p.y - 20, cleared > 0 ? `PURIFYING NOVA! (${cleared})` : 'PURIFYING NOVA!', '#fef08a', 1.1);
-      } else if (slot === 3) {
         soundEngine.playCoopResonance();
         rt.skillZones.push({
           id: rt.nextUid++,
@@ -2590,90 +3407,171 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           kind: 'holy_ground',
           x: cx,
           y: cy,
-          radius: 170,
+          radius: 185,
           timer: 5.0,
           maxTimer: 5.0,
-          tickTimer: 0.35,
+          tickTimer: 0.45,
           color: '#fde047',
         });
-        addFloatingText(rt, cx, p.y - 20, 'SACRED GROUND DEPLOYED!', '#fde047', 1.1);
+        addFloatingText(rt, cx, p.y - 20, 'CONSECRATED GROUND!', '#fde047', 1.15);
+      } else if (slot === 3) {
+        soundEngine.playMedkit();
+        // Lifebinder Blessing: Burst heal or massive revive on the most-injured ally within 340px
+        const candidates = rt.players.filter(
+          (ally) =>
+            ally.state !== 'spectator' &&
+            ally.id !== p.id &&
+            Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 340
+        );
+        candidates.sort((a, b) => {
+          if (a.state === 'down' && b.state !== 'down') return -1;
+          if (b.state === 'down' && a.state !== 'down') return 1;
+          return a.hp / Math.max(1, a.maxHp) - b.hp / Math.max(1, b.maxHp);
+        });
+        const target = candidates[0] || p;
+        const tx = target.x + target.size / 2;
+        const ty = target.y + target.size / 2;
+        p.hp = Math.min(p.maxHp, p.hp + 8);
+        rt.energyWaves.push({ x: tx, y: ty, radius: 12, maxRadius: 140, alpha: 0.92, speed: 380, color: '#fef08a' });
+        for (let k = 0; k < 8; k++) {
+          const tFrac = k / 7;
+          addParticle(rt, {
+            x: cx + (tx - cx) * tFrac,
+            y: cy + (ty - cy) * tFrac,
+            dx: (Math.random() - 0.5) * 40,
+            dy: -35 - Math.random() * 40,
+            alpha: 1,
+            size: 4,
+            color: '#fde047',
+          });
+        }
+        if (target.state === 'down') {
+          target.reviveProgress = Math.min(REVIVE_TIME, target.reviveProgress + REVIVE_TIME * 0.55);
+          addFloatingText(rt, tx, target.y - 16, '+55% REVIVE TETHER!', '#34d399', 1.15);
+        } else {
+          const healAmt = target.id === p.id ? 18 : 24;
+          target.hp = Math.min(target.maxHp, target.hp + healAmt);
+          addFloatingText(rt, tx, target.y - 16, `+${healAmt} HP BLESSING!`, '#fde047', 1.15);
+        }
+        addFloatingText(rt, cx, p.y - 24, 'LIFEBINDER BLESSING!', '#fef08a', 1.1);
       } else {
         soundEngine.playCoopResonance();
-        rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 340, alpha: 0.96, speed: 540, color: '#fde047' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 20, maxRadius: 420, alpha: 0.96, speed: 580, color: '#fde047' });
         rt.players.forEach((ally) => {
           if (ally.state === 'alive') {
-            ally.invulnFrames = Math.max(ally.invulnFrames, 1.6);
-            ally.hp = Math.min(ally.maxHp, ally.hp + 12);
-            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, "ANGEL'S GRACE!", '#fef08a', 1.05);
+            ally.hp = Math.min(ally.maxHp, ally.hp + 20);
+            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+20 HP DAWN!', '#fef08a', 1.05);
           } else if (ally.state === 'down') {
-            ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.45);
+            ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.6);
+            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+60% REVIVE!', '#34d399', 1.1);
           }
         });
-        addFloatingText(rt, cx, p.y - 26, "ANGEL'S GRACE!", '#fde047', 1.2);
+        addFloatingText(rt, cx, p.y - 26, 'SERAPHIC REVIVAL!', '#fde047', 1.2);
       }
       return;
     }
 
-    // === TANK SHIELD ===
+    // === TANK SHIELD (EXCLUSIVE: 4s Frontal Aegis Purification + Safe Shadow Behind + Sanctuary Dome) ===
     if (p.weapon === 'tank_shield') {
       if (slot === 1) {
-        soundEngine.playShockwave();
-        rt.screenShake = Math.max(rt.screenShake, 14);
-        rt.energyWaves.push({ x: cx, y: cy, radius: 16, maxRadius: 260, alpha: 0.96, speed: 620, color: '#38bdf8' });
-        let cleared = 0;
-        rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
-          if (bp.type === 'phantom_clone') return true;
-          if (Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) <= 260) {
-            cleared++;
-            return false;
-          }
-          return true;
-        });
-        rt.players.forEach((ally) => {
-          if (ally.state === 'alive' && Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 240) {
-            ally.hasShield = true;
-            if (ally.id !== p.id) addFloatingText(rt, ally.x + ally.size / 2, ally.y - 12, 'SHIELDED!', '#38bdf8', 0.95);
-          }
-        });
-        rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 260) e.stunTimer = 2.6;
-        });
-        if (cleared > 0) rt.score += cleared * 35;
-        if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 265) {
-            handleBossHit(rt, p, false, 1);
-          }
+        aimTankAtThreat(rt, p);
+        soundEngine.playParry();
+        p.frontShieldTimer = 4.0;
+        p.hasShield = true;
+        if (p.sealed) {
+          p.sealed = false;
+          p.sealTimer = 0;
         }
-        addFloatingText(rt, cx, p.y - 18, cleared > 0 ? `BASTION DOME (${cleared})` : 'BASTION DOME!', '#38bdf8', 1.15);
+        const sx = cx + Math.cos(p.facingAngle) * 52;
+        const sy = cy + Math.sin(p.facingAngle) * 52;
+        rt.energyWaves.push({ x: sx, y: sy, radius: 10, maxRadius: 115, alpha: 0.92, speed: 480, color: '#38bdf8' });
+        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 128, 120);
+        rt.enemies.forEach((e) => {
+          if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 130) e.stunTimer = Math.max(e.stunTimer || 0, 1.5);
+        });
+        const total = purgedCount + cleansedCount;
+        addFloatingText(
+          rt,
+          cx,
+          p.y - 18,
+          total > 0 ? `FRONTLINE AEGIS 4s (PURGED ${total})` : 'FRONTLINE AEGIS (4.0s)!',
+          '#38bdf8',
+          1.18
+        );
       } else if (slot === 2) {
         soundEngine.playDash();
         p.chargeTimer = 0.55;
         p.invulnFrames = Math.max(p.invulnFrames, 0.7);
         p.dashDirX = Math.cos(p.facingAngle);
         p.dashDirY = Math.sin(p.facingAngle);
-        addFloatingText(rt, cx, p.y - 18, 'AEGIS CHARGE!', '#38bdf8', 1.1);
+        addFloatingText(rt, cx, p.y - 18, 'BULWARK CHARGE!', '#38bdf8', 1.1);
       } else if (slot === 3) {
-        soundEngine.playPowerup();
+        soundEngine.playShockwave();
         p.fortifyTimer = 4.5;
         p.hasShield = true;
-        rt.energyWaves.push({ x: cx, y: cy, radius: 10, maxRadius: 150, alpha: 0.9, speed: 380, color: '#0ea5e9' });
-        addFloatingText(rt, cx, p.y - 18, 'IRON FORTRESS!', '#0ea5e9', 1.15);
-      } else {
-        soundEngine.playShockwave();
-        rt.screenShake = Math.max(rt.screenShake, 22);
-        rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 320, alpha: 0.98, speed: 680, color: '#22d3ee' });
-        rt.bossProjectiles = rt.bossProjectiles.filter(
-          (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) > 320
-        );
+        rt.screenShake = Math.max(rt.screenShake, 14);
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 290, alpha: 0.96, speed: 640, color: '#22d3ee' });
+        rt.skillZones.push({
+          id: rt.nextUid++,
+          ownerId: p.id,
+          kind: 'sanctuary_dome',
+          x: cx,
+          y: cy,
+          radius: 255,
+          timer: 4.5,
+          maxTimer: 4.5,
+          tickTimer: 0.5,
+          color: '#22d3ee',
+        });
+        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 290, 255);
         rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 320) e.stunTimer = 3.5;
+          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 255) {
+            e.stunTimer = Math.max(e.stunTimer || 0, 2.4);
+          }
         });
         if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 325) {
-            handleBossHit(rt, p, false, 2);
+          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 265) {
+            handleBossHit(rt, p, false, 1);
+            registerBossInterrupt(rt, p, 1);
           }
         }
-        addFloatingText(rt, cx, p.y - 22, 'TECTONIC SLAM!', '#22d3ee', 1.25);
+        const total = purgedCount + cleansedCount;
+        addFloatingText(rt, cx, p.y - 20, total > 0 ? `BASTION DOME! (PURGED ${total})` : 'BASTION DOME!', '#22d3ee', 1.18);
+      } else {
+        soundEngine.playShockwave();
+        rt.screenShake = Math.max(rt.screenShake, 24);
+        rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: 380, alpha: 0.98, speed: 700, color: '#38bdf8' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 310, alpha: 0.9, speed: 560, color: '#ffffff' });
+        rt.skillZones.push({
+          id: rt.nextUid++,
+          ownerId: p.id,
+          kind: 'sanctuary_dome',
+          x: cx,
+          y: cy,
+          radius: 330,
+          timer: 5.0,
+          maxTimer: 5.0,
+          tickTimer: 0.5,
+          color: '#38bdf8',
+        });
+        const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 380, 9999);
+        rt.enemies.forEach((e) => {
+          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 380) e.stunTimer = 3.8;
+        });
+        if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
+          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 385) {
+            handleBossHit(rt, p, false, 2);
+            registerBossInterrupt(rt, p, 2);
+          }
+        }
+        addFloatingText(
+          rt,
+          cx,
+          p.y - 22,
+          purgedCount > 0 ? `COLOSSUS SANCTUARY (${purgedCount} WIPED!)` : 'COLOSSUS SANCTUARY!',
+          '#38bdf8',
+          1.25
+        );
       }
       return;
     }
@@ -2711,13 +3609,13 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
       } else if (slot === 3) {
         soundEngine.playCloak();
         rt.voidDecoys.push({ x: cx, y: cy, timer: 0.55, maxTimer: 0.55, color: '#a855f7', ownerId: p.id });
-        p.x = Math.max(16, Math.min(rt.arenaWidth - p.size - 16, p.x + Math.cos(p.facingAngle) * 190));
-        p.y = Math.max(16, Math.min(rt.arenaHeight - p.size - 16, p.y + Math.sin(p.facingAngle) * 190));
+        p.x = Math.max(16, Math.min(rt.arenaWidth - p.size - 16, p.x + Math.cos(p.facingAngle) * 195));
+        p.y = Math.max(16, Math.min(rt.arenaHeight - p.size - 16, p.y + Math.sin(p.facingAngle) * 195));
         p.invulnFrames = Math.max(p.invulnFrames, 0.45);
         p.dashReady = true;
         p.dashCooldownTimer = 0;
         rt.voidDecoys.push({ x: p.x + p.size / 2, y: p.y + p.size / 2, timer: 0.55, maxTimer: 0.55, color: '#e879f9', ownerId: p.id });
-        addFloatingText(rt, p.x + p.size / 2, p.y - 16, 'NIGHTFALL AMBUSH!', '#e879f9', 1.15);
+        addFloatingText(rt, p.x + p.size / 2, p.y - 16, 'PHANTOM BLINK!', '#e879f9', 1.15);
       } else {
         soundEngine.playSurge();
         p.bloodlustTimer = 4.5;
@@ -2730,21 +3628,22 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
             kind: 'shadow_kunai',
             x: cx,
             y: cy,
-            dx: Math.cos(ang) * 13,
-            dy: Math.sin(ang) * 13,
+            dx: Math.cos(ang) * 13.5,
+            dy: Math.sin(ang) * 13.5,
             angle: ang,
-            radius: 15,
+            radius: 16,
             color: '#e879f9',
             lifetime: 0.95,
             pierce: 3,
+            bossDamage: 2,
           });
         }
-        addFloatingText(rt, cx, p.y - 20, 'BLOODLUST VORTEX!', '#e879f9', 1.25);
+        addFloatingText(rt, cx, p.y - 20, 'NIGHTMARE BLOSSOM!', '#e879f9', 1.25);
       }
       return;
     }
 
-    // === WARRIOR GREATSWORD ===
+    // === WARRIOR GREATSWORD (PURE HEAVY MELEE & SHOCKWAVE DPS) ===
     if (p.weapon === 'warrior_greatsword') {
       if (slot === 1) {
         soundEngine.playCrescentWave();
@@ -2757,21 +3656,24 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           dx: Math.cos(p.facingAngle) * 12,
           dy: Math.sin(p.facingAngle) * 12,
           angle: p.facingAngle,
-          radius: 38,
+          radius: 40,
           color: p.color,
           lifetime: 1.25,
           pierce: 99,
         });
-        addSlashArc(rt, cx, cy, p.facingAngle, '#ef4444', 56);
+        addSlashArc(rt, cx, cy, p.facingAngle, '#ef4444', 58);
         addFloatingText(rt, cx, p.y - 14, 'CRESCENT CLEAVE!', '#ef4444', 1.1);
       } else if (slot === 2) {
         soundEngine.playSlash(3);
         p.whirlwindTimer = 2.6;
-        addFloatingText(rt, cx, p.y - 16, 'WHIRLWIND BLADE!', '#f87171', 1.15);
+        addFloatingText(rt, cx, p.y - 16, 'WHIRLWIND TEMPEST!', '#f87171', 1.15);
       } else if (slot === 3) {
-        soundEngine.playCrescentWave();
+        soundEngine.playSurge();
         rt.screenShake = Math.max(rt.screenShake, 12);
-        for (const off of [-0.25, 0, 0.25]) {
+        p.bloodlustTimer = 4.5;
+        p.empoweredStrike = true;
+        rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 160, alpha: 0.9, speed: 460, color: '#fb923c' });
+        for (const off of [-0.26, 0, 0.26]) {
           const ang = p.facingAngle + off;
           rt.playerProjectiles.push({
             uid: rt.nextUid++,
@@ -2788,7 +3690,7 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
             pierce: 99,
           });
         }
-        addFloatingText(rt, cx, p.y - 18, 'EARTHSPLITTER!', '#fb923c', 1.15);
+        addFloatingText(rt, cx, p.y - 18, 'BLOODLUST ROAR!', '#fb923c', 1.18);
       } else {
         soundEngine.playShockwave();
         rt.screenShake = Math.max(rt.screenShake, 20);
@@ -2801,14 +3703,14 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           dx: Math.cos(p.facingAngle) * 14.5,
           dy: Math.sin(p.facingAngle) * 14.5,
           angle: p.facingAngle,
-          radius: 56,
+          radius: 58,
           color: '#ef4444',
           lifetime: 1.35,
           pierce: 99,
           bossDamage: 3,
         });
-        addSlashArc(rt, cx, cy, p.facingAngle, '#fde047', 78);
-        addFloatingText(rt, cx, p.y - 22, 'CATACLYSM STRIKE!', '#fde047', 1.25);
+        addSlashArc(rt, cx, cy, p.facingAngle, '#fde047', 80);
+        addFloatingText(rt, cx, p.y - 22, 'CATACLYSM SPLITTER!', '#fde047', 1.25);
       }
       return;
     }
@@ -2849,41 +3751,24 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           kind: 'frost_trap',
           x: cx,
           y: cy,
-          radius: 145,
+          radius: 150,
           timer: 5.5,
           maxTimer: 5.5,
           tickTimer: 0.4,
           color: '#38bdf8',
         });
-        addFloatingText(rt, cx, p.y - 16, 'FROST TRAP ARMED!', '#38bdf8', 1.1);
+        addFloatingText(rt, cx, p.y - 16, 'FROST SNARE TRAP!', '#38bdf8', 1.1);
       } else if (slot === 3) {
-        soundEngine.playCrescentWave();
-        const tx = Math.max(120, Math.min(rt.arenaWidth - 120, cx + Math.cos(p.facingAngle) * 155));
-        const ty = Math.max(120, Math.min(rt.arenaHeight - 120, cy + Math.sin(p.facingAngle) * 155));
-        rt.skillZones.push({
-          id: rt.nextUid++,
-          ownerId: p.id,
-          kind: 'arrow_rain',
-          x: tx,
-          y: ty,
-          radius: 175,
-          timer: 3.5,
-          maxTimer: 3.5,
-          tickTimer: 0.25,
-          color: '#34d399',
-        });
-        addFloatingText(rt, tx, ty - 20, 'ARROW RAIN!', '#34d399', 1.15);
-      } else {
         soundEngine.playShockwave();
-        rt.screenShake = Math.max(rt.screenShake, 16);
+        rt.screenShake = Math.max(rt.screenShake, 14);
         rt.playerProjectiles.push({
           uid: rt.nextUid++,
           ownerId: p.id,
           kind: 'sniper_arrow',
           x: cx,
           y: cy,
-          dx: Math.cos(p.facingAngle) * 21,
-          dy: Math.sin(p.facingAngle) * 21,
+          dx: Math.cos(p.facingAngle) * 21.5,
+          dy: Math.sin(p.facingAngle) * 21.5,
           angle: p.facingAngle,
           radius: 22,
           color: '#fde047',
@@ -2891,7 +3776,24 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
           pierce: 99,
           bossDamage: 3,
         });
-        addFloatingText(rt, cx, p.y - 20, 'PHANTOM RAILSHOT!', '#fde047', 1.25);
+        addFloatingText(rt, cx, p.y - 20, 'PIERCING RAILSHOT!', '#fde047', 1.2);
+      } else {
+        soundEngine.playCrescentWave();
+        const tx = Math.max(120, Math.min(rt.arenaWidth - 120, cx + Math.cos(p.facingAngle) * 165));
+        const ty = Math.max(120, Math.min(rt.arenaHeight - 120, cy + Math.sin(p.facingAngle) * 165));
+        rt.skillZones.push({
+          id: rt.nextUid++,
+          ownerId: p.id,
+          kind: 'arrow_rain',
+          x: tx,
+          y: ty,
+          radius: 185,
+          timer: 3.8,
+          maxTimer: 3.8,
+          tickTimer: 0.22,
+          color: '#34d399',
+        });
+        addFloatingText(rt, tx, ty - 20, 'TEMPEST ARROW RAIN!', '#34d399', 1.22);
       }
       return;
     }
@@ -3021,28 +3923,19 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
     }
   } else if (p.heroClass === 'vanguard') {
     if (slot === 1) {
-      soundEngine.playShockwave();
-      rt.screenShake = Math.max(rt.screenShake, 12);
-      rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 215, alpha: 0.95, speed: 560, color: '#38bdf8' });
-      let cleared = 0;
-      rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
-        if (bp.type === 'phantom_clone') return true;
-        if (Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) <= 210) {
-          cleared++;
-          return false;
-        }
-        return true;
-      });
+      aimTankAtThreat(rt, p);
+      soundEngine.playParry();
+      p.frontShieldTimer = 4.0;
+      p.hasShield = true;
+      const sx = cx + Math.cos(p.facingAngle) * 52;
+      const sy = cy + Math.sin(p.facingAngle) * 52;
+      rt.energyWaves.push({ x: sx, y: sy, radius: 10, maxRadius: 115, alpha: 0.92, speed: 480, color: '#38bdf8' });
+      const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 128, 120);
       rt.enemies.forEach((e) => {
-        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 215) e.stunTimer = 2.2;
+        if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 130) e.stunTimer = Math.max(e.stunTimer || 0, 1.5);
       });
-      if (cleared > 0) rt.score += cleared * 35;
-      if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 240) {
-          handleBossHit(rt, p, false, 1);
-        }
-      }
-      addFloatingText(rt, cx, p.y - 14, cleared > 0 ? `SHOCKWAVE! ${cleared} CLEARED` : 'AEGIS SLAM!', '#38bdf8', 1.1);
+      const total = purgedCount + cleansedCount;
+      addFloatingText(rt, cx, p.y - 16, total > 0 ? `VANGUARD BULWARK 4s (PURGED ${total})` : 'VANGUARD BULWARK (4.0s)!', '#38bdf8', 1.15);
     } else if (slot === 2) {
       soundEngine.playDash();
       p.chargeTimer = 0.5;
@@ -3051,14 +3944,50 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
       p.dashDirY = Math.sin(p.facingAngle);
       addFloatingText(rt, cx, p.y - 14, 'SHIELD RUSH!', '#38bdf8', 1.1);
     } else if (slot === 3) {
-      soundEngine.playPowerup();
+      soundEngine.playShockwave();
       p.fortifyTimer = 4.5;
       p.hasShield = true;
-      addFloatingText(rt, cx, p.y - 16, 'BULWARK STANCE!', '#0ea5e9', 1.15);
+      rt.screenShake = Math.max(rt.screenShake, 12);
+      rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 255, alpha: 0.95, speed: 560, color: '#22d3ee' });
+      rt.skillZones.push({
+        id: rt.nextUid++,
+        ownerId: p.id,
+        kind: 'sanctuary_dome',
+        x: cx,
+        y: cy,
+        radius: 245,
+        timer: 4.5,
+        maxTimer: 4.5,
+        tickTimer: 0.5,
+        color: '#22d3ee',
+      });
+      const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 245, 245);
+      rt.enemies.forEach((e) => {
+        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 235) e.stunTimer = 2.2;
+      });
+      if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
+        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 250) {
+          handleBossHit(rt, p, false, 1);
+          registerBossInterrupt(rt, p, 1);
+        }
+      }
+      addFloatingText(rt, cx, p.y - 16, purgedCount > 0 ? `BASTION DOME! (${purgedCount} CLEARED)` : 'BASTION DOME!', '#0ea5e9', 1.15);
     } else {
       soundEngine.playShockwave();
       rt.screenShake = Math.max(rt.screenShake, 20);
       rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 320, alpha: 0.98, speed: 660, color: '#22d3ee' });
+      rt.skillZones.push({
+        id: rt.nextUid++,
+        ownerId: p.id,
+        kind: 'sanctuary_dome',
+        x: cx,
+        y: cy,
+        radius: 310,
+        timer: 5.0,
+        maxTimer: 5.0,
+        tickTimer: 0.5,
+        color: '#38bdf8',
+      });
       rt.bossProjectiles = rt.bossProjectiles.filter(
         (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) > 320
       );
@@ -3071,6 +4000,7 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
       if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
         if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 325) {
           handleBossHit(rt, p, false, 2);
+          registerBossInterrupt(rt, p, 2);
         }
       }
       addFloatingText(rt, cx, p.y - 20, 'SKYBREAKER SLAM!', '#22d3ee', 1.25);
@@ -3154,6 +4084,9 @@ export interface TouchInputState {
   skill2?: boolean;
   skill3?: boolean;
   skill4?: boolean;
+  usePotion?: boolean;
+  cycleWeapon?: boolean;
+  selectWeaponSlot?: number;
 }
 
 function updatePlayer(
@@ -3174,8 +4107,11 @@ function updatePlayer(
   if (p.bladeHealCd > 0) p.bladeHealCd = Math.max(0, p.bladeHealCd - dt);
   if (p.whirlwindTimer > 0) p.whirlwindTimer = Math.max(0, p.whirlwindTimer - dt);
   if (p.fortifyTimer > 0) p.fortifyTimer = Math.max(0, p.fortifyTimer - dt);
+  if (p.frontShieldTimer > 0) p.frontShieldTimer = Math.max(0, p.frontShieldTimer - dt);
   if (p.bloodlustTimer > 0) p.bloodlustTimer = Math.max(0, p.bloodlustTimer - dt);
   if (p.chargeTimer > 0) p.chargeTimer = Math.max(0, p.chargeTimer - dt);
+  if (p.potionCooldownTimer > 0) p.potionCooldownTimer = Math.max(0, p.potionCooldownTimer - dt);
+  if (p.swapCooldownTimer > 0) p.swapCooldownTimer = Math.max(0, p.swapCooldownTimer - dt);
 
   // Forbidden Cheat Overrides
   if (rt.cheats.zeroCooldowns) {
@@ -3237,6 +4173,10 @@ function updatePlayer(
   const skill4Pressed =
     !!touchInput?.skill4 ||
     (p.id === 2 && !rt.isOnlineCampaign ? !!keys["'"] : !!keys['f'] || !!keys['4']);
+  const potionPressed =
+    !!touchInput?.usePotion ||
+    (p.id === 2 && !rt.isOnlineCampaign ? !!keys['p'] : !!keys['c'] || !!keys['h']);
+  const cycleWeaponPressed = !!touchInput?.cycleWeapon || (!touchInput && !!keys['x']);
 
   if (p.sealed) {
     p.dashImmune = false;
@@ -3341,6 +4281,21 @@ function updatePlayer(
     triggerSkillSlot(rt, p, 4);
   }
   p._lastSkill4Pressed = skill4Pressed;
+
+  // Trigger Crimson Flask [C/H] & Bag Weapon Cycle [X] / Direct Slot
+  if (potionPressed && !p._lastPotionPressed) {
+    usePlayerPotion(rt, p);
+  }
+  p._lastPotionPressed = potionPressed;
+
+  if (cycleWeaponPressed && !p._lastCycleWeaponPressed) {
+    switchInventoryWeapon(rt, p);
+  }
+  p._lastCycleWeaponPressed = cycleWeaponPressed;
+
+  if (typeof touchInput?.selectWeaponSlot === 'number') {
+    switchInventoryWeapon(rt, p, touchInput.selectWeaponSlot);
+  }
 
   // Trigger Dash
   if (dashPressed && !p._lastDashPressed) {
@@ -3473,13 +4428,17 @@ function handleBossHit(
   const cx = b.x + b.size / 2;
   const cy = b.y + b.size / 2;
   const isWeakened = b.state === 'weakened';
+  const wasEmpowered = player.empoweredStrike;
   let baseDmg = (hasBoon(rt, 'berserker_blade') ? 2 : 1) + bonusDamage;
-  if (player.empoweredStrike) {
+  if (wasEmpowered) {
     baseDmg += 1;
     player.empoweredStrike = false;
   }
 
   const aliveCoopCount = rt.players.filter((pl) => pl.state === 'alive').length;
+  if (b.channelKind === 'interrupt' && (wasEmpowered || bonusDamage > 0 || aliveCoopCount <= 2)) {
+    registerBossInterrupt(rt, player, 1);
+  }
   const bothAliveCoop = rt.numPlayers >= 2 && aliveCoopCount >= 2;
   let crossDetonated = false;
   if (rt.bossType === 'eclipse' && bothAliveCoop) {
@@ -3579,6 +4538,10 @@ function handleBossHit(
     b.postureUnlocked = false;
     b.postureDecayGrace = 0;
     b.attacksBeforeVulnerable = 0;
+    b.channelKind = null;
+    b.channelTimer = 0;
+    b.channelLabel = '';
+    b.channelNodes = [];
     rt.telegraphLines = [];
     rt.oniCursedZones = [];
     rt.bossProjectiles = [];
@@ -3656,6 +4619,10 @@ function handleBossHit(
   if (b.health <= 0) {
     b.state = 'dead';
     b.attackLabel = '';
+    b.channelKind = null;
+    b.channelTimer = 0;
+    b.channelLabel = '';
+    b.channelNodes = [];
     b.shakeIntensity = 28;
     rt.bossDeadTimer = 0;
     rt.bossDeadBeat = 0;
@@ -4723,6 +5690,21 @@ function updateOniBoss(rt: GameRuntime, dt: number) {
     if (bomb.y > rt.arenaHeight - bomb.radius) bomb.vy = -Math.abs(bomb.vy);
 
     let hit = false;
+    for (const t of rt.players) {
+      if (doesFrontShieldInterceptPoint(t, bomb.x, bomb.y, bomb.radius)) {
+        soundEngine.playParry();
+        rt.score += 80;
+        rt.energyWaves.push({ x: bomb.x, y: bomb.y, radius: 10, maxRadius: 72, alpha: 0.85, speed: 320, color: '#38bdf8' });
+        addFloatingText(rt, bomb.x, bomb.y - 16, 'BOMB PURIFIED!', '#38bdf8', 1.1);
+        hit = true;
+        break;
+      }
+    }
+    if (hit) {
+      rt.oniSpiritBombs.splice(si, 1);
+      continue;
+    }
+
     rt.players.forEach((p) => {
       if (!hit && p.state === 'alive' && !p.dashImmune && p.invulnFrames <= 0 && p.postDashInvulnerability <= 0 && p.cloakTimer <= 0) {
         const dist = Math.hypot(p.x + p.size / 2 - bomb.x, p.y + p.size / 2 - bomb.y);
@@ -6358,6 +7340,86 @@ function updateCamera(rt: GameRuntime, dt: number) {
   rt.camera.y += (ty - rt.camera.y) * panDamp;
 }
 
+function damageEnemy(
+  rt: GameRuntime,
+  enemyIndex: number,
+  ownerId: PlayerId,
+  dmg: number,
+  fxAngle: number,
+  fxColor: string
+): boolean {
+  const e = rt.enemies[enemyIndex];
+  if (!e) return false;
+  const ecx = e.x + e.size / 2;
+  const ecy = e.y + e.size / 2;
+  e.hp = (e.hp ?? 1) - Math.max(1, dmg);
+  e.maxHp = e.maxHp ?? 1;
+
+  if (e.hp > 0) {
+    e.hitFlashTimer = 0.22;
+    e.x = Math.max(0, Math.min(rt.arenaWidth - e.size, e.x + Math.cos(fxAngle) * 14));
+    e.y = Math.max(0, Math.min(rt.arenaHeight - e.size, e.y + Math.sin(fxAngle) * 14));
+    soundEngine.playBossDamaged();
+    addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 32);
+    addFloatingText(rt, ecx, e.y - 8, `-${dmg} (${e.hp}/${e.maxHp})`, '#fde047', 0.92);
+    return false;
+  }
+
+  rt.lastKilledPos = { x: ecx, y: ecy };
+  rt.enemies.splice(enemyIndex, 1);
+  rt.kills++;
+  updateCombo(rt, ownerId);
+  const comboVal = rt.playerCombos[ownerId]?.count || 1;
+  soundEngine.playSlash(comboVal);
+  addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 42);
+  addFloatingText(
+    rt,
+    ecx,
+    e.y - 6,
+    e.isElite ? 'ELITE VANQUISHED!' : comboVal > 1 ? `${comboVal}x EXECUTE!` : 'SLICED!',
+    e.isElite ? '#fbbf24' : fxColor,
+    e.isElite ? 1.15 : 1.0
+  );
+
+  if (e.type === 'splitter') {
+    for (let s = 0; s < 2; s++) {
+      const sAng = Math.random() * Math.PI * 2;
+      rt.enemies.push({
+        id: rt.nextUid++,
+        type: 'mini_spark',
+        x: e.x + s * 10,
+        y: e.y,
+        size: 20,
+        speed: 3.9,
+        dx: Math.cos(sAng),
+        dy: Math.sin(sAng),
+        rotation: 0,
+        hp: 1,
+        maxHp: 1,
+        hitFlashTimer: 0,
+      });
+    }
+  }
+
+  if (e.isElite && rt.isOnlineCampaign && !rt.isTutorial) {
+    const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
+    const perPlayer = Math.max(10, Math.round(28 / Math.max(1, activeParty.length)));
+    activeParty.forEach((pl) => {
+      pl.coins += perPlayer;
+    });
+    const killer = rt.players.find((pl) => pl.id === ownerId);
+    if (killer && killer.state === 'alive') {
+      killer.potions = Math.min(6, killer.potions + 1);
+    }
+    addFloatingText(rt, ecx, ecy - 22, `ELITE LOOT: +${perPlayer}g & +1 FLASK!`, '#fbbf24', 1.2);
+    if (Math.random() < 0.45) {
+      spawnSkillScroll(rt, ecx, ecy);
+    }
+  }
+
+  return true;
+}
+
 export function stepGame(
   rt: GameRuntime,
   rawDt: number,
@@ -6587,6 +7649,7 @@ export function stepGame(
         if (Math.hypot(bcx - d.x, bcy - d.y) <= 175) {
           const owner = rt.players.find((pl) => pl.id === d.ownerId) || rt.players[0];
           handleBossHit(rt, owner, false);
+          registerBossInterrupt(rt, owner, 1);
         }
       }
       rt.voidDecoys.splice(di, 1);
@@ -6609,12 +7672,6 @@ export function stepGame(
           if (ally.state === 'alive' && Math.hypot(ally.x + ally.size / 2 - z.x, ally.y + ally.size / 2 - z.y) <= z.radius) {
             ally.hp = Math.min(ally.maxHp, ally.hp + 4);
             addFloatingText(rt, ally.x + ally.size / 2, ally.y - 10, '+4 HP', '#fde047', 0.8);
-          }
-        });
-        rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius) {
-            e.dx *= 0.85;
-            e.dy *= 0.85;
           }
         });
       } else if (z.kind === 'frost_trap') {
@@ -6656,12 +7713,7 @@ export function stepGame(
         for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
           const e = rt.enemies[ei];
           if (Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius) {
-            rt.lastKilledPos = { x: e.x + e.size / 2, y: e.y + e.size / 2 };
-            rt.enemies.splice(ei, 1);
-            rt.kills++;
-            updateCombo(rt, z.ownerId);
-            soundEngine.playSlash(1);
-            addSlashArc(rt, e.x + e.size / 2, e.y + e.size / 2, Math.PI / 2, '#34d399', 26);
+            damageEnemy(rt, ei, z.ownerId, 1, Math.PI / 2, '#34d399');
             break;
           }
         }
@@ -6671,6 +7723,7 @@ export function stepGame(
           if (Math.hypot(bcx - z.x, bcy - z.y) <= z.radius + rt.boss.size / 2 && rt.bossHitCooldowns[z.ownerId] <= 0) {
             const owner = rt.players.find((pl) => pl.id === z.ownerId) || rt.players[0];
             handleBossHit(rt, owner, false);
+            registerBossInterrupt(rt, owner, 1);
             rt.bossHitCooldowns[z.ownerId] = 0.65;
           }
         }
@@ -6684,22 +7737,24 @@ export function stepGame(
     const pcx = pl.x + pl.size / 2;
     const pcy = pl.y + pl.size / 2;
     if (pl.whirlwindTimer > 0) {
-      rt.bossProjectiles = rt.bossProjectiles.filter(
-        (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - pcx, bp.y + bp.size / 2 - pcy) > 84
-      );
+      const whirlDmg = pl.weapon === 'warrior_greatsword' || (!rt.isOnlineCampaign && pl.heroClass === 'ronin') ? 2 : 1;
       for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
         const e = rt.enemies[ei];
+        if ((e.hitFlashTimer || 0) > 0) continue;
         if (Math.hypot(e.x + e.size / 2 - pcx, e.y + e.size / 2 - pcy) <= 84) {
-          rt.lastKilledPos = { x: e.x + e.size / 2, y: e.y + e.size / 2 };
-          rt.enemies.splice(ei, 1);
-          rt.kills++;
-          updateCombo(rt, pl.id);
-          soundEngine.playSlash(2);
-          addSlashArc(rt, e.x + e.size / 2, e.y + e.size / 2, pl.animTime * 10, pl.color, 34);
+          damageEnemy(rt, ei, pl.id, whirlDmg, pl.animTime * 10, pl.color);
         }
       }
     }
     if (pl.chargeTimer > 0) {
+      const beforeCharge = rt.bossProjectiles.length;
+      rt.bossProjectiles = rt.bossProjectiles.filter(
+        (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - pcx, bp.y + bp.size / 2 - pcy) > 58
+      );
+      const shatteredCount = beforeCharge - rt.bossProjectiles.length;
+      if (shatteredCount > 0) {
+        rt.score += shatteredCount * 35;
+      }
       rt.enemies.forEach((e) => {
         if (Math.hypot(e.x + e.size / 2 - pcx, e.y + e.size / 2 - pcy) <= 68) {
           e.stunTimer = 2.2;
@@ -6710,6 +7765,7 @@ export function stepGame(
         const bcy = rt.boss.y + rt.boss.size / 2;
         if (Math.hypot(bcx - pcx, bcy - pcy) <= rt.boss.size / 2 + 42 && rt.bossHitCooldowns[pl.id] <= 0) {
           handleBossHit(rt, pl, false, 1);
+          registerBossInterrupt(rt, pl, 1);
           pl.chargeTimer = 0;
           rt.bossHitCooldowns[pl.id] = 0.5;
         }
@@ -6717,7 +7773,7 @@ export function stepGame(
     }
   });
 
-  // Player Projectiles (Crescent Wave, Cataclysm, Arc Bolts, Arrows, Kunai, Frost Shards)
+  // Player Projectiles (Crescent Wave, Cataclysm, Arc Bolts, Arrows, Railshot, Kunai, Frost Shards)
   for (let pi = rt.playerProjectiles.length - 1; pi >= 0; pi--) {
     const pp = rt.playerProjectiles[pi];
     pp.lifetime -= dt;
@@ -6728,24 +7784,15 @@ export function stepGame(
       continue;
     }
 
-    // Slice boss bullets in path (Crescent & Cataclysm)
-    if (pp.kind === 'crescent' || pp.kind === 'cataclysm') {
-      rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
-        if (bp.type === 'phantom_clone') return true;
-        return Math.hypot(bp.x + bp.size / 2 - pp.x, bp.y + bp.size / 2 - pp.y) > pp.radius + bp.size / 2;
-      });
-    }
-
-    // Hit enemies
+    // Hit enemies (multi-HP aware)
+    const projDmg =
+      pp.bossDamage ||
+      (pp.kind === 'crescent' || pp.kind === 'cataclysm' || pp.kind === 'sniper_arrow' ? 2 : 1);
     for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
       const e = rt.enemies[ei];
+      if ((e.hitFlashTimer || 0) > 0 && pp.pierce > 2) continue;
       if (Math.hypot(e.x + e.size / 2 - pp.x, e.y + e.size / 2 - pp.y) < pp.radius + e.size / 2) {
-        rt.lastKilledPos = { x: e.x + e.size / 2, y: e.y + e.size / 2 };
-        rt.enemies.splice(ei, 1);
-        rt.kills++;
-        updateCombo(rt, pp.ownerId);
-        soundEngine.playSlash(rt.playerCombos[pp.ownerId]?.count || 1);
-        addSlashArc(rt, e.x + e.size / 2, e.y + e.size / 2, pp.angle, pp.color, 36);
+        damageEnemy(rt, ei, pp.ownerId, projDmg, pp.angle, pp.color);
         pp.pierce--;
         if (pp.pierce <= 0) break;
       }
@@ -6791,6 +7838,11 @@ export function stepGame(
       if (Math.hypot(bcx - pp.x, bcy - pp.y) < rt.boss.size / 2 + pp.radius) {
         const owner = rt.players.find((pl) => pl.id === pp.ownerId) || rt.players[0];
         handleBossHit(rt, owner, false, Math.max(0, (pp.bossDamage || 1) - 1));
+        registerBossInterrupt(
+          rt,
+          owner,
+          pp.kind === 'shadow_kunai' || pp.kind === 'sniper_arrow' || pp.kind === 'cataclysm' ? 2 : 1
+        );
         pp.pierce = 0;
       }
     }
@@ -6826,10 +7878,15 @@ export function stepGame(
             shape: 'lance',
           });
         }
-        // Instant beam hit check (Heavy Signature Telegraph Attack: 36 DMG)
+        // Instant beam hit check (Heavy Signature Telegraph Attack: 36 DMG; Tank Frontal Shield blocks!)
         rt.players.forEach((p) => {
           if (p.state === 'alive' && pointToSegmentDist(p.x + p.size / 2, p.y + p.size / 2, tl.x1, tl.y1, tl.x2, tl.y2) < p.size * 0.45) {
-            damagePlayer(rt, p, 36);
+            if (isBehindTankShield(rt, p, tl.x1, tl.y1)) {
+              soundEngine.playParry();
+              addFloatingText(rt, p.x + p.size / 2, p.y - 16, 'AEGIS BLOCK!', '#38bdf8', 1.15);
+            } else {
+              damagePlayer(rt, p, 36);
+            }
           }
         });
       } else if (tl.kind === 'void_rift' || tl.kind === 'katana') {
@@ -6874,12 +7931,31 @@ export function stepGame(
     }
   }
 
+  // Tank 4s Frontal Greatshield actively purifies enemy ground hazard zones on contact
+  if (rt.oniCursedZones.length > 0) {
+    const shieldHolders = rt.players.filter((pl) => pl.state === 'alive' && pl.frontShieldTimer > 0);
+    if (shieldHolders.length > 0) {
+      for (let zi = rt.oniCursedZones.length - 1; zi >= 0; zi--) {
+        const z = rt.oniCursedZones[zi];
+        if (shieldHolders.some((t) => doesFrontShieldInterceptPoint(t, z.x, z.y, z.radius * 0.6))) {
+          z.radius -= 115 * dt;
+          if (z.radius < 22) {
+            rt.score += 65;
+            rt.oniCursedZones.splice(zi, 1);
+          }
+        }
+      }
+    }
+  }
+
   // Boss logic
   if (rt.isBossLevel) {
     if (rt.bossType === 'mecha') updateMechaBoss(rt, dt);
     else if (rt.bossType === 'void') updateVoidBoss(rt, dt);
     else if (rt.bossType === 'eclipse') updateEclipseBoss(rt, dt);
     else updateOniBoss(rt, dt);
+
+    updateBossCounterChannel(rt, dt);
 
     const b = rt.boss;
     // Always Attackable Bosses: armed players can strike the boss in any active phase (2x DMG during weakened)
@@ -7024,7 +8100,7 @@ export function stepGame(
         const canRevive = rt.difficulty !== 'hard' || rt.medkitInventoryCount > 0;
         if (dist < aliveP.size * 1.25 && canRevive) {
           reviving = true;
-          const reviveMult = aliveP.weapon === 'holy_staff' ? 1.22 : 1.0;
+          const reviveMult = aliveP.weapon === 'holy_staff' ? 1.25 : 1.0;
           downP.reviveProgress += dt * reviveMult;
           if (downP.reviveProgress >= REVIVE_TIME) {
             if (rt.difficulty === 'hard') rt.medkitInventoryCount = Math.max(0, rt.medkitInventoryCount - 1);
@@ -7173,6 +8249,30 @@ export function stepGame(
       }
     }
 
+    // Tank 4s Frontal Greatshield deletes & purifies incoming enemy projectiles
+    {
+      const px = proj.x + proj.size / 2;
+      const py = proj.y + proj.size / 2;
+      const blocker = rt.players.find((pl) => doesFrontShieldInterceptPoint(pl, px, py, proj.size * 0.45));
+      if (blocker) {
+        rt.score += 25;
+        addParticle(rt, {
+          x: px,
+          y: py,
+          dx: (Math.random() - 0.5) * 140,
+          dy: (Math.random() - 0.5) * 140,
+          alpha: 1,
+          size: 4.5,
+          color: '#7dd3fc',
+        });
+        if (!rt.floatingTexts.some((ft) => ft.text === 'PURIFIED!' && ft.lifetime > 0.65)) {
+          addFloatingText(rt, blocker.x + blocker.size / 2, blocker.y - 16, 'PURIFIED!', '#38bdf8', 0.95);
+        }
+        rt.bossProjectiles.splice(i, 1);
+        continue;
+      }
+    }
+
     for (const player of rt.players) {
       if (player.state !== 'alive') continue;
       const isHittable =
@@ -7200,17 +8300,26 @@ export function stepGame(
   // Enemies
   for (let i = rt.enemies.length - 1; i >= 0; i--) {
     const e = rt.enemies[i];
+    if (e.hitFlashTimer && e.hitFlashTimer > 0) {
+      e.hitFlashTimer = Math.max(0, e.hitFlashTimer - dt);
+    }
     if (e.stunTimer && e.stunTimer > 0) {
       e.stunTimer -= dt;
       continue;
     }
     e.rotation += dt * 4.5;
 
+    const zoneSlow = rt.skillZones.some(
+      (z) => z.kind === 'holy_ground' && Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius
+    )
+      ? 0.6
+      : 1;
+
     if (e.type === 'charger') {
       e.chargeTimer = (e.chargeTimer || 0) - dt;
       if (e.chargeState === 'roam') {
-        e.x += e.dx * e.speed * (dt * 60);
-        e.y += e.dy * e.speed * (dt * 60);
+        e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+        e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
         if (e.chargeTimer <= 0) {
           e.chargeState = 'telegraph';
           e.chargeTimer = 0.65;
@@ -7229,16 +8338,16 @@ export function stepGame(
           e.dy = dy / d;
         }
       } else if (e.chargeState === 'lunge') {
-        e.x += e.dx * e.speed * 3.4 * (dt * 60);
-        e.y += e.dy * e.speed * 3.4 * (dt * 60);
+        e.x += e.dx * e.speed * 3.4 * (dt * 60) * zoneSlow;
+        e.y += e.dy * e.speed * 3.4 * (dt * 60) * zoneSlow;
         if (e.chargeTimer <= 0) {
           e.chargeState = 'roam';
           e.chargeTimer = 1.6 + Math.random() * 1.4;
         }
       }
     } else if (e.type === 'void_stalker') {
-      e.x += e.dx * e.speed * (dt * 60);
-      e.y += e.dy * e.speed * (dt * 60);
+      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
       e.blinkTimer = (e.blinkTimer || 2) - dt;
       e.alpha = e.blinkTimer < 0.4 ? 0.35 : 1.0;
       if (e.blinkTimer <= 0) {
@@ -7249,8 +8358,8 @@ export function stepGame(
         e.y = Math.max(20, Math.min(rt.arenaHeight - e.size - 20, tp.y + Math.sin(angle) * 140));
       }
     } else if (e.type === 'oni_acolyte') {
-      e.x += e.dx * e.speed * (dt * 60);
-      e.y += e.dy * e.speed * (dt * 60);
+      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
       e.shootTimer = (e.shootTimer || 2) - dt;
       if (e.shootTimer <= 0) {
         e.shootTimer = 2.6 + Math.random() * 1.2;
@@ -7262,8 +8371,8 @@ export function stepGame(
         soundEngine.playBossShoot();
       }
     } else {
-      e.x += e.dx * e.speed * (dt * 60);
-      e.y += e.dy * e.speed * (dt * 60);
+      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
     }
 
     if (e.x <= 0) { e.x = 0; e.dx = Math.abs(e.dx); }
@@ -7271,7 +8380,6 @@ export function stepGame(
     if (e.y <= 0) { e.y = 0; e.dy = Math.abs(e.dy); }
     if (e.y + e.size >= rt.arenaHeight) { e.y = rt.arenaHeight - e.size; e.dy = -Math.abs(e.dy); }
 
-    let sliced = false;
     for (const player of rt.players) {
       if (player.state !== 'alive') continue;
       const bladeReach =
@@ -7290,37 +8398,20 @@ export function stepGame(
 
       if (overlaps) {
         if (player.hasKnife) {
-          sliced = true;
-          rt.lastKilledPos = { x: e.x + e.size / 2, y: e.y + e.size / 2 };
+          const strikeDmg =
+            1 +
+            (player.empoweredStrike ? 2 : 0) +
+            (hasBoon(rt, 'berserker_blade') ? 1 : 0) +
+            (player.weapon === 'warrior_greatsword' || (!rt.isOnlineCampaign && player.heroClass === 'ronin') ? 1 : 0);
+          if (player.empoweredStrike) player.empoweredStrike = false;
           if (!rt.cheats.alwaysArmed) {
             player.hasKnife = false;
             repositionKnifeForPlayer(rt, player);
           }
-          rt.kills++;
+          player.postDashInvulnerability = Math.max(player.postDashInvulnerability, 0.28);
           rt.screenShake = Math.max(rt.screenShake, 8);
           rt.freezeTime = 0.045;
-          updateCombo(rt, player.id);
-          const comboVal = rt.playerCombos[player.id]?.count || 1;
-          soundEngine.playSlash(comboVal);
-          addSlashArc(rt, e.x + e.size / 2, e.y + e.size / 2, player.facingAngle, player.color, 44);
-          addFloatingText(rt, e.x + e.size / 2, e.y - 6, comboVal > 1 ? `${comboVal}x EXECUTE!` : 'SLICED!', player.color, 1.0);
-
-          if (e.type === 'splitter') {
-            for (let s = 0; s < 2; s++) {
-              const sAng = Math.random() * Math.PI * 2;
-              rt.enemies.push({
-                id: rt.nextUid++,
-                type: 'mini_spark',
-                x: e.x + s * 10,
-                y: e.y,
-                size: 20,
-                speed: 3.9,
-                dx: Math.cos(sAng),
-                dy: Math.sin(sAng),
-                rotation: 0,
-              });
-            }
-          }
+          damageEnemy(rt, i, player.id, strikeDmg, player.facingAngle, player.color);
           break;
         } else if (
           !player.inSafeZone &&
@@ -7334,7 +8425,6 @@ export function stepGame(
         }
       }
     }
-    if (sliced) rt.enemies.splice(i, 1);
   }
 
   // Knives pickup + magnet + hidden 6s lucky-spawn expiration
@@ -7401,37 +8491,51 @@ export function stepGame(
       }
     }
 
-    // 1b. Skill Scroll Drops (walk over to unlock next Skill Slot [Q]/[R]/[F], or +15g if already 4/4)
+    // 1b. Weapon-Specific Skill Scrolls (unlocks next tier ONLY for sd.targetWeapon)
     for (let si = rt.scrollDrops.length - 1; si >= 0; si--) {
       const sd = rt.scrollDrops[si];
       sd.bob += dt * 4.2;
-      const picker = rt.players.find(
-        (pl) => pl.state === 'alive' && Math.hypot(pl.x + pl.size / 2 - sd.x, pl.y + pl.size / 2 - sd.y) <= 40
+      const tw = sd.targetWeapon;
+      const wDef = WEAPONS_CATALOG.find((w) => w.id === tw);
+      const holderNeedsIt = rt.players.some(
+        (tm) => tm.state === 'alive' && tm.weapon === tw && (tm.weaponSkillTiers[tw] ?? tm.unlockedSkillTier) < 4
       );
+      const picker = rt.players.find((pl) => {
+        if (pl.state !== 'alive') return false;
+        if (Math.hypot(pl.x + pl.size / 2 - sd.x, pl.y + pl.size / 2 - sd.y) > 40) return false;
+        if (holderNeedsIt && pl.weapon !== tw) return false;
+        return true;
+      });
       if (picker) {
         rt.scrollDrops.splice(si, 1);
         soundEngine.playBoonSelect();
-        rt.energyWaves.push({ x: sd.x, y: sd.y, radius: 10, maxRadius: 120, alpha: 0.9, speed: 360, color: '#c084fc' });
-        if (picker.unlockedSkillTier < 4) {
-          picker.unlockedSkillTier++;
-          const wDef = WEAPONS_CATALOG.find((w) => w.id === picker.weapon);
-          const sk = wDef?.skills[picker.unlockedSkillTier - 1];
+        const scrollColor = wDef?.accent || '#c084fc';
+        rt.energyWaves.push({ x: sd.x, y: sd.y, radius: 10, maxRadius: 120, alpha: 0.9, speed: 360, color: scrollColor });
+        const curTier = picker.weaponSkillTiers[tw] ?? (picker.weapon === tw ? picker.unlockedSkillTier : 1);
+        if (curTier < 4) {
+          const nextTier = curTier + 1;
+          picker.weaponSkillTiers[tw] = nextTier;
+          if (picker.weapon === tw) {
+            picker.unlockedSkillTier = nextTier;
+          }
+          const sk = wDef?.skills[nextTier - 1];
+          const wShort = wDef?.shortTag || 'CLASS';
           addFloatingText(
             rt,
             sd.x,
             sd.y - 18,
-            sk ? `SCROLL: ${sk.name.toUpperCase()} [${sk.keyLabel}]!` : `SKILL SLOT ${picker.unlockedSkillTier} UNLOCKED!`,
-            '#c084fc',
-            1.25
+            sk ? `${wShort} SCROLL: ${sk.name.toUpperCase()} [${sk.keyLabel}]!` : `${wShort} TIER ${nextTier}/4 LEARNED!`,
+            scrollColor,
+            1.3
           );
         } else {
-          picker.coins += 15;
-          addFloatingText(rt, sd.x, sd.y - 18, 'SCROLL CONVERTED +15g', '#fbbf24', 1.1);
+          picker.coins += 20;
+          addFloatingText(rt, sd.x, sd.y - 18, `${wDef?.shortTag || 'SKILL'} MASTERED +20g`, '#fbbf24', 1.1);
         }
       }
     }
 
-    // 2. Chests (walk over to open -> equal Gold share OR exclusive Weapon drop + bonus Skill Scroll chance)
+    // 2. Chests (walk over to open -> shared Gold coins + Weapon/Treasure + Bonus Flasks & Skill Scroll)
     rt.chests.forEach((ch) => {
       if (ch.opened) {
         ch.openAnim = Math.min(1, ch.openAnim + dt * 3.2);
@@ -7444,14 +8548,13 @@ export function stepGame(
         ch.opened = true;
         soundEngine.playBoonSelect();
         rt.energyWaves.push({ x: ch.x, y: ch.y, radius: 10, maxRadius: 150, alpha: 0.9, speed: 340, color: '#fbbf24' });
-        if (ch.rewardKind === 'coins') {
-          const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
-          const perPlayer = Math.max(10, Math.round((ch.coinsTotal || 40) / Math.max(1, activeParty.length)));
-          activeParty.forEach((pl) => {
-            pl.coins += perPlayer;
-          });
-          addFloatingText(rt, ch.x, ch.y - 26, `+${perPlayer}g EACH PLAYER!`, '#fbbf24', 1.3);
-        } else {
+        const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
+        const perPlayer = Math.max(8, Math.round((ch.coinsTotal || 36) / Math.max(1, activeParty.length)));
+        activeParty.forEach((pl) => {
+          pl.coins += perPlayer;
+        });
+
+        if (ch.rewardKind === 'weapon') {
           const wid = ch.weaponId || pickRandomWeaponId(rt, true);
           rt.weaponDrops.push({
             id: rt.nextUid++,
@@ -7463,12 +8566,48 @@ export function stepGame(
             swapLockTimer: 0.35,
           });
           const wDef = WEAPONS_CATALOG.find((w) => w.id === wid);
-          addFloatingText(rt, ch.x, ch.y - 26, `CHEST: ${wDef?.name.toUpperCase() || 'WEAPON'}!`, wDef?.accent || '#38bdf8', 1.25);
+          addFloatingText(
+            rt,
+            ch.x,
+            ch.y - 26,
+            `CHEST: ${wDef?.name.toUpperCase() || 'WEAPON'} +${perPlayer}g EACH!`,
+            wDef?.accent || '#38bdf8',
+            1.25
+          );
+        } else {
+          addFloatingText(
+            rt,
+            ch.x,
+            ch.y - 26,
+            ch.rewardKind === 'treasure' ? `VAULT TREASURE: +${perPlayer}g EACH!` : `+${perPlayer}g EACH PLAYER!`,
+            '#fbbf24',
+            1.3
+          );
         }
 
-        const someoneNeedsScroll = rt.players.some((pl) => pl.state !== 'spectator' && pl.unlockedSkillTier < 4);
-        if (someoneNeedsScroll && Math.random() < 0.55) {
-          spawnSkillScroll(rt, ch.x + 56, ch.y - 12, 'RELIC SCROLL');
+        if (ch.bonusPotions && ch.bonusPotions > 0) {
+          if (ch.rewardKind === 'treasure') {
+            activeParty.forEach((pl) => {
+              pl.potions = Math.min(6, pl.potions + ch.bonusPotions!);
+            });
+            addFloatingText(rt, opener.x + opener.size / 2, opener.y - 20, `+${ch.bonusPotions} PARTY FLASK!`, '#34d399', 1.15);
+          } else {
+            opener.potions = Math.min(6, opener.potions + ch.bonusPotions);
+            addFloatingText(rt, opener.x + opener.size / 2, opener.y - 20, `+${ch.bonusPotions} CRIMSON FLASK [C]`, '#34d399', 1.15);
+          }
+        }
+
+        if (ch.bonusScrollWeapon) {
+          spawnSkillScroll(rt, ch.x + 56, ch.y - 12, ch.bonusScrollWeapon);
+        } else {
+          const someoneNeedsScroll = rt.players.some(
+            (pl) =>
+              pl.state !== 'spectator' &&
+              (pl.weapon === 'none' || (pl.weaponSkillTiers[pl.weapon] ?? pl.unlockedSkillTier) < 4)
+          );
+          if (someoneNeedsScroll && Math.random() < 0.65) {
+            spawnSkillScroll(rt, ch.x + 56, ch.y - 12);
+          }
         }
       }
     });
@@ -7559,15 +8698,23 @@ export function stepGame(
     if (rt.isOnlineCampaign) {
       const room = rt.floorGrid[rt.currentRoomKey];
       if (room && !room.cleared && (room.kind === 'combat' || room.kind === 'start') && rt.gates.length === 0) {
-        room.cleared = true;
-        rt.bossProjectiles = [];
-        const cxDrop = rt.lastKilledPos ? rt.lastKilledPos.x : rt.arenaWidth / 2;
-        const cyDrop = rt.lastKilledPos ? rt.lastKilledPos.y : rt.arenaHeight / 2;
-        spawnRoomChest(rt, cxDrop, cyDrop);
-        saveCurrentRoomState(rt);
-        spawnConnectedGates(rt, room);
-        soundEngine.playParry();
-        showPhaseAnnounce(rt, 'ROOM CLEARED! OPEN CHEST & CHOOSE A GATE!', '#34d399', 2.8);
+        if (rt.roomWave < rt.roomTotalWaves) {
+          rt.roomWave++;
+          rt.waveNumber = rt.roomWave;
+          spawnWaveEnemies(rt, rt.stage, rt.roomWave);
+          showPhaseAnnounce(rt, `WAVE ${rt.roomWave}/${rt.roomTotalWaves} INCOMING!`, '#fb923c', 2.4);
+        } else {
+          room.cleared = true;
+          rt.floorMapRev++;
+          rt.bossProjectiles = [];
+          const cxDrop = rt.lastKilledPos ? rt.lastKilledPos.x : rt.arenaWidth / 2;
+          const cyDrop = rt.lastKilledPos ? rt.lastKilledPos.y : rt.arenaHeight / 2;
+          spawnRoomChest(rt, cxDrop, cyDrop);
+          saveCurrentRoomState(rt);
+          spawnConnectedGates(rt, room);
+          soundEngine.playParry();
+          showPhaseAnnounce(rt, 'ROOM CLEARED! OPEN CHEST & CHOOSE A GATE!', '#34d399', 2.8);
+        }
       }
     } else if (rt.stage === 'ironDungeon' && rt.waveNumber === 1) {
       rt.waveNumber = 2;
@@ -7680,11 +8827,12 @@ export function stepGame(
           }
         });
         spawnRoomChest(rt, cx - 55, cy, 'weapon');
-        spawnSkillScroll(rt, cx + 55, cy, 'BOSS SKILL SCROLL');
+        spawnSkillScroll(rt, cx + 55, cy);
         const room = rt.floorGrid[rt.currentRoomKey];
         if (room) {
           room.cleared = true;
           room.nextFloorPortalOpen = true;
+          rt.floorMapRev++;
           saveCurrentRoomState(rt);
           spawnConnectedGates(rt, room);
         }
@@ -7692,7 +8840,10 @@ export function stepGame(
         showPhaseAnnounce(rt, 'BOSS VANQUISHED! LOOT CHEST, SCROLL & ENTER NEXT FLOOR PORTAL!', '#fbbf24', 3.4);
       } else if (rt.isOnlineCampaign && rt.stage === 'eclipseBoss') {
         const room = rt.floorGrid[rt.currentRoomKey];
-        if (room) room.cleared = true;
+        if (room) {
+          room.cleared = true;
+          rt.floorMapRev++;
+        }
         rt.bossDeadTimer = 0;
         rt.bossDeadBeat = 0;
         rt.bossProjectiles = [];
@@ -7821,7 +8972,7 @@ function stepTutorial(rt: GameRuntime, dt: number) {
       addFloatingText(rt, p.x + p.size / 2, p.y - 24, 'DRILL 3 COMPLETE!', '#34d399', 1.2);
       advanceTutorialStep(rt);
     }
-  } else {
+  } else if (rt.tutorialStep === 4) {
     // Drill 4: 100-HP & Attack-Dependent Damage Tiers + Estus Healing
     if (rt.medkits.length === 0) {
       rt.medkits.push({ x: 180, y: 420, size: 24, bob: 0 });
@@ -7834,15 +8985,12 @@ function stepTutorial(rt: GameRuntime, dt: number) {
       const dy = p.y + p.size / 2 - 120;
       const ang = Math.atan2(dy, dx);
       if (cycle === 0) {
-        // Light Orb (12 DMG)
         pushBossProj(rt, { uid: rt.nextUid++, x: 400, y: 120, dx: Math.cos(ang) * 3.8, dy: Math.sin(ang) * 3.8, size: 15, speed: 1, color: '#38bdf8', damage: 12, shape: 'orb' });
         addFloatingText(rt, 400, 100, 'LIGHT ORB (12 DMG)', '#38bdf8', 0.85);
       } else if (cycle === 1) {
-        // Heavy Ember (24 DMG)
         pushBossProj(rt, { uid: rt.nextUid++, x: 400, y: 120, dx: Math.cos(ang) * 3.4, dy: Math.sin(ang) * 3.4, size: 20, speed: 1, color: '#f97316', damage: 24, shape: 'ember' });
         addFloatingText(rt, 400, 100, 'HEAVY EMBER (24 DMG)', '#f97316', 0.85);
       } else {
-        // Telegraph Lance Beam (36 DMG)
         rt.telegraphLines.push({
           x1: 400,
           y1: 120,
@@ -7858,6 +9006,35 @@ function stepTutorial(rt: GameRuntime, dt: number) {
         addFloatingText(rt, 400, 100, 'RAILGUN LOCK (36 DMG)', '#ef4444', 0.85);
       }
       soundEngine.playBossShoot();
+    }
+  } else {
+    // Drill 5: Inventory [X] Swap, Flask [C], Multi-HP Elite Dummy & Sanctuary Dome Testing
+    if (p.weaponInventory.length === 0) {
+      p.weaponInventory = ['tank_shield', 'warrior_greatsword'];
+      p.weaponSkillTiers.tank_shield = 4;
+      p.weaponSkillTiers.warrior_greatsword = 4;
+      rt.isOnlineCampaign = true;
+      equipWeapon(rt, p, 'tank_shield');
+    }
+    if (p.potions <= 0) {
+      p.potions = 2;
+    }
+    while (rt.enemies.length < 1) {
+      rt.enemies.push({
+        id: rt.nextUid++,
+        type: 'bouncer',
+        x: 400 + (Math.random() - 0.5) * 220,
+        y: 165,
+        size: 38,
+        speed: 0.75,
+        dx: 0.7,
+        dy: 0.5,
+        rotation: 0,
+        hp: 3,
+        maxHp: 3,
+        isElite: true,
+        hitFlashTimer: 0,
+      });
     }
   }
 }
@@ -7946,8 +9123,8 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
       total: 3,
     },
     3: {
-      title: 'DRILL 3 · CLASS PASSIVES & [E] SKILL',
-      obj: 'Switch frames below & press [E] Skill twice to test abilities',
+      title: 'DRILL 3 · CLASSES & CAMPAIGN WEAPONS',
+      obj: 'Switch Classes or Campaign Weapons below & press [E] / [Q] / [R] / [F]',
       prog: Math.min(2, rt.tutorialSkillUses),
       total: 2,
     },
@@ -7957,13 +9134,23 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
       prog: 1,
       total: 1,
     },
+    5: {
+      title: 'DRILL 5 · BAG [X], FLASK [C] & ELITES',
+      obj: 'Press [X] to swap Bag weapons, [C] for Flasks & defeat 3-HP Elites',
+      prog: 1,
+      total: 1,
+    },
   };
   const tm = tutorialMeta[rt.tutorialStep] || tutorialMeta[1];
 
   const toPlayerHud = (pl: Player): PlayerHudState => ({
     id: pl.id,
+    name: pl.name || `P${pl.id}`,
     heroClass: pl.heroClass,
     weapon: pl.weapon,
+    weaponInventory: [...pl.weaponInventory],
+    potions: pl.potions,
+    potionCooldown: Math.ceil(pl.potionCooldownTimer),
     coins: pl.coins,
     color: pl.color,
     hp: Math.round(pl.hp),
@@ -7978,6 +9165,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     abilityReady: pl.abilityReady,
     abilityCooldown: Math.ceil(pl.abilityCooldownTimer),
     unlockedSkillTier: pl.unlockedSkillTier,
+    weaponSkillTiers: { ...pl.weaponSkillTiers },
     skillCooldowns: [
       Math.ceil(pl.skillCooldowns[0] || 0),
       Math.ceil(pl.skillCooldowns[1] || 0),
@@ -7992,6 +9180,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     ],
     hasKnife: pl.hasKnife,
     hasShield: pl.hasShield,
+    frontShield: Math.round(pl.frontShieldTimer * 10) / 10,
     empowered: pl.empoweredStrike,
     overdrive: pl.overdriveTimer,
     cloak: pl.cloakTimer,
@@ -8035,12 +9224,14 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
         : `FLOOR ${rt.floorNumber} · ${(rt.floorGrid[rt.currentRoomKey]?.label || rt.roomKind.toUpperCase())}`
       : stageLabels[rt.stage],
     waveText: rt.isTutorial
-      ? `DRILL ${rt.tutorialStep}/4`
+      ? `DRILL ${rt.tutorialStep}/5`
       : rt.isBossLevel
       ? 'BOSS ENCOUNTER'
       : rt.isOnlineCampaign
       ? rt.gates.length > 0
         ? 'GATES OPEN'
+        : rt.roomTotalWaves > 1
+        ? `WAVE ${rt.roomWave}/${rt.roomTotalWaves} (${Math.round(getEnemyScaleMult(rt) * 10) / 10}X)`
         : `COMBAT (${Math.round(getEnemyScaleMult(rt) * 10) / 10}X)`
       : rt.stage === 'ironDungeon'
       ? `WAVE ${rt.waveNumber}/2`
@@ -8048,6 +9239,8 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     isOnlineCampaign: rt.isOnlineCampaign,
     roomKind: rt.roomKind,
     roomDepth: rt.roomDepth,
+    roomWave: rt.roomWave,
+    roomTotalWaves: rt.roomTotalWaves,
     loopLevel: rt.loopLevel,
     floorMap,
     finalVote: rt.finalVote
@@ -8078,6 +9271,16 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     bossMaxHealth: rt.boss.maxHealth,
     bossPhase: rt.boss.phase,
     bossState: rt.boss.state,
+    bossChannel: rt.boss.channelKind
+      ? {
+          kind: rt.boss.channelKind,
+          timer: Math.max(0, Math.ceil((rt.boss.channelTimer || 0) * 10) / 10),
+          maxTimer: rt.boss.channelMaxTimer || 3.5,
+          hits: rt.boss.channelHits || 0,
+          hitsNeeded: rt.boss.channelHitsNeeded || 1,
+          label: rt.boss.channelLabel || '',
+        }
+      : null,
     medkitInventoryCount: rt.medkitInventoryCount,
     medkitNotif: rt.medkitNotif,
     phaseAnnounce: rt.phaseAnnounce,
@@ -8086,6 +9289,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     cheatsUsed: rt.cheatsUsed || Object.values(rt.cheats).some(Boolean),
     isTutorial: rt.isTutorial,
     tutorialStep: rt.tutorialStep,
+    tutorialWeapon: rt.tutorialWeapon,
     tutorialTitle: tm.title,
     tutorialObjective: tm.obj,
     tutorialProgress: tm.prog,

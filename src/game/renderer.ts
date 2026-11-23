@@ -343,6 +343,70 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
       ctx.stroke();
       ctx.fill();
     }
+    if (p.frontShieldTimer > 0) {
+      const fa = p.facingAngle;
+      const backA = fa + Math.PI;
+      const shieldFrac = Math.max(0, Math.min(1, p.frontShieldTimer / 4.0));
+      const coneLen = 228;
+      const coneHalf = 0.56;
+
+      // Protective Rear Safe Shadow Cone behind Tank
+      ctx.save();
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, coneLen, backA - coneHalf, backA + coneHalf);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.48)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([7, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Frontal Purifying Greatshield Barrier Wall
+      const wallR = r + 42;
+      const arcSpan = 1.24;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.34)';
+      ctx.lineWidth = 16;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, cy, wallR, fa - arcSpan, fa + arcSpan);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.arc(cx, cy, wallR, fa - arcSpan, fa + arcSpan);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#e0f2fe';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, wallR + 2, fa - arcSpan * 0.92, fa + arcSpan * 0.92);
+      ctx.stroke();
+
+      // Remaining 4s countdown gauge on outer rim
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, wallR - 9, fa - arcSpan * shieldFrac, fa + arcSpan * shieldFrac);
+      ctx.stroke();
+
+      // Clear cue label
+      const lblX = cx + Math.cos(fa) * (wallR + 18);
+      const lblY = cy + Math.sin(fa) * (wallR + 18);
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 8px "JetBrains Mono", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3;
+      const tLbl = `AEGIS ${p.frontShieldTimer.toFixed(1)}s`;
+      ctx.strokeText(tLbl, lblX, lblY);
+      ctx.fillStyle = '#bae6fd';
+      ctx.fillText(tLbl, lblX, lblY);
+      ctx.restore();
+    }
   }
 
   ctx.translate(cx, cy);
@@ -507,54 +571,98 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
     ctx.rotate(p.facingAngle);
     if (p.weapon === 'holy_staff') {
       ctx.strokeStyle = '#fef3c7';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3.2;
       ctx.beginPath();
-      ctx.moveTo(r - 4, 9);
+      ctx.moveTo(r - 6, 9);
       ctx.lineTo(r + 18, 9);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(253, 224, 71, 0.72)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(r + 21, 9, 7.5, now / 240, now / 240 + Math.PI * 1.4);
       ctx.stroke();
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
-      ctx.arc(r + 20, 9, 4.5, 0, Math.PI * 2);
+      ctx.arc(r + 21, 9, 4.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(r + 21, 9, 1.8, 0, Math.PI * 2);
       ctx.fill();
     } else if (p.weapon === 'tank_shield') {
-      ctx.fillStyle = '#0c4a6e';
+      ctx.fillStyle = '#082f49';
       ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.6;
       ctx.beginPath();
-      ctx.roundRect(r - 1, -12, 8, 24, 3);
+      ctx.moveTo(r - 2, -13);
+      ctx.lineTo(r + 6, -10);
+      ctx.lineTo(r + 9, 0);
+      ctx.lineTo(r + 6, 10);
+      ctx.lineTo(r - 2, 13);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillRect(r + 1, -5, 3.5, 10);
     } else if (p.weapon === 'assassin_blades') {
       ctx.fillStyle = '#e879f9';
+      ctx.strokeStyle = '#fdf4ff';
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(r + 1, -9);
-      ctx.lineTo(r + 16, -12);
-      ctx.lineTo(r + 4, -5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(r + 1, 9);
-      ctx.lineTo(r + 16, 12);
-      ctx.lineTo(r + 4, 5);
-      ctx.closePath();
-      ctx.fill();
-    } else if (p.weapon === 'warrior_greatsword') {
-      ctx.fillStyle = '#fca5a5';
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.moveTo(r, -12);
-      ctx.lineTo(r + 22, -9);
-      ctx.lineTo(r + 17, -4);
-      ctx.lineTo(r, -5);
+      ctx.moveTo(r, -8);
+      ctx.lineTo(r + 18, -13);
+      ctx.lineTo(r + 11, -5);
+      ctx.lineTo(r + 2, -5);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-    } else if (p.weapon === 'ranger_bow') {
-      ctx.strokeStyle = wCol;
-      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(r - 2, 0, 14, -Math.PI * 0.42, Math.PI * 0.42);
+      ctx.moveTo(r, 8);
+      ctx.lineTo(r + 18, 13);
+      ctx.lineTo(r + 11, 5);
+      ctx.lineTo(r + 2, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (p.weapon === 'warrior_greatsword') {
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(r - 3, -15, 4, 14);
+      ctx.fillStyle = '#fca5a5';
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(r + 1, -12);
+      ctx.lineTo(r + 24, -10);
+      ctx.lineTo(r + 29, -8);
+      ctx.lineTo(r + 22, -4);
+      ctx.lineTo(r + 1, -5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(r + 3, -8.2);
+      ctx.lineTo(r + 19, -8.2);
+      ctx.stroke();
+    } else if (p.weapon === 'ranger_bow') {
+      ctx.strokeStyle = 'rgba(167, 243, 208, 0.72)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(r + 1, -13);
+      ctx.lineTo(r - 5, 0);
+      ctx.lineTo(r + 1, 13);
+      ctx.stroke();
+      ctx.strokeStyle = wCol;
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.arc(r - 3, 0, 14, -Math.PI * 0.44, Math.PI * 0.44);
+      ctx.stroke();
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(r - 5, 0);
+      ctx.lineTo(r + 15, 0);
       ctx.stroke();
     }
     ctx.restore();
@@ -626,6 +734,19 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
     }
     ctx.restore();
   }
+
+  // Player Nameplate above character
+  const displayName = (p.name || `P${p.id}`).slice(0, 14);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 9px "JetBrains Mono", monospace';
+  const nameY = p.y - (p.sealed ? 26 : 12);
+  ctx.strokeStyle = '#020617';
+  ctx.lineWidth = 3.5;
+  ctx.strokeText(displayName, cx, nameY);
+  ctx.fillStyle = p.state === 'down' ? '#fda4af' : p.id === 1 ? '#ffffff' : '#e2e8f0';
+  ctx.fillText(displayName, cx, nameY);
+  ctx.restore();
 }
 
 function drawEnemySprite(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
@@ -761,6 +882,25 @@ function drawEnemySprite(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
     ctx.fillRect(2, -3, 5, 2.5);
   }
 
+  // Elite champion ring
+  if (e.isElite) {
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 5 + Math.sin(now / 140) * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Hit flash feedback on multi-HP foes
+  if (e.hitFlashTimer && e.hitFlashTimer > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(0.7, e.hitFlashTimer * 3.2)})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Stunned arc ring
   if (e.stunTimer && e.stunTimer > 0) {
     ctx.strokeStyle = '#38bdf8';
@@ -773,6 +913,31 @@ function drawEnemySprite(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
   }
 
   ctx.restore();
+
+  // Individual Enemy HP Bar (Loop 2+ / Elites / Multi-HP foes)
+  const maxHp = e.maxHp ?? 1;
+  const hp = Math.max(0, e.hp ?? maxHp);
+  if (maxHp > 1 || e.isElite) {
+    const barW = Math.max(28, e.size + 4);
+    const barH = 5;
+    const bx = cx - barW / 2;
+    const by = e.y - 11;
+    ctx.save();
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
+    ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+    ctx.fillStyle = e.isElite ? '#fbbf24' : '#f43f5e';
+    ctx.fillRect(bx, by, barW * (hp / Math.max(1, maxHp)), barH);
+    ctx.strokeStyle = e.isElite ? '#fde047' : 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx - 1, by - 1, barW + 2, barH + 2);
+    if (e.isElite) {
+      ctx.font = 'bold 7px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fde047';
+      ctx.fillText('ELITE', cx, by - 3);
+    }
+    ctx.restore();
+  }
 }
 
 function drawBossDeathCollapse(
@@ -2611,6 +2776,139 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     }
   }
 
+  // Nightmare / Loop 2+ Boss Floor Teamwork Telegraphs (rendered beneath sprites)
+  if (rt.isBossLevel && rt.boss.channelKind && rt.boss.health > 0 && rt.boss.state !== 'dead') {
+    const bcx = rt.boss.x + rt.boss.size / 2;
+    const bcy = rt.boss.y + rt.boss.size / 2;
+    const maxT = rt.boss.channelMaxTimer || 3.5;
+    const frac = 1 - Math.max(0, Math.min(1, (rt.boss.channelTimer || 0) / maxT));
+    const hasTank = rt.players.some(
+      (pl) => pl.state === 'alive' && (rt.isOnlineCampaign ? pl.weapon === 'tank_shield' : pl.heroClass === 'vanguard')
+    );
+
+    ctx.save();
+    if (rt.boss.channelKind === 'siege_beam') {
+      const coneAng = rt.boss.channelAngle || Math.PI / 2;
+      const halfCone = 0.64;
+      const range = Math.max(rt.arenaWidth, rt.arenaHeight) * 1.25;
+      const pulse = 0.65 + Math.sin(now / 85) * 0.25;
+
+      ctx.fillStyle = `rgba(244, 63, 94, ${0.14 + frac * 0.24})`;
+      ctx.beginPath();
+      ctx.moveTo(bcx, bcy);
+      ctx.arc(bcx, bcy, range, coneAng - halfCone, coneAng + halfCone);
+      ctx.closePath();
+      ctx.fill();
+
+      // Inner expanding warning wavefront
+      ctx.fillStyle = `rgba(251, 113, 133, ${0.22 * pulse})`;
+      ctx.beginPath();
+      ctx.moveTo(bcx, bcy);
+      ctx.arc(bcx, bcy, range * frac, coneAng - halfCone, coneAng + halfCone);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(251, 113, 133, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 8]);
+      ctx.beginPath();
+      ctx.moveTo(bcx, bcy);
+      ctx.lineTo(bcx + Math.cos(coneAng - halfCone) * range, bcy + Math.sin(coneAng - halfCone) * range);
+      ctx.moveTo(bcx, bcy);
+      ctx.lineTo(bcx + Math.cos(coneAng + halfCone) * range, bcy + Math.sin(coneAng + halfCone) * range);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const midR = 290;
+      const mx = bcx + Math.cos(coneAng) * midR;
+      const my = bcy + Math.sin(coneAng) * midR;
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 4;
+      const msg = hasTank ? 'HIDE BEHIND TANK SHIELD [E]' : 'NO TANK · DODGE CONE BARRAGE';
+      ctx.strokeText(msg, mx, my);
+      ctx.fillStyle = hasTank ? '#7dd3fc' : '#fda4af';
+      ctx.fillText(msg, mx, my);
+    } else if (rt.boss.channelKind === 'cursed_floor') {
+      const sx = rt.boss.channelSafeX ?? rt.arenaWidth * 0.5;
+      const sy = rt.boss.channelSafeY ?? rt.arenaHeight * 0.66;
+      const sr = rt.boss.channelSafeR ?? 92;
+
+      // Entire arena floor danger except the single tiny Safe Island cut-out
+      ctx.fillStyle = `rgba(220, 38, 38, ${0.18 + frac * 0.34})`;
+      ctx.beginPath();
+      ctx.rect(0, 0, rt.arenaWidth, rt.arenaHeight);
+      ctx.moveTo(sx + sr, sy);
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2, true);
+      ctx.fill('evenodd');
+
+      // Cramped Safe Island emerald highlight
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 6]);
+      ctx.lineDashOffset = -(now / 26);
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr - 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const islandText = hasTank ? 'SAFE ISLAND · TANK SHIELD [E] FRONT' : 'SAFE ISLAND · DODGE SHOTS HARD';
+      ctx.strokeText(islandText, sx, sy - sr - 12);
+      ctx.fillStyle = '#6ee7b7';
+      ctx.fillText(islandText, sx, sy - sr - 12);
+    } else if (rt.boss.channelKind === 'sync_seals' && rt.boss.channelNodes) {
+      for (const node of rt.boss.channelNodes) {
+        const active = node.activated;
+        ctx.fillStyle = active ? 'rgba(52, 211, 153, 0.26)' : 'rgba(251, 191, 36, 0.16)';
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = active ? '#34d399' : '#fbbf24';
+        ctx.lineWidth = active ? 4 : 3;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Tether from seal to boss
+        ctx.strokeStyle = active ? 'rgba(52, 211, 153, 0.72)' : 'rgba(251, 191, 36, 0.35)';
+        ctx.lineWidth = active ? 3 : 1.5;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(node.x, node.y);
+        ctx.lineTo(bcx, bcy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 9px "Press Start 2P", monospace';
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3.5;
+        const lbl = active ? 'SEAL LOCKED!' : 'STEP HERE!';
+        ctx.strokeText(lbl, node.x, node.y - node.r - 10);
+        ctx.fillStyle = active ? '#6ee7b7' : '#fde047';
+        ctx.fillText(lbl, node.x, node.y - node.r - 10);
+      }
+    }
+    ctx.restore();
+  }
+
   // Persistent Skill Zones (Holy Ground, Frost Trap, Arrow Rain)
   for (let i = 0; i < rt.skillZones.length; i++) {
     const sz = rt.skillZones[i];
@@ -2651,6 +2949,36 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.strokeStyle = `rgba(125, 211, 252, ${0.85 * lifeFrac})`;
       ctx.lineWidth = 2.5;
       ctx.stroke();
+    } else if (sz.kind === 'sanctuary_dome' || sz.kind === 'aegis_beacon') {
+      const isBeacon = sz.kind === 'aegis_beacon';
+      const pulse = 0.8 + Math.sin(now / 120) * 0.2;
+      ctx.fillStyle = isBeacon ? `rgba(34, 211, 238, ${0.18 * lifeFrac})` : `rgba(56, 189, 248, ${0.15 * lifeFrac})`;
+      ctx.beginPath();
+      ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = isBeacon ? `rgba(253, 224, 71, ${0.9 * lifeFrac * pulse})` : `rgba(125, 211, 252, ${0.92 * lifeFrac * pulse})`;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(sz.x, sz.y, sz.radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 * lifeFrac})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([10, 8]);
+      ctx.lineDashOffset = -(now / 28);
+      ctx.beginPath();
+      ctx.arc(sz.x, sz.y, sz.radius - 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const domeText = isBeacon ? 'SAFE WARD · STAND INSIDE' : 'SANCTUARY DOME · SAFE';
+      ctx.strokeText(domeText, sz.x, sz.y - sz.radius + 18);
+      ctx.fillStyle = isBeacon ? '#fde047' : '#7dd3fc';
+      ctx.fillText(domeText, sz.x, sz.y - sz.radius + 18);
     } else {
       // arrow_rain emerald barrage circle
       ctx.fillStyle = `rgba(52, 211, 153, ${0.14 * lifeFrac})`;
@@ -2810,6 +3138,8 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         const icon =
           item.kind === 'potion'
             ? '♥'
+            : item.kind === 'potion_pack'
+            ? '⚗'
             : item.kind === 'max_hp'
             ? '✚'
             : item.kind === 'shield'
@@ -2924,26 +3254,45 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.restore();
     });
 
-    // 5. Skill Scroll / Relic Drops (Unlock Skills [Q], [R], [F])
+    // 5. Weapon-Specific Skill Scrolls (Unlock next Skill Slot [Q], [R], [F] for targetWeapon)
     rt.scrollDrops.forEach((sd) => {
+      const wDef = WEAPONS_CATALOG.find((w) => w.id === sd.targetWeapon);
+      const scrollCol = wDef?.accent || '#c084fc';
+      const wShort = wDef?.shortTag || 'CLASS';
       const bobY = Math.sin(sd.bob) * 4.5;
       const sy = sd.y + bobY;
       ctx.save();
-      ctx.fillStyle = 'rgba(192, 132, 252, 0.24)';
+      ctx.fillStyle = `${scrollCol}30`;
       ctx.beginPath();
-      ctx.arc(sd.x, sy, 22 + Math.sin(now / 140) * 2.5, 0, Math.PI * 2);
+      ctx.arc(sd.x, sy, 23 + Math.sin(now / 140) * 2.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Glowing ancient scroll silhouette
+      // Rotating arcane rune ring
+      ctx.strokeStyle = scrollCol;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([5, 5]);
+      ctx.lineDashOffset = -(now / 32);
+      ctx.beginPath();
+      ctx.arc(sd.x, sy, 20, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Glowing class-bound parchment scroll
       ctx.fillStyle = '#fef3c7';
-      ctx.strokeStyle = '#c084fc';
+      ctx.strokeStyle = scrollCol;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.roundRect(sd.x - 10, sy - 12, 20, 24, 4);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = '#a855f7';
+      // Top & bottom scroll rollers
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(sd.x - 12, sy - 13, 24, 3);
+      ctx.fillRect(sd.x - 12, sy + 10, 24, 3);
+
+      // Class-colored rune script lines
+      ctx.fillStyle = scrollCol;
       ctx.fillRect(sd.x - 6, sy - 5, 12, 2.5);
       ctx.fillRect(sd.x - 6, sy, 12, 2.5);
       ctx.fillRect(sd.x - 6, sy + 5, 8, 2.5);
@@ -2952,14 +3301,22 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.font = 'bold 9px "Press Start 2P", monospace';
       ctx.strokeStyle = '#020617';
       ctx.lineWidth = 3.5;
-      ctx.strokeText('SKILL SCROLL', sd.x, sy - 21);
-      ctx.fillStyle = '#e879f9';
-      ctx.fillText('SKILL SCROLL', sd.x, sy - 21);
+      const topTag = `${wShort} SCROLL`;
+      ctx.strokeText(topTag, sd.x, sy - 23);
+      ctx.fillStyle = scrollCol;
+      ctx.fillText(topTag, sd.x, sy - 23);
 
+      const holderNeedsIt = rt.players.some(
+        (pl) =>
+          pl.state === 'alive' &&
+          pl.weapon === sd.targetWeapon &&
+          (pl.weaponSkillTiers[sd.targetWeapon] ?? pl.unlockedSkillTier) < 4
+      );
+      const subHint = holderNeedsIt ? `FOR ${wShort} USER` : `LEARN ${wShort} SKILL`;
       ctx.font = 'bold 8px "JetBrains Mono", monospace';
-      ctx.strokeText('WALK TO UNLOCK SKILL', sd.x, sy + 27);
+      ctx.strokeText(subHint, sd.x, sy + 28);
       ctx.fillStyle = '#fde68a';
-      ctx.fillText('WALK TO UNLOCK SKILL', sd.x, sy + 27);
+      ctx.fillText(subHint, sd.x, sy + 28);
       ctx.restore();
     });
   }
@@ -3228,6 +3585,38 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     else if (rt.bossType === 'void') drawVoidPhantom(ctx, rt, now);
     else if (rt.bossType === 'eclipse') drawEclipseBoss(ctx, rt, now);
     else drawOniBoss(ctx, rt, now);
+
+    // Boss Tactical Teamwork Channel Visual around Boss
+    if (rt.boss.channelKind && rt.boss.health > 0 && rt.boss.state !== 'dead') {
+      const bcx = rt.boss.x + rt.boss.size / 2;
+      const bcy = rt.boss.y + rt.boss.size / 2;
+      const maxT = rt.boss.channelMaxTimer || 3.5;
+      const frac = 1 - Math.max(0, Math.min(1, (rt.boss.channelTimer || 0) / maxT));
+      ctx.save();
+      if (rt.boss.channelKind === 'interrupt') {
+        ctx.strokeStyle = 'rgba(192, 132, 252, 0.85)';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([10, 6]);
+        ctx.lineDashOffset = -(now / 22);
+        ctx.beginPath();
+        ctx.arc(bcx, bcy, rt.boss.size * 0.76, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        const ringColor =
+          rt.boss.channelKind === 'siege_beam'
+            ? '#f43f5e'
+            : rt.boss.channelKind === 'cursed_floor'
+            ? '#fbbf24'
+            : '#34d399';
+        ctx.strokeStyle = ringColor;
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.arc(bcx, bcy, rt.boss.size * 0.72, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - frac));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   // Player Projectiles (Crescent, Cataclysm Wave, Arc Bolt, Ranger/Sniper Arrow, Shadow Kunai, Frost Shard)
@@ -3237,9 +3626,15 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     ctx.translate(pp.x, pp.y);
     ctx.rotate(pp.angle);
     if (pp.kind === 'crescent' || pp.kind === 'cataclysm') {
+      ctx.strokeStyle = `${pp.color}66`;
+      ctx.lineWidth = pp.kind === 'cataclysm' ? 16 : 11;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(-10, 0, pp.radius + 3, -1.08, 1.08);
+      ctx.stroke();
+
       ctx.strokeStyle = pp.color;
       ctx.lineWidth = pp.kind === 'cataclysm' ? 11 : 7;
-      ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.arc(-8, 0, pp.radius, -1.05, 1.05);
       ctx.stroke();
@@ -3249,6 +3644,19 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.stroke();
     } else if (pp.kind === 'ranger_arrow' || pp.kind === 'sniper_arrow') {
       const isSniper = pp.kind === 'sniper_arrow';
+      if (isSniper) {
+        ctx.strokeStyle = 'rgba(254, 240, 138, 0.5)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-42, 0);
+        ctx.lineTo(10, 0);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(-6, 0, 5, 11, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.fillStyle = isSniper ? '#fef08a' : '#34d399';
       ctx.strokeStyle = '#ecfdf5';
       ctx.lineWidth = isSniper ? 2.4 : 1.6;

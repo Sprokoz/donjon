@@ -30,15 +30,20 @@ import {
   setRuntimeCheats,
   skipBossIntro,
   stepGame,
+  switchInventoryWeapon,
   switchTutorialClass,
+  switchTutorialWeapon,
   TouchInputState,
   transitionToStage,
+  usePlayerPotion,
 } from './game/engine';
 import {
   applySyncedSnapshotToGuest,
+  buildFloorMapSnapshot,
   CoopMode,
   generateRoomCode,
   getInitialRoomCodeFromUrl,
+  GuestFloorMapCache,
   OnlineConnectionStatus,
   OnlineMessage,
   OnlineRole,
@@ -69,9 +74,21 @@ import {
   PlayerId,
   RunSummary,
   StageKey,
+  WeaponId,
 } from './game/types';
 
 const CONTROLS_STORAGE_KEY = 'dungeon_bouncer_controls_v3';
+const PLAYER_NAME_STORAGE_KEY = 'dungeon_bouncer_player_name_v1';
+const P2_NAME_STORAGE_KEY = 'dungeon_bouncer_p2_name_v1';
+
+function loadSavedName(key: string, fallback: string): string {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw && raw.trim() ? raw.trim().slice(0, 14) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 function loadSavedControls(): ControlsConfig {
   try {
@@ -105,6 +122,8 @@ function readLocalGuestInput(
   const skill2 = Boolean(touch.skill2 || keys['q'] || keys['2']);
   const skill3 = Boolean(touch.skill3 || keys['r'] || keys['3']);
   const skill4 = Boolean(touch.skill4 || keys['f'] || keys['4']);
+  const usePotion = Boolean(touch.usePotion || keys['c'] || keys['h']);
+  const cycleWeapon = Boolean(touch.cycleWeapon || keys['x']);
   return {
     x: Math.max(-1, Math.min(1, x)),
     y: Math.max(-1, Math.min(1, y)),
@@ -113,6 +132,8 @@ function readLocalGuestInput(
     skill2,
     skill3,
     skill4,
+    usePotion,
+    cycleWeapon,
   };
 }
 
@@ -139,9 +160,15 @@ export default function App() {
 
   const [localPlayerId, setLocalPlayerId] = useState<PlayerId>(1);
   const [localReady, setLocalReady] = useState<boolean>(false);
+  const [localPlayerName, setLocalPlayerName] = useState<string>(() =>
+    loadSavedName(PLAYER_NAME_STORAGE_KEY, 'Player')
+  );
+  const [p2LocalName, setP2LocalName] = useState<string>(() =>
+    loadSavedName(P2_NAME_STORAGE_KEY, 'Partner')
+  );
   const [connectedGuestIds, setConnectedGuestIds] = useState<PlayerId[]>([]);
   const [guestConfigs, setGuestConfigs] = useState<
-    Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>
+    Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>
   >({});
   const [guestLobbyRoster, setGuestLobbyRoster] = useState<LobbyPlayerInfo[]>([]);
   const [pingByPlayer, setPingByPlayer] = useState<Record<number, number | null>>({ 1: 0 });
@@ -201,6 +228,8 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const runtimeRef = useRef<GameRuntime | null>(null);
   const guestDisplayRtRef = useRef<GameRuntime | null>(null);
+  const guestFloorCacheRef = useRef<GuestFloorMapCache | null>(null);
+  const hostSentFloorRevRef = useRef<number>(-1);
   const latestGuestSnapRef = useRef<SyncedRuntimeSnapshot | null>(null);
   const remoteInputsRef = useRef<Record<number, TouchInputState>>({});
   const pendingSfxRef = useRef<SfxSyncEvent[]>([]);
@@ -225,8 +254,13 @@ export default function App() {
   const playerColorsRef = useRef(playerColors);
   const localPlayerIdRef = useRef<PlayerId>(localPlayerId);
   const localReadyRef = useRef<boolean>(localReady);
+  const localPlayerNameRef = useRef<string>(localPlayerName);
   const guestConfigsRef = useRef(guestConfigs);
   const pingByPlayerRef = useRef(pingByPlayer);
+
+  useEffect(() => {
+    localPlayerNameRef.current = localPlayerName;
+  }, [localPlayerName]);
 
   const onlineSessionRef = useRef<OnlineSession | null>(null);
   const stageTransitionTimerRef = useRef<number | null>(null);
@@ -366,6 +400,27 @@ export default function App() {
     };
   }, [screen]);
 
+  const handleSavePlayerName = useCallback((val: string) => {
+    const trimmed = val.slice(0, 14);
+    setLocalPlayerName(trimmed);
+    localPlayerNameRef.current = trimmed;
+    try {
+      localStorage.setItem(PLAYER_NAME_STORAGE_KEY, trimmed);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const handleSaveP2LocalName = useCallback((val: string) => {
+    const trimmed = val.slice(0, 14);
+    setP2LocalName(trimmed);
+    try {
+      localStorage.setItem(P2_NAME_STORAGE_KEY, trimmed);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const handleSaveControls = useCallback((next: ControlsConfig) => {
     setControls(next);
     try {
@@ -385,6 +440,8 @@ export default function App() {
     remoteInputsRef.current = {};
     latestGuestSnapRef.current = null;
     guestDisplayRtRef.current = null;
+    guestFloorCacheRef.current = null;
+    hostSentFloorRevRef.current = -1;
     setConnectedGuestIds([]);
     setGuestConfigs({});
     setGuestLobbyRoster([]);
@@ -464,6 +521,18 @@ export default function App() {
         setScreen('PLAYING');
         broadcastScreenMessage({ type: 'screen', screen: 'PLAYING' });
         if (activeOnlineRoleRef.current === 'host' && onlineSessionRef.current?.isConnected()) {
+          if (rt.isOnlineCampaign) {
+            const fm = buildFloorMapSnapshot(rt);
+            if (fm) {
+              hostSentFloorRevRef.current = rt.floorMapRev;
+              onlineSessionRef.current.send({
+                type: 'floor_sync',
+                rev: rt.floorMapRev,
+                stage: rt.stage,
+                floorMap: fm,
+              });
+            }
+          }
           const sfx = pendingSfxRef.current.splice(0);
           onlineSessionRef.current.send({
             type: 'sync',
@@ -515,6 +584,8 @@ export default function App() {
 
     const resolvedColors: Record<number, string> = {};
     const resolvedClasses: Record<number, HeroClassId> = {};
+    const resolvedNames: Record<number, string> = {};
+    resolvedNames[1] = localPlayerName.trim() || 'Player 1';
     for (let i = 1; i <= 5; i++) {
       const pid = i as PlayerId;
       resolvedColors[pid] =
@@ -526,6 +597,13 @@ export default function App() {
         (pid !== 1 && isOnlineHost && guestConfigs[pid]?.heroClass) ||
         playerClasses[pid] ||
         'ronin';
+      if (pid > 1) {
+        resolvedNames[pid] = isOnlineHost
+          ? guestConfigs[pid]?.playerName?.trim() || `Player ${pid}`
+          : pid === 2
+          ? p2LocalName.trim() || 'Player 2'
+          : `Player ${pid}`;
+      }
     }
 
     const rt = createInitialGameRuntime({
@@ -536,6 +614,7 @@ export default function App() {
       activePlayerIds,
       playerColors: resolvedColors,
       playerClasses: resolvedClasses,
+      playerNames: resolvedNames,
       cheats: isOnlineHost ? DEFAULT_CHEATS : cheats,
     });
     rt.pingByPlayer = isOnlineHost
@@ -544,6 +623,8 @@ export default function App() {
 
     runtimeRef.current = rt;
     guestDisplayRtRef.current = null;
+    guestFloorCacheRef.current = null;
+    hostSentFloorRevRef.current = -1;
     latestGuestSnapRef.current = null;
     remoteInputsRef.current = {};
     keysRef.current = {};
@@ -558,6 +639,18 @@ export default function App() {
 
     if (isOnlineHost && onlineSessionRef.current?.isConnected()) {
       onlineSessionRef.current.send({ type: 'screen', screen: 'PLAYING' });
+      if (rt.isOnlineCampaign) {
+        const fm = buildFloorMapSnapshot(rt);
+        if (fm) {
+          hostSentFloorRevRef.current = rt.floorMapRev;
+          onlineSessionRef.current.send({
+            type: 'floor_sync',
+            rev: rt.floorMapRev,
+            stage: rt.stage,
+            floorMap: fm,
+          });
+        }
+      }
       const sfx = pendingSfxRef.current.splice(0);
       onlineSessionRef.current.send({
         type: 'sync',
@@ -565,7 +658,7 @@ export default function App() {
         sfx,
       });
     }
-  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats]);
+  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats, localPlayerName, p2LocalName]);
 
   const beginTutorial = useCallback(() => {
     soundEngine.unlock();
@@ -580,6 +673,9 @@ export default function App() {
         2: playerColors[2].hex,
       },
       playerClasses,
+      playerNames: {
+        1: localPlayerName.trim() || 'Trainee',
+      },
     });
     runtimeRef.current = rt;
     keysRef.current = {};
@@ -589,11 +685,11 @@ export default function App() {
     setRunSummary(null);
     setHud(extractHudSnapshot(rt));
     setScreen('PLAYING');
-  }, [playerColors, playerClasses]);
+  }, [playerColors, playerClasses, localPlayerName]);
 
   const buildHostRoster = useCallback(
     (
-      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>,
+      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>,
       overridePings?: Record<number, number | null>
     ): LobbyPlayerInfo[] => {
       const session = onlineSessionRef.current;
@@ -606,6 +702,7 @@ export default function App() {
           id: 1,
           connected: true,
           isHost: true,
+          playerName: localPlayerNameRef.current.trim() || 'Player 1',
           colorHex: playerColorsRef.current[1]?.hex || COLOR_OPTIONS[0].hex,
           heroClass: playerClassesRef.current[1] || 'ronin',
           ready: localReadyRef.current,
@@ -618,6 +715,7 @@ export default function App() {
           id: gid,
           connected: true,
           isHost: false,
+          playerName: cfg?.playerName?.trim() || `Player ${gid}`,
           colorHex: cfg?.colorHex || COLOR_OPTIONS[gid - 1]?.hex || '#22d3ee',
           heroClass: cfg?.heroClass || 'phantom',
           ready: Boolean(cfg?.ready),
@@ -631,7 +729,7 @@ export default function App() {
 
   const broadcastHostLobbyState = useCallback(
     (
-      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean }>,
+      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>,
       overridePings?: Record<number, number | null>
     ) => {
       const session = onlineSessionRef.current;
@@ -663,6 +761,7 @@ export default function App() {
       colorHex: colHex,
       heroClass: cls,
       ready: localReadyRef.current,
+      playerName: localPlayerNameRef.current.trim() || `Player ${pid}`,
     });
   }, []);
 
@@ -676,6 +775,7 @@ export default function App() {
             colorHex: matchedColor.hex,
             heroClass: msg.heroClass,
             ready: msg.ready,
+            playerName: msg.playerName?.trim() || guestConfigsRef.current[fromPlayerId]?.playerName || `Player ${fromPlayerId}`,
           },
         };
         guestConfigsRef.current = nextGuests;
@@ -692,6 +792,7 @@ export default function App() {
             colorHex: matchedColor.hex,
             heroClass: msg.payload.heroClass,
             ready: Boolean(msg.payload.ready),
+            playerName: msg.payload.playerName?.trim() || guestConfigsRef.current[fromPlayerId]?.playerName || `Player ${fromPlayerId}`,
           },
         };
         guestConfigsRef.current = nextGuests;
@@ -720,6 +821,27 @@ export default function App() {
           const rt = runtimeRef.current;
           if (rt && rt.isBossLevel && rt.boss.state === 'comic_intro') {
             skipBossIntro(rt);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'use_potion') {
+          const rt = runtimeRef.current;
+          const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
+          if (rt && gp) {
+            usePlayerPotion(rt, gp);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'cycle_weapon') {
+          const rt = runtimeRef.current;
+          const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
+          if (rt && gp) {
+            switchInventoryWeapon(rt, gp);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'select_weapon') {
+          const rt = runtimeRef.current;
+          const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
+          if (rt && gp) {
+            switchInventoryWeapon(rt, gp, msg.slot);
             setHud(extractHudSnapshot(rt));
           }
         } else if (msg.action === 'pause') {
@@ -780,10 +902,32 @@ export default function App() {
         setPlayerColors((prev) => ({ ...prev, 1: matchedColor }));
         if (msg.payload.difficulty) setDifficulty(msg.payload.difficulty);
         if (msg.payload.mode) setMode(msg.payload.mode);
+      } else if (msg.type === 'floor_sync') {
+        guestFloorCacheRef.current = {
+          rev: msg.rev,
+          stage: msg.stage,
+          floorMap: msg.floorMap,
+        };
       } else if (msg.type === 'sync') {
         latestGuestSnapRef.current = msg.snap;
+        if (msg.snap.floorMap) {
+          guestFloorCacheRef.current = {
+            rev: msg.snap.floorMapRev,
+            stage: msg.snap.stage,
+            floorMap: msg.snap.floorMap,
+          };
+        }
         if (msg.snap.pingByPlayer) {
-          setPingByPlayer(msg.snap.pingByPlayer);
+          const prevP = pingByPlayerRef.current;
+          const nextP = msg.snap.pingByPlayer;
+          const keysNext = Object.keys(nextP);
+          const pingChanged =
+            keysNext.length !== Object.keys(prevP).length ||
+            keysNext.some((k) => prevP[Number(k)] !== nextP[Number(k)]);
+          if (pingChanged) {
+            pingByPlayerRef.current = nextP;
+            setPingByPlayer(nextP);
+          }
         }
         if (msg.sfx && msg.sfx.length > 0) {
           msg.sfx.forEach((ev) => soundEngine.replaySfxEvent(ev));
@@ -987,6 +1131,7 @@ export default function App() {
     playerClasses,
     playerColors,
     localReady,
+    localPlayerName,
     difficulty,
     mode,
     broadcastHostLobbyState,
@@ -1139,7 +1284,9 @@ export default function App() {
             curInput.ability !== lastSentGuestInput.ability ||
             Boolean(curInput.skill2) !== Boolean(lastSentGuestInput.skill2) ||
             Boolean(curInput.skill3) !== Boolean(lastSentGuestInput.skill3) ||
-            Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4);
+            Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4) ||
+            Boolean(curInput.usePotion) !== Boolean(lastSentGuestInput.usePotion) ||
+            Boolean(curInput.cycleWeapon) !== Boolean(lastSentGuestInput.cycleWeapon);
           guestInputHeartbeatAccum += dt;
           if (changed || guestInputHeartbeatAccum >= 0.035) {
             guestInputHeartbeatAccum = 0;
@@ -1150,7 +1297,14 @@ export default function App() {
 
         const latestSnap = latestGuestSnapRef.current;
         if (latestSnap) {
-          const displayRt = applySyncedSnapshotToGuest(guestDisplayRtRef.current, latestSnap, dt);
+          const myPing = pingByPlayerRef.current[localPlayerIdRef.current] ?? null;
+          const displayRt = applySyncedSnapshotToGuest(
+            guestDisplayRtRef.current,
+            latestSnap,
+            dt,
+            guestFloorCacheRef.current,
+            myPing
+          );
           guestDisplayRtRef.current = displayRt;
           if (ctx) {
             renderGame(ctx, displayRt);
@@ -1220,6 +1374,18 @@ export default function App() {
               }
 
               if (role === 'host' && onlineSessionRef.current?.isConnected()) {
+                if (rt.isOnlineCampaign && rt.floorMapRev !== hostSentFloorRevRef.current) {
+                  const fm = buildFloorMapSnapshot(rt);
+                  if (fm) {
+                    hostSentFloorRevRef.current = rt.floorMapRev;
+                    onlineSessionRef.current.send({
+                      type: 'floor_sync',
+                      rev: rt.floorMapRev,
+                      stage: rt.stage,
+                      floorMap: fm,
+                    });
+                  }
+                }
                 netSyncAccum += dt;
                 if (netSyncAccum >= 0.033) {
                   netSyncAccum = 0;
@@ -1293,6 +1459,45 @@ export default function App() {
       setScreen('TITLE_MENU');
     }
   }, [destroyOnlineSession]);
+
+  const handleUsePotion = useCallback(() => {
+    if (activeOnlineRoleRef.current === 'guest') {
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'use_potion' });
+      return;
+    }
+    const rt = runtimeRef.current;
+    if (!rt) return;
+    const p1 = rt.players.find((pl) => pl.id === 1);
+    if (p1 && usePlayerPotion(rt, p1)) {
+      setHud(extractHudSnapshot(rt));
+    }
+  }, []);
+
+  const handleSelectWeaponSlot = useCallback((slotIndex: number) => {
+    if (activeOnlineRoleRef.current === 'guest') {
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'select_weapon', slot: slotIndex });
+      return;
+    }
+    const rt = runtimeRef.current;
+    if (!rt) return;
+    const p1 = rt.players.find((pl) => pl.id === 1);
+    if (p1 && switchInventoryWeapon(rt, p1, slotIndex)) {
+      setHud(extractHudSnapshot(rt));
+    }
+  }, []);
+
+  const handleCycleWeapon = useCallback(() => {
+    if (activeOnlineRoleRef.current === 'guest') {
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'cycle_weapon' });
+      return;
+    }
+    const rt = runtimeRef.current;
+    if (!rt) return;
+    const p1 = rt.players.find((pl) => pl.id === 1);
+    if (p1 && switchInventoryWeapon(rt, p1)) {
+      setHud(extractHudSnapshot(rt));
+    }
+  }, []);
 
   const handleUpdateCheats = useCallback((next: CheatsConfig) => {
     setCheats(next);
@@ -1418,6 +1623,10 @@ export default function App() {
           onSelectColor={(pid, col) => setPlayerColors((prev) => ({ ...prev, [pid]: col }))}
           playerClasses={playerClasses}
           onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
+          localPlayerName={localPlayerName}
+          onChangeLocalPlayerName={handleSavePlayerName}
+          p2LocalName={p2LocalName}
+          onChangeP2LocalName={handleSaveP2LocalName}
           isMuted={isMuted}
           menuAudioBlocked={menuAudioBlocked}
           onToggleMute={handleToggleMute}
@@ -1435,6 +1644,9 @@ export default function App() {
   }
 
   const localPlayerNum: PlayerId = activeOnlineRole === 'guest' ? localPlayerId : 1;
+  const pausedByName = pausedBy
+    ? hud?.players?.find((p) => p.id === pausedBy)?.name || `Player ${pausedBy}`
+    : undefined;
   const hudColorMap: Record<number, string> = {};
   for (let i = 1; i <= 5; i++) {
     hudColorMap[i] = playerColors[i]?.hex || COLOR_OPTIONS[i - 1]?.hex || '#ef4444';
@@ -1483,6 +1695,15 @@ export default function App() {
             switchTutorialClass(rt, cls);
             setHud(extractHudSnapshot(rt));
           }}
+          onSwitchTutorialWeapon={(weapon: WeaponId) => {
+            const rt = runtimeRef.current;
+            if (!rt) return;
+            switchTutorialWeapon(rt, weapon);
+            setHud(extractHudSnapshot(rt));
+          }}
+          onUsePotion={handleUsePotion}
+          onSelectWeaponSlot={handleSelectWeaponSlot}
+          onCycleWeapon={handleCycleWeapon}
           onNextTutorialStep={() => {
             const rt = runtimeRef.current;
             if (!rt) return;
@@ -1534,6 +1755,7 @@ export default function App() {
           showTouchControls={showTouchControls}
           onlineRole={activeOnlineRole}
           pausedBy={pausedBy}
+          pausedByName={pausedByName}
           onMusicChange={(v) => {
             setMusicVol(v);
             soundEngine.setMusicVolume(v);

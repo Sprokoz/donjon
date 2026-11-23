@@ -51,6 +51,7 @@ import {
   VoidDecoy,
   VoidRift,
   VoidTentacle,
+  WeaponClassId,
   WeaponDrop,
   WeaponId,
 } from './types';
@@ -107,6 +108,7 @@ export function getInviteLink(code: string): string {
 export interface LobbyLoadoutPayload {
   heroClass: HeroClassId;
   colorHex: string;
+  playerName?: string;
   ready?: boolean;
   difficulty?: DifficultyKey;
   mode?: GameMode;
@@ -114,8 +116,12 @@ export interface LobbyLoadoutPayload {
 
 export interface SyncedPlayer {
   id: PlayerId;
+  name: string;
   heroClass: HeroClassId;
   weapon: WeaponId;
+  weaponInventory: WeaponClassId[];
+  potions: number;
+  potionCooldownTimer: number;
   coins: number;
   x: number;
   y: number;
@@ -148,6 +154,7 @@ export interface SyncedPlayer {
   usingDash2: boolean;
   invulnFrames: number;
   unlockedSkillTier: number;
+  weaponSkillTiers: Partial<Record<WeaponClassId, number>>;
   skillCooldowns: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
   abilityReady: boolean;
@@ -159,6 +166,7 @@ export interface SyncedPlayer {
   bladeHealCd: number;
   whirlwindTimer: number;
   fortifyTimer: number;
+  frontShieldTimer: number;
   bloodlustTimer: number;
   chargeTimer: number;
   sealed: boolean;
@@ -178,10 +186,13 @@ export interface SyncedRuntimeSnapshot {
   isOnlineCampaign: boolean;
   roomKind: RoomKind;
   roomDepth: number;
+  roomWave: number;
+  roomTotalWaves: number;
   floorNumber: number;
   loopLevel: number;
   currentRoomKey: string;
-  floorMap: FloorMapHudSnapshot | null;
+  floorMapRev: number;
+  floorMap?: FloorMapHudSnapshot | null;
   bossesDefeatedCount: number;
   chests: ChestDrop[];
   weaponDrops: WeaponDrop[];
@@ -273,10 +284,11 @@ export type OnlineMessage =
       mode: GameMode;
       maxPlayers: number;
     }
-  | { type: 'guest_config'; colorHex: string; heroClass: HeroClassId; ready: boolean }
+  | { type: 'guest_config'; colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }
   | { type: 'loadout'; payload: LobbyLoadoutPayload }
   | { type: 'input'; input: TouchInputState }
   | { type: 'sync'; snap: SyncedRuntimeSnapshot; sfx: SfxSyncEvent[] }
+  | { type: 'floor_sync'; rev: number; stage: StageKey; floorMap: FloorMapHudSnapshot }
   | { type: 'sfx'; events: SfxSyncEvent[] }
   | {
       type: 'screen';
@@ -286,8 +298,29 @@ export type OnlineMessage =
       summary?: RunSummary | null;
       pausedBy?: PlayerId;
     }
-  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' }
+  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'cycle_weapon' }
+  | { type: 'cmd'; action: 'select_weapon'; slot: number }
   | { type: 'cast_vote'; choice: 'end' | 'deeper' };
+
+export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | null {
+  if (!rt.isOnlineCampaign) return null;
+  return {
+    floorNumber: rt.floorNumber,
+    loopLevel: rt.loopLevel,
+    currentRoomKey: rt.currentRoomKey,
+    gridSize: 5,
+    nodes: Object.values(rt.floorGrid).map((r) => ({
+      key: r.key,
+      gx: r.gx,
+      gy: r.gy,
+      kind: r.kind,
+      visited: r.visited,
+      cleared: r.cleared,
+      revealed: r.revealed,
+      connections: { ...r.connections },
+    })),
+  };
+}
 
 function r1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -311,27 +344,12 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     isOnlineCampaign: rt.isOnlineCampaign,
     roomKind: rt.roomKind,
     roomDepth: rt.roomDepth,
+    roomWave: rt.roomWave,
+    roomTotalWaves: rt.roomTotalWaves,
     floorNumber: rt.floorNumber,
     loopLevel: rt.loopLevel,
     currentRoomKey: rt.currentRoomKey,
-    floorMap: rt.isOnlineCampaign
-      ? {
-          floorNumber: rt.floorNumber,
-          loopLevel: rt.loopLevel,
-          currentRoomKey: rt.currentRoomKey,
-          gridSize: 5,
-          nodes: Object.values(rt.floorGrid).map((r) => ({
-            key: r.key,
-            gx: r.gx,
-            gy: r.gy,
-            kind: r.kind,
-            visited: r.visited,
-            cleared: r.cleared,
-            revealed: r.revealed,
-            connections: { ...r.connections },
-          })),
-        }
-      : null,
+    floorMapRev: rt.floorMapRev,
     bossesDefeatedCount: rt.bossesDefeatedCount,
     chests: rt.chests.map((c) => ({ ...c })),
     weaponDrops: rt.weaponDrops.map((w) => ({ ...w, bob: r2(w.bob), swapLockTimer: r2(w.swapLockTimer) })),
@@ -369,8 +387,12 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     bossVoiceTimer: r1(rt.bossVoiceTimer),
     players: rt.players.map((p) => ({
       id: p.id,
+      name: p.name || `P${p.id}`,
       heroClass: p.heroClass,
       weapon: p.weapon,
+      weaponInventory: [...p.weaponInventory],
+      potions: p.potions,
+      potionCooldownTimer: r1(p.potionCooldownTimer),
       coins: p.coins,
       x: r1(p.x),
       y: r1(p.y),
@@ -409,6 +431,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       usingDash2: p.usingDash2,
       invulnFrames: r2(p.invulnFrames),
       unlockedSkillTier: p.unlockedSkillTier,
+      weaponSkillTiers: { ...p.weaponSkillTiers },
       skillCooldowns: [
         r1(p.skillCooldowns[0] || 0),
         r1(p.skillCooldowns[1] || 0),
@@ -430,6 +453,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       bladeHealCd: r1(p.bladeHealCd),
       whirlwindTimer: r2(p.whirlwindTimer),
       fortifyTimer: r2(p.fortifyTimer),
+      frontShieldTimer: r2(p.frontShieldTimer),
       bloodlustTimer: r2(p.bloodlustTimer),
       chargeTimer: r2(p.chargeTimer),
       sealed: p.sealed,
@@ -473,6 +497,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       x: r1(e.x),
       y: r1(e.y),
       rotation: r2(e.rotation),
+      hitFlashTimer: e.hitFlashTimer ? r2(e.hitFlashTimer) : 0,
     })),
     boss: {
       ...rt.boss,
@@ -486,6 +511,8 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       stateTimer: r2(rt.boss.stateTimer),
       attackTimer: r2(rt.boss.attackTimer),
       pulseSize: r1(rt.boss.pulseSize),
+      channelTimer: rt.boss.channelTimer ? r2(rt.boss.channelTimer) : 0,
+      channelNodes: rt.boss.channelNodes ? rt.boss.channelNodes.map((n) => ({ ...n })) : undefined,
     },
     bossProjectiles: rt.bossProjectiles.map((bp) => ({
       ...bp,
@@ -527,26 +554,26 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     eclipseSanctuaryActive: rt.eclipseSanctuaryActive,
     medkits: rt.medkits.map((m) => ({ ...m, bob: r2(m.bob) })),
     relics: rt.relics.map((r) => ({ ...r, bob: r2(r.bob) })),
-    dustParticles: rt.dustParticles.slice(-60).map((d) => ({
+    dustParticles: rt.dustParticles.slice(-12).map((d) => ({
       ...d,
       x: r1(d.x),
       y: r1(d.y),
       alpha: r2(d.alpha),
     })),
-    deathEffects: rt.deathEffects.slice(-40).map((de) => ({
+    deathEffects: rt.deathEffects.slice(-16).map((de) => ({
       ...de,
       x: r1(de.x),
       y: r1(de.y),
       radius: de.radius !== undefined ? r1(de.radius) : undefined,
       alpha: r2(de.alpha),
     })),
-    slashArcs: rt.slashArcs.map((sa) => ({
+    slashArcs: rt.slashArcs.slice(-16).map((sa) => ({
       ...sa,
       x: r1(sa.x),
       y: r1(sa.y),
       alpha: r2(sa.alpha),
     })),
-    floatingTexts: rt.floatingTexts.slice(-24).map((ft) => ({
+    floatingTexts: rt.floatingTexts.slice(-18).map((ft) => ({
       ...ft,
       x: r1(ft.x),
       y: r1(ft.y),
@@ -621,12 +648,21 @@ function lerpNum(prev: number, target: number, alpha: number, snapThreshold = 95
 function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
   const base: Player = {
     ...sp,
+    name: sp.name || `P${sp.id}`,
+    weaponInventory: Array.isArray(sp.weaponInventory) ? [...sp.weaponInventory] : [],
+    potions: sp.potions ?? 0,
+    potionCooldownTimer: sp.potionCooldownTimer ?? 0,
+    frontShieldTimer: sp.frontShieldTimer ?? 0,
+    swapCooldownTimer: 0,
+    weaponSkillTiers: { ...(sp.weaponSkillTiers || {}) },
     grazedIds: prev ? prev.grazedIds : new Set<number>(),
     _lastDashPressed: false,
     _lastAbilityPressed: false,
     _lastSkill2Pressed: false,
     _lastSkill3Pressed: false,
     _lastSkill4Pressed: false,
+    _lastPotionPressed: false,
+    _lastCycleWeaponPressed: false,
     cleanDodgeFailed: false,
   };
   return base;
@@ -681,12 +717,22 @@ function cloneCombos(src: Record<number, { count: number; timer: number }>): Rec
   return out;
 }
 
+export interface GuestFloorMapCache {
+  rev: number;
+  stage: StageKey;
+  floorMap: FloorMapHudSnapshot;
+}
+
 export function applySyncedSnapshotToGuest(
   displayRt: GameRuntime | null,
   snap: SyncedRuntimeSnapshot,
-  dt: number
+  dt: number,
+  guestFloorCache?: GuestFloorMapCache | null,
+  localPingMs?: number | null
 ): GameRuntime {
-  const lerpAlpha = 1 - Math.exp(-28 * Math.max(0.004, Math.min(dt, 0.05)));
+  const clampedDt = Math.max(0.004, Math.min(dt, 0.05));
+  const lerpAlpha = 1 - Math.exp(-32 * clampedDt);
+  const leadSec = Math.min(0.045, Math.max(0, (localPingMs || 0) / 2000));
 
   if (
     !displayRt ||
@@ -696,6 +742,17 @@ export function applySyncedSnapshotToGuest(
     displayRt.loopLevel !== snap.loopLevel
   ) {
     const players: Player[] = snap.players.map((sp) => hydratePlayer(sp));
+    const useCache = guestFloorCache && guestFloorCache.stage === snap.stage;
+    const initialFloorGrid = snap.floorMap
+      ? hydrateFloorGrid(snap.floorMap, snap.stage)
+      : useCache
+      ? hydrateFloorGrid(guestFloorCache.floorMap, snap.stage)
+      : displayRt?.floorGrid || {};
+    const initialFloorRev = snap.floorMap
+      ? snap.floorMapRev
+      : useCache
+      ? guestFloorCache.rev
+      : 0;
     return {
       difficulty: snap.difficulty,
       diffSettings: DIFFICULTY_SETTINGS[snap.difficulty],
@@ -704,10 +761,13 @@ export function applySyncedSnapshotToGuest(
       isOnlineCampaign: snap.isOnlineCampaign,
       roomKind: snap.roomKind,
       roomDepth: snap.roomDepth,
+      roomWave: snap.roomWave || 1,
+      roomTotalWaves: snap.roomTotalWaves || 1,
       floorNumber: snap.floorNumber,
       loopLevel: snap.loopLevel,
       currentRoomKey: snap.currentRoomKey,
-      floorGrid: hydrateFloorGrid(snap.floorMap, snap.stage),
+      floorMapRev: initialFloorRev,
+      floorGrid: initialFloorGrid,
       bossesDefeatedCount: snap.bossesDefeatedCount,
       chests: snap.chests.map((c) => ({ ...c })),
       weaponDrops: snap.weaponDrops.map((w) => ({ ...w })),
@@ -722,6 +782,7 @@ export function applySyncedSnapshotToGuest(
       pingByPlayer: { ...snap.pingByPlayer },
       playerColors: { ...snap.playerColors },
       playerClasses: { ...snap.playerClasses },
+      playerNames: Object.fromEntries(players.map((p) => [p.id, p.name])),
       stage: snap.stage,
       waveNumber: snap.waveNumber,
       bossType: snap.bossType,
@@ -797,9 +858,11 @@ export function applySyncedSnapshotToGuest(
       p2SafeZone: { ...snap.p2SafeZone },
       isTutorial: false,
       tutorialStep: 1,
+      tutorialWeapon: 'none',
       tutorialSkillUses: 0,
       tutorialGrazesStart: 0,
       tutorialFireTimer: 0,
+      tutorialCounterDone: false,
       cheats: { ...DEFAULT_CHEATS },
       cheatsUsed: snap.cheatsUsed,
       bossHitCooldowns: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
@@ -827,10 +890,18 @@ export function applySyncedSnapshotToGuest(
   displayRt.isOnlineCampaign = snap.isOnlineCampaign;
   displayRt.roomKind = snap.roomKind;
   displayRt.roomDepth = snap.roomDepth;
+  displayRt.roomWave = snap.roomWave || 1;
+  displayRt.roomTotalWaves = snap.roomTotalWaves || 1;
   displayRt.floorNumber = snap.floorNumber;
   displayRt.loopLevel = snap.loopLevel;
   displayRt.currentRoomKey = snap.currentRoomKey;
-  displayRt.floorGrid = hydrateFloorGrid(snap.floorMap, snap.stage);
+  if (snap.floorMap && displayRt.floorMapRev !== snap.floorMapRev) {
+    displayRt.floorGrid = hydrateFloorGrid(snap.floorMap, snap.stage);
+    displayRt.floorMapRev = snap.floorMapRev;
+  } else if (guestFloorCache && guestFloorCache.stage === snap.stage && displayRt.floorMapRev !== guestFloorCache.rev) {
+    displayRt.floorGrid = hydrateFloorGrid(guestFloorCache.floorMap, snap.stage);
+    displayRt.floorMapRev = guestFloorCache.rev;
+  }
   displayRt.bossesDefeatedCount = snap.bossesDefeatedCount;
   displayRt.chests = snap.chests.map((c) => ({ ...c }));
   displayRt.weaponDrops = snap.weaponDrops.map((w) => ({ ...w }));
@@ -859,8 +930,11 @@ export function applySyncedSnapshotToGuest(
     const prev = displayRt.players[idx];
     const next = hydratePlayer(sp, prev);
     if (prev && prev.state === next.state) {
-      next.x = lerpNum(prev.x, sp.x, lerpAlpha, 110);
-      next.y = lerpNum(prev.y, sp.y, lerpAlpha, 110);
+      const leadMult = next.state === 'alive' && !snap.introPlaying ? leadSec : 0;
+      const targetX = sp.x + sp.vx * leadMult;
+      const targetY = sp.y + sp.vy * leadMult;
+      next.x = lerpNum(prev.x, targetX, lerpAlpha, 110);
+      next.y = lerpNum(prev.y, targetY, lerpAlpha, 110);
     }
     return next;
   });
@@ -878,27 +952,33 @@ export function applySyncedSnapshotToGuest(
   const prevBoss = displayRt.boss;
   displayRt.boss = {
     ...snap.boss,
+    channelNodes: snap.boss.channelNodes ? snap.boss.channelNodes.map((n) => ({ ...n })) : undefined,
     x: lerpNum(prevBoss.x, snap.boss.x, lerpAlpha, 140),
     y: lerpNum(prevBoss.y, snap.boss.y, lerpAlpha, 140),
   };
 
   displayRt.bossProjectiles = snap.bossProjectiles.map((bp) => {
     const prev = prevBossProjsByUid.get(bp.uid);
-    if (!prev) return { ...bp };
+    const moveLead = bp.type !== 'mine' && bp.type !== 'phantom_clone' ? leadSec * 60 : 0;
+    const targetX = bp.x + bp.dx * bp.speed * moveLead;
+    const targetY = bp.y + bp.dy * bp.speed * moveLead;
+    if (!prev) return { ...bp, x: targetX, y: targetY };
     return {
       ...bp,
-      x: lerpNum(prev.x, bp.x, lerpAlpha, 100),
-      y: lerpNum(prev.y, bp.y, lerpAlpha, 100),
+      x: lerpNum(prev.x, targetX, lerpAlpha, 100),
+      y: lerpNum(prev.y, targetY, lerpAlpha, 100),
     };
   });
 
   displayRt.playerProjectiles = snap.playerProjectiles.map((pp) => {
     const prev = prevPlayerProjsByUid.get(pp.uid);
-    if (!prev) return { ...pp };
+    const targetX = pp.x + pp.dx * (leadSec * 60);
+    const targetY = pp.y + pp.dy * (leadSec * 60);
+    if (!prev) return { ...pp, x: targetX, y: targetY };
     return {
       ...pp,
-      x: lerpNum(prev.x, pp.x, lerpAlpha, 100),
-      y: lerpNum(prev.y, pp.y, lerpAlpha, 100),
+      x: lerpNum(prev.x, targetX, lerpAlpha, 100),
+      y: lerpNum(prev.y, targetY, lerpAlpha, 100),
     };
   });
 
@@ -1000,13 +1080,24 @@ export interface OnlineSessionCallbacks {
 
 interface GuestSlot {
   conn: DataConnection;
+  streamConn: DataConnection | null;
+  clientUid?: string;
   pingMs: number | null;
+}
+
+function getBufferedAmount(conn: DataConnection | null | undefined): number {
+  if (!conn) return 0;
+  const dc = (conn as unknown as { dataChannel?: { bufferedAmount?: number } }).dataChannel;
+  return typeof dc?.bufferedAmount === 'number' ? dc.bufferedAmount : 0;
 }
 
 export class OnlineSession {
   private peer: Peer | null = null;
   private hostConn: DataConnection | null = null;
+  private hostStreamConn: DataConnection | null = null;
   private guests = new Map<PlayerId, GuestSlot>();
+  private pendingStreams = new Map<string, DataConnection>();
+  private guestClientUid = Math.random().toString(36).slice(2, 10);
   private role: 'host' | 'guest';
   private roomCode: string;
   private maxPlayers: number;
@@ -1044,6 +1135,7 @@ export class OnlineSession {
         if (slotId > this.maxPlayers) {
           try {
             slot.conn.close();
+            slot.streamConn?.close();
           } catch {
             // ignore
           }
@@ -1083,12 +1175,16 @@ export class OnlineSession {
 
   send(msg: OnlineMessage, targetPlayerId?: PlayerId) {
     if (this.destroyed) return;
+    const isStreamMsg = msg.type === 'sync' || msg.type === 'input';
+
     if (this.role === 'host') {
       if (targetPlayerId !== undefined) {
         const slot = this.guests.get(targetPlayerId);
         if (slot && slot.conn.open) {
+          const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 65536) return;
           try {
-            slot.conn.send(msg);
+            targetConn.send(msg);
           } catch {
             // ignore
           }
@@ -1097,8 +1193,10 @@ export class OnlineSession {
       }
       for (const slot of this.guests.values()) {
         if (slot.conn.open) {
+          const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 65536) continue;
           try {
-            slot.conn.send(msg);
+            targetConn.send(msg);
           } catch {
             // ignore
           }
@@ -1107,9 +1205,11 @@ export class OnlineSession {
       return;
     }
 
-    if (!this.hostConn || !this.hostConn.open) return;
+    const targetConn = isStreamMsg && this.hostStreamConn?.open ? this.hostStreamConn : this.hostConn;
+    if (!targetConn || !targetConn.open) return;
+    if (msg.type === 'input' && getBufferedAmount(targetConn) > 32768) return;
     try {
-      this.hostConn.send(msg);
+      targetConn.send(msg);
     } catch {
       // ignore transient channel send error
     }
@@ -1171,8 +1271,19 @@ export class OnlineSession {
         this.ensurePingLoop();
       } else {
         const targetId = `${PEER_PREFIX}${this.roomCode}`;
-        const conn = peer.connect(targetId, { reliable: true });
-        this.attachGuestToHostConnection(conn);
+        const ctrlConn = peer.connect(targetId, {
+          label: 'ctrl',
+          reliable: true,
+          metadata: { channel: 'ctrl', clientUid: this.guestClientUid },
+        });
+        this.attachGuestToHostConnection(ctrlConn, false);
+
+        const streamConn = peer.connect(targetId, {
+          label: 'stream',
+          reliable: false,
+          metadata: { channel: 'stream', clientUid: this.guestClientUid },
+        });
+        this.attachGuestToHostConnection(streamConn, true);
       }
     });
 
@@ -1182,6 +1293,23 @@ export class OnlineSession {
           incomingConn.close();
           return;
         }
+        const meta = (incomingConn.metadata || {}) as { channel?: 'ctrl' | 'stream'; clientUid?: string };
+        if (meta.channel === 'stream' && meta.clientUid) {
+          let matchedSlot: GuestSlot | undefined;
+          for (const slot of this.guests.values()) {
+            if (slot.clientUid === meta.clientUid) {
+              matchedSlot = slot;
+              break;
+            }
+          }
+          if (matchedSlot) {
+            this.attachHostStreamConnection(incomingConn, matchedSlot, this.findSlotId(matchedSlot));
+          } else {
+            this.pendingStreams.set(meta.clientUid, incomingConn);
+          }
+          return;
+        }
+
         let assignedSlot: PlayerId | null = null;
         const candidateSlots: PlayerId[] = [2, 3, 4, 5];
         for (const s of candidateSlots) {
@@ -1207,7 +1335,7 @@ export class OnlineSession {
           });
           return;
         }
-        this.attachHostToGuestConnection(incomingConn, assignedSlot);
+        this.attachHostToGuestConnection(incomingConn, assignedSlot, meta.clientUid);
       });
     }
 
@@ -1241,9 +1369,40 @@ export class OnlineSession {
     });
   }
 
-  private attachHostToGuestConnection(conn: DataConnection, slotId: PlayerId) {
-    const slot: GuestSlot = { conn, pingMs: null };
+  private findSlotId(target: GuestSlot): PlayerId {
+    for (const [id, slot] of this.guests.entries()) {
+      if (slot === target) return id;
+    }
+    return 2;
+  }
+
+  private attachHostStreamConnection(conn: DataConnection, slot: GuestSlot, slotId: PlayerId) {
+    slot.streamConn = conn;
+    conn.on('data', (raw) => {
+      if (this.destroyed || !raw || typeof raw !== 'object') return;
+      const msg = raw as OnlineMessage;
+      if ('type' in msg) {
+        this.callbacks.onMessage(msg, slotId);
+      }
+    });
+    const clearStream = () => {
+      if (slot.streamConn === conn) {
+        slot.streamConn = null;
+      }
+    };
+    conn.on('close', clearStream);
+    conn.on('error', clearStream);
+  }
+
+  private attachHostToGuestConnection(conn: DataConnection, slotId: PlayerId, clientUid?: string) {
+    const slot: GuestSlot = { conn, streamConn: null, clientUid, pingMs: null };
     this.guests.set(slotId, slot);
+
+    if (clientUid && this.pendingStreams.has(clientUid)) {
+      const pendingStream = this.pendingStreams.get(clientUid)!;
+      this.pendingStreams.delete(clientUid);
+      this.attachHostStreamConnection(pendingStream, slot, slotId);
+    }
 
     conn.on('open', () => {
       if (this.destroyed) return;
@@ -1275,6 +1434,11 @@ export class OnlineSession {
     const handleDrop = () => {
       if (this.destroyed) return;
       if (this.guests.get(slotId)?.conn === conn) {
+        try {
+          slot.streamConn?.close();
+        } catch {
+          // ignore
+        }
         this.guests.delete(slotId);
         if (this.guests.size === 0) {
           this.callbacks.onStatusChange('waiting');
@@ -1288,7 +1452,26 @@ export class OnlineSession {
     conn.on('error', handleDrop);
   }
 
-  private attachGuestToHostConnection(conn: DataConnection) {
+  private attachGuestToHostConnection(conn: DataConnection, isStream: boolean) {
+    if (isStream) {
+      this.hostStreamConn = conn;
+      conn.on('data', (raw) => {
+        if (this.destroyed || !raw || typeof raw !== 'object') return;
+        const msg = raw as OnlineMessage;
+        if ('type' in msg) {
+          this.callbacks.onMessage(msg, 1);
+        }
+      });
+      const clearStream = () => {
+        if (this.hostStreamConn === conn) {
+          this.hostStreamConn = null;
+        }
+      };
+      conn.on('close', clearStream);
+      conn.on('error', clearStream);
+      return;
+    }
+
     this.hostConn = conn;
 
     conn.on('open', () => {
@@ -1332,6 +1515,12 @@ export class OnlineSession {
       const wasConnected = this.hostWasConnected;
       this.hostWasConnected = false;
       this.hostConn = null;
+      try {
+        this.hostStreamConn?.close();
+      } catch {
+        // ignore
+      }
+      this.hostStreamConn = null;
       if (wasConnected) {
         this.callbacks.onPartnerDisconnect(1);
       } else {
@@ -1357,18 +1546,22 @@ export class OnlineSession {
     this.clearTimers();
     try {
       this.hostConn?.close();
+      this.hostStreamConn?.close();
     } catch {
       // ignore
     }
     this.hostConn = null;
+    this.hostStreamConn = null;
     for (const slot of this.guests.values()) {
       try {
         slot.conn.close();
+        slot.streamConn?.close();
       } catch {
         // ignore
       }
     }
     this.guests.clear();
+    this.pendingStreams.clear();
     try {
       this.peer?.destroy();
     } catch {

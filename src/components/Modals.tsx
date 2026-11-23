@@ -115,6 +115,7 @@ interface PauseModalProps {
   showTouchControls: boolean;
   onlineRole?: 'none' | 'host' | 'guest';
   pausedBy?: PlayerId;
+  pausedByName?: string;
   onMusicChange: (v: number) => void;
   onSfxChange: (v: number) => void;
   onToggleFullscreen: () => void;
@@ -135,6 +136,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   showTouchControls,
   onlineRole = 'none',
   pausedBy,
+  pausedByName,
   onMusicChange,
   onSfxChange,
   onToggleFullscreen,
@@ -155,7 +157,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           <h2 className="font-arcade text-base text-white">PAUSED · SETTINGS</h2>
           {isOnline && pausedBy && (
             <p className="font-mono-num text-[11px] text-amber-300">
-              Paused by Player {pausedBy}
+              Paused by {pausedByName || `Player ${pausedBy}`}
             </p>
           )}
         </div>
@@ -910,7 +912,7 @@ export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
                 <span className="font-mono-num text-xs font-bold text-rose-200">{deeperVotes} VOTE(S)</span>
               </div>
               <p className="text-xs text-stone-300 leading-relaxed">
-                Keep weapons, coins, skills &amp; HP buffs. New Abyssal Floor scales <strong className="text-rose-300">+45% Mobs, +65% Boss HP, +18% DMG, +15% Speed</strong> &amp; <strong className="text-amber-300">+50% Score</strong>!
+                Keep your 3-slot Weapon Bag, Flasks, coins, learned skills &amp; HP buffs. Loop {nextLoop} unleashes <strong className="text-rose-300">Multi-Wave Chambers, Multi-HP &amp; Elite Mobs</strong>, and Boss Teamwork Counters (+50% Score)!
               </p>
             </div>
             <div className="font-mono-num text-[11px] font-bold text-rose-400 flex items-center gap-1">
@@ -936,7 +938,7 @@ export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
                   className="px-2.5 py-2 rounded border border-stone-800 bg-stone-950/80 flex flex-col gap-1"
                 >
                   <div className="font-arcade text-[10px] truncate" style={{ color: col }}>
-                    P{pl.id}{pl.id === localPlayerId ? ' (YOU)' : ''}
+                    {pl.name || `P${pl.id}`}{pl.id === localPlayerId ? ' (YOU)' : ''}
                   </div>
                   <div
                     className={`font-mono-num text-[10px] font-bold ${

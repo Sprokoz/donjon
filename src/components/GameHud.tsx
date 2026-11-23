@@ -19,6 +19,9 @@ import {
   Lock,
   Map as MapIcon,
   Flame,
+  Briefcase,
+  FlaskConical,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   BOONS_CATALOG,
@@ -31,6 +34,7 @@ import {
   HudSnapshot,
   PlayerHudState,
   PlayerId,
+  WeaponId,
   WEAPONS_CATALOG,
 } from '../game/types';
 import { formatDuration } from './PixelHeart';
@@ -53,6 +57,10 @@ interface GameHudProps {
   onPause: () => void;
   onOpenControls: () => void;
   onSwitchTutorialClass?: (cls: HeroClassId) => void;
+  onSwitchTutorialWeapon?: (weapon: WeaponId) => void;
+  onUsePotion?: () => void;
+  onSelectWeaponSlot?: (slotIndex: number) => void;
+  onCycleWeapon?: () => void;
   onNextTutorialStep?: () => void;
   onExitTutorial?: () => void;
   onSkipIntro?: () => void;
@@ -89,7 +97,7 @@ function getRoomSymbol(node: FloorMapNodeHud): string {
   return node.visited ? '⚔' : '?';
 }
 
-const FloorMinimapCard: React.FC<{ floorMap: FloorMapHudSnapshot; compact?: boolean }> = ({
+const FloorMinimapCard: React.FC<{ floorMap: FloorMapHudSnapshot; compact?: boolean }> = React.memo(({
   floorMap,
   compact = false,
 }) => {
@@ -191,7 +199,7 @@ const FloorMinimapCard: React.FC<{ floorMap: FloorMapHudSnapshot; compact?: bool
       </div>
     </div>
   );
-};
+});
 
 interface PlayerCardProps {
   label: string;
@@ -203,9 +211,10 @@ interface PlayerCardProps {
   isOnline?: boolean;
   pingMs?: number | null;
   compact?: boolean;
+  highlighted?: boolean;
 }
 
-const PlayerSideCard: React.FC<PlayerCardProps> = ({
+const PlayerSideCard: React.FC<PlayerCardProps> = React.memo(({
   label,
   p,
   color,
@@ -215,6 +224,7 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({
   isOnline = false,
   pingMs = null,
   compact = false,
+  highlighted = false,
 }) => {
   const clsDef = HERO_CLASSES.find((c) => c.id === p.heroClass);
   const weaponDef =
@@ -237,11 +247,24 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({
 
   return (
     <div
-      className={`bg-[#0b0a0e] border rounded-md ${compact ? 'p-2.5 space-y-1.5' : 'p-3 space-y-2'}`}
-      style={{ borderColor: `${color}88` }}
+      className={`bg-[#0b0a0e] rounded-md ${compact ? 'p-2.5 space-y-1.5' : 'p-3 space-y-2'} ${
+        highlighted ? 'border-2' : 'border'
+      }`}
+      style={{
+        borderColor: highlighted ? color : `${color}88`,
+        boxShadow: highlighted ? `0 0 18px ${color}33` : undefined,
+      }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
+          {highlighted && (
+            <div
+              className="font-mono-num text-[9px] font-bold tracking-widest uppercase mb-0.5"
+              style={{ color }}
+            >
+              ★ YOUR FRAME · P{p.id}
+            </div>
+          )}
           <div className="font-souls text-xs font-bold truncate" style={{ color }}>
             {label} · <span style={{ color: weaponDef ? weaponDef.accent : undefined }}>{titleRole}</span>
           </div>
@@ -330,7 +353,7 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({
       )}
 
       {/* Status Badges */}
-      {(p.hasKnife || p.empowered || p.hasShield || p.overdrive > 0 || p.cloak > 0 || p.sealed) && (
+      {(p.hasKnife || p.empowered || p.hasShield || (p.frontShield || 0) > 0 || p.overdrive > 0 || p.cloak > 0 || p.sealed) && (
         <div className="flex flex-wrap gap-1.5 font-mono-num text-[10px]">
           {p.hasKnife && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-700/60 text-cyan-300 font-semibold">
@@ -340,6 +363,11 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({
           {p.empowered && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-500/70 text-amber-300 font-semibold">
               <Zap className="w-3 h-3" /> EMPOWERED
+            </span>
+          )}
+          {(p.frontShield || 0) > 0 && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-900/80 border border-sky-400 text-sky-100 font-bold">
+              <Shield className="w-3 h-3 text-sky-300" /> WALL {p.frontShield?.toFixed(1)}s
             </span>
           )}
           {p.hasShield && (
@@ -366,9 +394,9 @@ const PlayerSideCard: React.FC<PlayerCardProps> = ({
       )}
     </div>
   );
-};
+});
 
-const SkillHotbarCard: React.FC<{ p: PlayerHudState; isOnlineCampaign: boolean }> = ({
+const SkillHotbarCard: React.FC<{ p: PlayerHudState; isOnlineCampaign: boolean }> = React.memo(({
   p,
   isOnlineCampaign,
 }) => {
@@ -456,9 +484,221 @@ const SkillHotbarCard: React.FC<{ p: PlayerHudState; isOnlineCampaign: boolean }
           })}
         </div>
       )}
+
+      {isOnlineCampaign && Object.keys(p.weaponSkillTiers || {}).length > 0 && (
+        <div className="pt-1.5 border-t border-stone-800/80 flex flex-wrap items-center gap-1 font-mono-num text-[9px]">
+          <span className="text-stone-500 mr-0.5">MASTERED:</span>
+          {WEAPONS_CATALOG.map((w) => {
+            const t = p.weaponSkillTiers?.[w.id];
+            if (!t) return null;
+            const isEquipped = p.weapon === w.id;
+            return (
+              <span
+                key={w.id}
+                className={`px-1 py-0.5 rounded border ${
+                  isEquipped ? 'bg-stone-800 border-stone-500 font-bold' : 'bg-black/60 border-stone-800 text-stone-400'
+                }`}
+                style={{ color: isEquipped ? w.accent : undefined }}
+                title={`${w.name}: ${t}/4 skills learned (persists when equipped)`}
+              >
+                {w.shortTag} {t}/4
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
-};
+});
+
+const InventoryCard: React.FC<{
+  p: PlayerHudState;
+  isOnlineCampaign: boolean;
+  onUsePotion?: () => void;
+  onSelectWeaponSlot?: (slot: number) => void;
+}> = React.memo(({ p, isOnlineCampaign, onUsePotion, onSelectWeaponSlot }) => {
+  const bag = p.weaponInventory || [];
+  const potionReady = p.potions > 0 && p.potionCooldown <= 0 && p.hp < p.maxHp && p.state === 'alive';
+
+  return (
+    <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1 text-[10px] font-mono-num text-stone-400 uppercase tracking-wider font-bold">
+          <Briefcase className="w-3 h-3 text-amber-400" />
+          <span>BELT &amp; BAG</span>
+        </span>
+        {isOnlineCampaign && (
+          <span className="font-mono-num text-[10px] text-stone-400">
+            [X] Swap · [C] Flask
+          </span>
+        )}
+      </div>
+
+      {/* Crimson Flask Row */}
+      <button
+        type="button"
+        onClick={() => onUsePotion?.()}
+        disabled={!potionReady}
+        title="Drink Crimson Flask [C] to restore +45 HP"
+        className={`w-full px-2.5 py-1.5 rounded border flex items-center justify-between font-mono-num text-[10px] transition-colors ${
+          potionReady
+            ? 'bg-rose-950/55 hover:bg-rose-900/60 border-rose-500/75 text-rose-100 cursor-pointer'
+            : 'bg-black/60 border-stone-800 text-stone-500 cursor-default'
+        }`}
+      >
+        <span className="inline-flex items-center gap-1.5 font-bold">
+          <FlaskConical className={`w-3.5 h-3.5 ${p.potions > 0 ? 'text-rose-400' : 'text-stone-600'}`} />
+          <span>FLASK [C] · +45 HP</span>
+        </span>
+        <span className="font-bold">
+          {p.potionCooldown > 0
+            ? `${p.potionCooldown}s`
+            : `x${p.potions}`}
+        </span>
+      </button>
+
+      {/* 3-Slot Weapon Bag */}
+      {isOnlineCampaign && (
+        <div className="grid grid-cols-3 gap-1">
+          {[0, 1, 2].map((slotIdx) => {
+            const wId = bag[slotIdx];
+            const wDef = wId ? WEAPONS_CATALOG.find((w) => w.id === wId) : undefined;
+            const equipped = Boolean(wId && p.weapon === wId);
+            const tier = wId ? p.weaponSkillTiers?.[wId] || 1 : 0;
+            return (
+              <button
+                key={slotIdx}
+                type="button"
+                disabled={!wId}
+                onClick={() => onSelectWeaponSlot?.(slotIdx)}
+                title={
+                  wDef
+                    ? `${wDef.name} (${wDef.roleLabel}) · ${tier}/4 Skills · Click to equip`
+                    : 'Empty Bag Slot'
+                }
+                className={`px-1.5 py-1.5 rounded border text-center font-mono-num transition-all ${
+                  equipped
+                    ? 'bg-stone-900 border-white text-white font-bold'
+                    : wDef
+                    ? 'bg-black/75 border-stone-700 hover:border-stone-500 text-stone-200 cursor-pointer'
+                    : 'bg-stone-950/40 border-stone-800/60 border-dashed text-stone-600 cursor-default'
+                }`}
+                style={{ borderColor: equipped && wDef ? wDef.accent : undefined }}
+              >
+                <div
+                  className="text-[9px] font-bold truncate"
+                  style={{ color: wDef ? wDef.accent : undefined }}
+                >
+                  {wDef ? wDef.shortTag : `SLOT ${slotIdx + 1}`}
+                </div>
+                <div className="text-[8px] text-stone-400 truncate mt-0.5">
+                  {wDef ? (equipped ? `EQUIP · ${tier}/4` : `${tier}/4`) : 'EMPTY'}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const SquadVitalityStrip: React.FC<{
+  players: PlayerHudState[];
+  localPlayerId: PlayerId;
+  playerColors: Record<number, string>;
+  isOnlineCampaign: boolean;
+  isOnline: boolean;
+  resolvePing: (id: PlayerId) => number | null;
+}> = React.memo(({ players, localPlayerId, playerColors, isOnlineCampaign, isOnline, resolvePing }) => {
+  return (
+    <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-mono-num text-stone-400 uppercase tracking-wider font-bold">
+          <Users className="w-3.5 h-3.5 text-cyan-400" />
+          <span>SQUAD VITALITY ({players.length})</span>
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        {players.map((pl) => {
+          const isMe = pl.id === localPlayerId;
+          const col = playerColors[pl.id] || pl.color;
+          const hpPct = pl.maxHp > 0 ? Math.max(0, Math.min(100, (pl.hp / pl.maxHp) * 100)) : 0;
+          const wDef =
+            isOnlineCampaign && pl.weapon !== 'none'
+              ? WEAPONS_CATALOG.find((w) => w.id === pl.weapon)
+              : undefined;
+          const clsDef = HERO_CLASSES.find((c) => c.id === pl.heroClass);
+          const pingMs = resolvePing(pl.id);
+          const roleTag = isOnlineCampaign
+            ? wDef
+              ? wDef.shortTag
+              : 'NONE'
+            : clsDef?.name.slice(0, 5).toUpperCase() || 'HERO';
+
+          return (
+            <div
+              key={pl.id}
+              className={`rounded border px-2 py-1.5 space-y-1 ${
+                isMe ? 'bg-stone-900/90' : 'bg-black/65 border-stone-800/90'
+              }`}
+              style={{ borderColor: isMe ? `${col}cc` : undefined }}
+            >
+              <div className="flex items-center justify-between gap-1.5 font-mono-num text-[10px]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white/50"
+                    style={{ backgroundColor: col }}
+                  />
+                  <span className="font-bold text-stone-100 truncate">
+                    {isMe ? `YOU · ${pl.name || `P${pl.id}`}` : pl.name || `P${pl.id}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {pl.hasShield && <span title="Aegis Shield Active" className="text-sky-300 text-[9px]">⛨</span>}
+                  <span
+                    className="text-[9px] font-bold"
+                    style={{ color: wDef ? wDef.accent : '#a8a29e' }}
+                  >
+                    {roleTag}
+                  </span>
+                  {isOnline && (
+                    <span className={`text-[9px] ${pingTextColor(pingMs)}`}>
+                      {pingMs === null ? '--' : `${pingMs}ms`}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 bg-stone-950 border border-stone-800 overflow-hidden">
+                  <div
+                    className="h-full transition-all duration-150"
+                    style={{
+                      width: `${hpPct}%`,
+                      background:
+                        pl.state === 'down'
+                          ? '#71717a'
+                          : 'linear-gradient(90deg, #991b1b, #ef4444)',
+                    }}
+                  />
+                </div>
+                <span
+                  className={`font-mono-num text-[9px] font-bold w-14 text-right shrink-0 ${
+                    pl.state === 'down' ? 'text-rose-400 animate-pulse' : 'text-stone-200'
+                  }`}
+                >
+                  {pl.state === 'down' ? 'DOWN' : `${pl.hp}/${pl.maxHp}`}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
 
 export const GameHud: React.FC<GameHudProps> = ({
   hud,
@@ -477,6 +717,10 @@ export const GameHud: React.FC<GameHudProps> = ({
   onPause,
   onOpenControls,
   onSwitchTutorialClass,
+  onSwitchTutorialWeapon,
+  onUsePotion,
+  onSelectWeaponSlot,
+  onCycleWeapon,
   onNextTutorialStep,
   onExitTutorial,
   onSkipIntro,
@@ -675,9 +919,9 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         )}
 
-        {/* Local Player Card */}
+        {/* Highlighted YOUR UI Card */}
         <PlayerSideCard
-          label={isOnline || teammates.length > 0 ? `PLAYER ${localPlayer.id} (YOU)` : 'PLAYER 1'}
+          label={localPlayer.name || `PLAYER ${localPlayer.id}`}
           p={localPlayer}
           color={playerColors[localPlayer.id] || localPlayer.color}
           combo={localPlayer.combo}
@@ -685,14 +929,25 @@ export const GameHud: React.FC<GameHudProps> = ({
           isOnlineCampaign={hud.isOnlineCampaign}
           isOnline={isOnline}
           pingMs={myPingMs}
+          highlighted
         />
+
+        {/* Inventory: Crimson Flask + 3-Slot Weapon Bag */}
+        {!hud.isTutorial && (
+          <InventoryCard
+            p={localPlayer}
+            isOnlineCampaign={hud.isOnlineCampaign}
+            onUsePotion={onUsePotion}
+            onSelectWeaponSlot={onSelectWeaponSlot}
+          />
+        )}
 
         {/* 4-Skill Arsenal Loadout */}
         {!hud.isTutorial && (
           <SkillHotbarCard p={localPlayer} isOnlineCampaign={hud.isOnlineCampaign} />
         )}
 
-        {/* Tutorial Drill & Frame Switcher */}
+        {/* Tutorial Drill, Class & Campaign Weapon Switcher */}
         {hud.isTutorial && (
           <div className="bg-[#0b0a0e] border border-amber-700/60 rounded-md p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
@@ -704,25 +959,56 @@ export const GameHud: React.FC<GameHudProps> = ({
               </span>
             </div>
             <p className="font-mono-num text-[11px] text-stone-300 leading-snug">{hud.tutorialObjective}</p>
-            <div className="grid grid-cols-2 gap-1.5 pt-1">
-              {HERO_CLASSES.map((cls) => {
-                const active = hud.p1.heroClass === cls.id;
-                return (
-                  <button
-                    key={cls.id}
-                    type="button"
-                    onClick={() => onSwitchTutorialClass?.(cls.id)}
-                    className={`px-2 py-1.5 rounded border text-[10px] font-mono-num font-bold transition-all cursor-pointer truncate ${
-                      active ? 'bg-stone-800 text-white' : 'bg-black/70 border-stone-800 text-stone-400 hover:text-stone-200'
-                    }`}
-                    style={{ borderColor: active ? cls.accent : undefined, color: active ? cls.accent : undefined }}
-                    title={`Switch to ${cls.name}: ${cls.passiveName}`}
-                  >
-                    {cls.name}
-                  </button>
-                );
-              })}
+
+            <div className="space-y-1 pt-1">
+              <div className="text-[9px] font-mono-num text-stone-400 uppercase tracking-wider">Hero Classes</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {HERO_CLASSES.map((cls) => {
+                  const active = hud.p1.heroClass === cls.id && hud.p1.weapon === 'none';
+                  return (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => onSwitchTutorialClass?.(cls.id)}
+                      className={`px-2 py-1.5 rounded border text-[10px] font-mono-num font-bold transition-all cursor-pointer truncate ${
+                        active ? 'bg-stone-800 text-white' : 'bg-black/70 border-stone-800 text-stone-400 hover:text-stone-200'
+                      }`}
+                      style={{ borderColor: active ? cls.accent : undefined, color: active ? cls.accent : undefined }}
+                      title={`Switch to ${cls.name}: ${cls.passiveName}`}
+                    >
+                      {cls.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            {onSwitchTutorialWeapon && (
+              <div className="space-y-1 pt-1 border-t border-stone-800/80">
+                <div className="text-[9px] font-mono-num text-cyan-300 uppercase tracking-wider">
+                  Campaign Weapons (All 4 Skills)
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {WEAPONS_CATALOG.map((w) => {
+                    const active = hud.p1.weapon === w.id;
+                    return (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => onSwitchTutorialWeapon(w.id)}
+                        className={`px-2 py-1 rounded border text-[9px] font-mono-num font-bold transition-all cursor-pointer truncate ${
+                          active ? 'bg-stone-800 text-white' : 'bg-black/70 border-stone-800 text-stone-400 hover:text-stone-200'
+                        }`}
+                        style={{ borderColor: active ? w.accent : undefined, color: active ? w.accent : undefined }}
+                        title={`${w.name} (${w.roleLabel})`}
+                      >
+                        {w.shortTag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </aside>
@@ -798,11 +1084,56 @@ export const GameHud: React.FC<GameHudProps> = ({
                   : `${hud.stageLabel}${hud.loopLevel > 1 ? ` · LOOP ${hud.loopLevel}` : ''}`}
               </span>
               <span className="text-[11px] text-stone-400 hidden sm:inline truncate">
-                Grab Blade Orb · [Space] Dodge · [E/Q/R/F] 4 Skills
+                {hud.isOnlineCampaign
+                  ? '[E/Q/R/F] Skills · [X] Swap Bag · [C] Flask'
+                  : 'Grab Blade Orb · [Space] Dodge · [E/Q/R/F] 4 Skills'}
               </span>
             </div>
           )}
         </div>
+
+        {/* Boss Teamwork Counter Warning Strip */}
+        {hud.bossChannel && (
+          <div
+            className={`w-full max-w-[1160px] shrink-0 rounded px-3 py-1.5 border flex items-center justify-between gap-2 font-mono-num text-[11px] font-bold animate-pulse ${
+              hud.bossChannel.kind === 'siege_beam'
+                ? 'bg-sky-950/85 border-sky-400 text-sky-100'
+                : hud.bossChannel.kind === 'cursed_floor'
+                ? 'bg-rose-950/85 border-amber-400 text-amber-100'
+                : hud.bossChannel.kind === 'sync_seals'
+                ? 'bg-emerald-950/85 border-emerald-400 text-emerald-100'
+                : 'bg-purple-950/85 border-purple-400 text-purple-100'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle
+                className={`w-4 h-4 shrink-0 ${
+                  hud.bossChannel.kind === 'siege_beam'
+                    ? 'text-sky-300'
+                    : hud.bossChannel.kind === 'cursed_floor'
+                    ? 'text-amber-300'
+                    : hud.bossChannel.kind === 'sync_seals'
+                    ? 'text-emerald-300'
+                    : 'text-purple-300'
+                }`}
+              />
+              <span className="truncate">{hud.bossChannel.label}</span>
+            </div>
+            <div className="flex items-center gap-2.5 shrink-0">
+              {hud.bossChannel.kind === 'interrupt' && (
+                <span className="text-amber-300">
+                  {hud.bossChannel.hits}/{hud.bossChannel.hitsNeeded} HITS
+                </span>
+              )}
+              {hud.bossChannel.kind === 'sync_seals' && (
+                <span className="text-emerald-300">
+                  {hud.bossChannel.hits}/{hud.bossChannel.hitsNeeded} SEALS
+                </span>
+              )}
+              <span className="text-white">{hud.bossChannel.timer}s</span>
+            </div>
+          </div>
+        )}
 
         {/* Mobile Tutorial Quick Objective & Drill Bar (< lg) */}
         {hud.isTutorial && (
@@ -895,9 +1226,15 @@ export const GameHud: React.FC<GameHudProps> = ({
               const pWpn = hud.isOnlineCampaign && pl.weapon !== 'none'
                 ? WEAPONS_CATALOG.find((w) => w.id === pl.weapon)?.shortTag
                 : null;
+              const isMe = pl.id === localPlayer.id;
               return (
-                <span key={pl.id} style={{ color: pCol }} className="font-bold whitespace-nowrap">
-                  P{pl.id}: {pl.state === 'down' ? 'DOWN' : `${pl.hp}HP`}
+                <span
+                  key={pl.id}
+                  style={{ color: pCol }}
+                  className={`font-bold whitespace-nowrap ${isMe ? 'underline decoration-white/60 underline-offset-2' : ''}`}
+                >
+                  {isMe ? '★' : ''}
+                  {pl.name || `P${pl.id}`}: {pl.state === 'down' ? 'DOWN' : `${pl.hp}HP`}
                   {pWpn ? `(${pWpn})` : ''}
                 </span>
               );
@@ -905,6 +1242,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             {hud.isOnlineCampaign && (
               <span className="text-amber-300 font-bold whitespace-nowrap">{localPlayer.coins}g</span>
             )}
+            <span className="text-rose-300 font-bold whitespace-nowrap">⚗{localPlayer.potions}</span>
             {localSkillsList.length > 0 && (!hud.isOnlineCampaign || localPlayer.weapon !== 'none') && (
               <div className="hidden sm:flex items-center gap-1">
                 {localSkillsList.map((sk, idx) => {
@@ -955,6 +1293,8 @@ export const GameHud: React.FC<GameHudProps> = ({
               onDashChange={onTouchDash}
               onAbilityChange={onTouchAbility}
               onSkillSlotChange={onTouchSkillSlot}
+              onUsePotion={onUsePotion}
+              onCycleWeapon={onCycleWeapon}
               onSkipIntro={onSkipIntro}
             />
           </div>
@@ -1009,25 +1349,19 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Right-Side Soul Knight Persistent Floor Map (Online Campaign) */}
         {hud.isOnlineCampaign && hud.floorMap && <FloorMinimapCard floorMap={hud.floorMap} />}
 
-        {/* Teammates in Co-op OR Solo Threat & Weapon Info */}
-        {teammates.length > 0 ? (
-          <div className="flex flex-col gap-2">
-            {teammates.map((tm) => (
-              <PlayerSideCard
-                key={tm.id}
-                label={`PLAYER ${tm.id}`}
-                p={tm}
-                color={playerColors[tm.id] || tm.color}
-                combo={tm.combo}
-                skillKeyLabel={isOnline ? 'ONLINE' : '/'}
-                isOnlineCampaign={hud.isOnlineCampaign}
-                isOnline={isOnline}
-                pingMs={resolvePing(tm.id)}
-                compact={teammates.length >= 2 || Boolean(hud.floorMap)}
-              />
-            ))}
-          </div>
-        ) : (
+        {/* Squad Vitality Strip (All Active Players) OR Solo Threat Info */}
+        {(activePlayers.length > 1 || hud.isOnlineCampaign) && (
+          <SquadVitalityStrip
+            players={activePlayers}
+            localPlayerId={localPlayer.id}
+            playerColors={playerColors}
+            isOnlineCampaign={hud.isOnlineCampaign}
+            isOnline={isOnline}
+            resolvePing={resolvePing}
+          />
+        )}
+
+        {activePlayers.length === 1 && (
           <div className="bg-[#0b0a0e] border border-stone-800 rounded-md p-3 space-y-2 text-[11px] font-mono-num">
             <div className="text-[10px] text-stone-500 uppercase tracking-wider">Threat &amp; Sustenance</div>
             <div className="flex items-center justify-between">

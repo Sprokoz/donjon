@@ -92,19 +92,19 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onLaunchA
                 <li className="flex items-start gap-1.5">
                   <Briefcase className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-white">3-Slot Weapon Bag [X]:</strong> Carry up to 3 discovered weapons and swap mid-fight. Unlearned weapons reset to Skill 1/4, while mastered Scroll skills persist!
+                    <strong className="text-white">Minecraft Inventory [I]:</strong> Equip <strong className="text-amber-300">1 Weapon</strong> at a time. Drop your weapon or learn/drop specific <strong className="text-purple-300">[Q/R/F] Skill Scrolls</strong> in your 8-slot Bag!
                   </span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <FlaskConical className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-rose-300">Crimson Flasks [C]:</strong> Drink anytime (+45 HP, 2.5s CD). Loot bonus Flasks from Vault Chests, Loop 2+ Elites &amp; the Dungeon Shop.
+                    <strong className="text-rose-300">Crimson Flasks [C] (Max 2 · 90s CD) &amp; Vex:</strong> Talk to <strong className="text-amber-300">Broker Vex [E]</strong> in Shops for instant healing, HP upgrades &amp; rare Skill Scrolls.
                   </span>
                 </li>
                 <li className="flex items-start gap-1.5">
                   <Flame className="w-3.5 h-3.5 text-orange-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-amber-300">Loop 2+ Escalation:</strong> Voting Go Deeper spawns <strong className="text-white">Multi-Wave Chambers &amp; Individual Multi-HP / Elite Enemies</strong>.
+                    <strong className="text-amber-300">Stairs Down &amp; Loop 2+:</strong> Not ready for the Boss? Take <strong className="text-purple-300">STAIRS DOWN</strong> doors to delve into deeper sub-floors for extra loot &amp; rare Scrolls!
                   </span>
                 </li>
               </ul>
@@ -123,36 +123,36 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onLaunchA
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-stone-300">
-              <div className="p-2.5 rounded bg-black/70 border border-sky-700/50 space-y-1">
-                <div className="font-mono-num text-[11px] font-bold text-sky-300">
-                  1. APOCALYPSE CONE &amp; TANK 4s FRONT SHIELD [E]
-                </div>
-                <p className="leading-snug text-stone-400">
-                  Tank raises a <strong className="text-sky-200">4s Directional Greatshield [E]</strong> that deletes projectiles/bombs/beams on contact &amp; projects a <strong className="text-white">Safe Shadow behind Tank</strong> for allies. No Tank? Prepare to weave an intense Cone Lance Barrage!
-                </p>
-              </div>
               <div className="p-2.5 rounded bg-black/70 border border-amber-700/50 space-y-1">
                 <div className="font-mono-num text-[11px] font-bold text-amber-300">
-                  2. ARENA INFERNO → TINY SAFE ISLAND
+                  1. ABYSSAL MELTDOWN → TINY SAFE ISLAND
                 </div>
                 <p className="leading-snug text-stone-400">
-                  The entire arena ignites except <strong className="text-emerald-300">one cramped Safe Island</strong> while the boss bombards it. Tank stands at the rim with <strong className="text-sky-200">[E] Front Shield</strong> to purify every shot—or dodge fiercely without a Tank!
+                  The entire floor ignites with lethal magma except <strong className="text-emerald-300">one cramped Safe Island</strong> while the Boss fires rapid barrages at it. <strong className="text-sky-200">Tank raises [E] 4s Front Shield</strong> to purify every shot for allies!
                 </p>
               </div>
-              <div className="p-2.5 rounded bg-black/70 border border-emerald-700/50 space-y-1">
-                <div className="font-mono-num text-[11px] font-bold text-emerald-300">
-                  3. CONVERGENCE SEALS → SPLIT UP &amp; STAND TOGETHER
+              <div className="p-2.5 rounded bg-black/70 border border-sky-700/50 space-y-1">
+                <div className="font-mono-num text-[11px] font-bold text-sky-300">
+                  2. APOCALYPSE CONE &amp; TANK 4s FRONT SHIELD [E]
                 </div>
                 <p className="leading-snug text-stone-400">
-                  Spawns <strong className="text-white">1–3 Runic Seals</strong> matching squad size. Occupy every Seal simultaneously before the timer ends to trigger Resonance Shatter (<strong className="text-cyan-300">2X WEAKENED</strong>)!
+                  Tank&apos;s <strong className="text-sky-200">4s Directional Greatshield [E]</strong> deletes projectiles/beams on contact &amp; projects a <strong className="text-white">Safe Shadow behind Tank</strong> for teammates. No Tank? Weave the cone lance lanes!
+                </p>
+              </div>
+              <div className="p-2.5 rounded bg-black/70 border border-rose-700/50 space-y-1">
+                <div className="font-mono-num text-[11px] font-bold text-rose-300">
+                  3. CRIMSON HUNTER MARK → INTERCEPT OR STAGGER
+                </div>
+                <p className="leading-snug text-stone-400">
+                  Boss locks a lethal sniper beam onto one player! <strong className="text-sky-200">Tank steps in front with [E] Shield</strong> to block the execution beam—or teammates hit the Boss with skills to stagger!
                 </p>
               </div>
               <div className="p-2.5 rounded bg-black/70 border border-purple-700/50 space-y-1">
                 <div className="font-mono-num text-[11px] font-bold text-purple-300">
-                  4. OBLIVION RITUAL → BURST SKILL INTERRUPT
+                  4. GRAVITY VORTEX &amp; OBLIVION RITUAL
                 </div>
                 <p className="leading-snug text-stone-400">
-                  Hit the channeling boss with <strong className="text-purple-200">Class/Weapon Skills</strong> or an <strong className="text-amber-300">Empowered Blade</strong> (1 hit in 1–2P, 2–3 hits in 3–5P) to interrupt &amp; expose!
+                  Escape the pulling <strong className="text-purple-200">Gravity Vortex</strong> before core implosion, and hit channeling bosses with <strong className="text-purple-200">Weapon Skills</strong> or <strong className="text-amber-300">Empowered Blades</strong> to stagger!
                 </p>
               </div>
             </div>

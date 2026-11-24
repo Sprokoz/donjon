@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2 } from 'lucide-react';
-import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, FinalVoteState, PlayerControls, PlayerHudState, PlayerId, RunSummary, StageKey } from '../game/types';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2 } from 'lucide-react';
+import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, FinalVoteState, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 
@@ -912,7 +912,7 @@ export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
                 <span className="font-mono-num text-xs font-bold text-rose-200">{deeperVotes} VOTE(S)</span>
               </div>
               <p className="text-xs text-stone-300 leading-relaxed">
-                Keep your 3-slot Weapon Bag, Flasks, coins, learned skills &amp; HP buffs. Loop {nextLoop} unleashes <strong className="text-rose-300">Multi-Wave Chambers, Multi-HP &amp; Elite Mobs</strong>, and Boss Teamwork Counters (+50% Score)!
+                Keep your Equipped Weapon, Flasks, coins, Scroll Bag, Learned Skills &amp; HP buffs. Loop {nextLoop} unleashes <strong className="text-rose-300">Multi-Wave Chambers, Multi-HP &amp; Elite Mobs</strong>, and Boss Teamwork Counters (+50% Score)!
               </p>
             </div>
             <div className="font-mono-num text-[11px] font-bold text-rose-400 flex items-center gap-1">
@@ -955,6 +955,414 @@ export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
               );
             })}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface InventoryModalProps {
+  player: PlayerHudState;
+  isOnlineCampaign: boolean;
+  onDropWeapon: () => void;
+  onUseScroll: (scrollId: number) => void;
+  onDropScroll: (scrollId: number) => void;
+  onUsePotion: () => void;
+  onClose: () => void;
+}
+
+export const InventoryModal: React.FC<InventoryModalProps> = ({
+  player,
+  isOnlineCampaign,
+  onDropWeapon,
+  onUseScroll,
+  onDropScroll,
+  onUsePotion,
+  onClose,
+}) => {
+  const wDef =
+    player.weapon !== 'none'
+      ? WEAPONS_CATALOG.find((w) => w.id === player.weapon)
+      : undefined;
+  const learnedForEquipped = wDef ? player.learnedSkills?.[wDef.id] || [1] : [];
+  const scrollBag = player.scrollBag || [];
+  const canUsePotion =
+    player.potions > 0 && player.potionCooldown <= 0 && player.hp < player.maxHp && player.state === 'alive';
+
+  return (
+    <div
+      className="fixed inset-0 z-45 bg-black/82 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-[#0d0c12] border-2 border-stone-600/80 rounded-lg p-5 space-y-4 shadow-[0_0_50px_rgba(0,0,0,0.9)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Briefcase className="w-5 h-5 text-amber-400" />
+            <div>
+              <h2 className="font-souls text-base sm:text-lg font-bold text-stone-100 tracking-wider">
+                ADVENTURER INVENTORY [I]
+              </h2>
+              <p className="font-mono-num text-[11px] text-stone-400">
+                1 Equipped Weapon Slot · Learn or Drop Specific Skill Scrolls for Teammates
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {isOnlineCampaign && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-950/50 border border-amber-500/60 font-mono-num text-xs font-bold text-amber-300">
+                <Coins className="w-3.5 h-3.5" />
+                {player.coins}g
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer"
+              aria-label="Close Inventory"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Top Row: Equipped Weapon (1 Slot) + Crimson Flasks */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+          {/* Single Weapon Slot */}
+          <div
+            className="sm:col-span-7 rounded-md bg-black/75 border-2 p-3.5 flex flex-col justify-between gap-2.5"
+            style={{ borderColor: wDef ? `${wDef.accent}99` : '#3f3f46' }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-mono-num text-[10px] text-stone-400 uppercase tracking-wider">
+                  EQUIPPED WEAPON (MAX 1)
+                </div>
+                <div
+                  className="font-arcade text-xs sm:text-sm mt-1 truncate"
+                  style={{ color: wDef ? wDef.accent : '#78716c' }}
+                >
+                  {wDef ? wDef.name.toUpperCase() : 'UNARMED'}
+                </div>
+                <div className="font-mono-num text-[11px] text-stone-300 mt-0.5 truncate">
+                  {wDef
+                    ? `${wDef.roleLabel} · ${learnedForEquipped.length}/4 Skills Learned`
+                    : 'Walk over a Weapon Drop on the floor to equip'}
+                </div>
+              </div>
+              {wDef && (
+                <button
+                  type="button"
+                  disabled={player.state !== 'alive'}
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onDropWeapon();
+                  }}
+                  className="px-3 py-1.5 rounded bg-rose-950/70 hover:bg-rose-900/80 disabled:opacity-40 border border-rose-500/75 text-rose-200 font-mono-num text-[11px] font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>DROP</span>
+                </button>
+              )}
+            </div>
+
+            {wDef && (
+              <div className="grid grid-cols-4 gap-1 pt-1 border-t border-stone-800/80">
+                {wDef.skills.map((sk, idx) => {
+                  const slotNum = idx + 1;
+                  const unlocked = slotNum === 1 || learnedForEquipped.includes(slotNum);
+                  return (
+                    <div
+                      key={sk.slot}
+                      className={`px-1.5 py-1 rounded border text-center font-mono-num text-[9px] truncate ${
+                        unlocked
+                          ? 'bg-stone-900/90 border-stone-600 text-stone-100'
+                          : 'bg-stone-950/50 border-stone-800/60 text-stone-500'
+                      }`}
+                      style={{ borderColor: unlocked ? `${wDef.accent}88` : undefined }}
+                      title={`${sk.keyLabel}: ${sk.name} — ${sk.desc}`}
+                    >
+                      [{sk.keyLabel}] {unlocked ? sk.shortName : 'LOCKED'}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Flask & Vitality Slot */}
+          <div className="sm:col-span-5 rounded-md bg-black/75 border border-stone-700 p-3.5 flex flex-col justify-between gap-2.5">
+            <div>
+              <div className="font-mono-num text-[10px] text-stone-400 uppercase tracking-wider">
+                BELT · CRIMSON FLASKS [C]
+              </div>
+              <div className="flex items-center justify-between mt-1.5 font-mono-num">
+                <span className="inline-flex items-center gap-1.5 text-sm font-bold text-rose-300">
+                  <FlaskConical className="w-4 h-4" />
+                  x{player.potions} / 2
+                </span>
+                <span className="text-xs text-stone-300">
+                  HP {player.hp}/{player.maxHp}
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-400 mt-1">
+                Restores +45 HP instantly (90s CD · Max 2 carried).
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!canUsePotion}
+              onClick={() => {
+                soundEngine.playUiClick();
+                onUsePotion();
+              }}
+              className={`w-full py-2 rounded border font-mono-num text-xs font-bold transition-colors ${
+                canUsePotion
+                  ? 'bg-rose-700 hover:bg-rose-600 border-rose-400 text-white cursor-pointer'
+                  : 'bg-stone-900 border-stone-800 text-stone-500 cursor-not-allowed'
+              }`}
+            >
+              {player.potionCooldown > 0
+                ? `COOLDOWN (${player.potionCooldown}s)`
+                : player.hp >= player.maxHp
+                ? 'HP FULL'
+                : player.potions <= 0
+                ? 'NO FLASKS LEFT'
+                : 'DRINK FLASK (+45 HP)'}
+            </button>
+          </div>
+        </div>
+
+        {/* 8-Slot Minecraft-Style Scroll Backpack */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between font-mono-num text-[11px]">
+            <span className="inline-flex items-center gap-1.5 text-purple-300 font-bold uppercase tracking-wider">
+              <ScrollText className="w-4 h-4" />
+              SKILL SCROLL BACKPACK ({scrollBag.length}/8)
+            </span>
+            <span className="text-stone-400 text-[10px]">
+              Learn for your Codex or Drop on the floor to trade!
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {Array.from({ length: 8 }, (_, slotIdx) => {
+              const item = scrollBag[slotIdx];
+              if (!item) {
+                return (
+                  <div
+                    key={slotIdx}
+                    className="h-[108px] rounded border border-dashed border-stone-800 bg-stone-950/45 flex flex-col items-center justify-center font-mono-num text-[10px] text-stone-600"
+                  >
+                    EMPTY SLOT
+                  </div>
+                );
+              }
+              const twDef = WEAPONS_CATALOG.find((w) => w.id === item.targetWeapon);
+              const sk = twDef?.skills[item.skillSlot - 1];
+              const alreadyLearned = (player.learnedSkills?.[item.targetWeapon] || [1]).includes(item.skillSlot);
+              const isEquippedTarget = player.weapon === item.targetWeapon;
+
+              return (
+                <div
+                  key={item.id}
+                  className="h-[108px] rounded border-2 bg-black/85 p-2 flex flex-col justify-between"
+                  style={{ borderColor: `${twDef?.accent || '#c084fc'}88` }}
+                  title={`${twDef?.name} [${sk?.keyLabel}] ${sk?.name}: ${sk?.desc}`}
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center justify-between gap-1 font-mono-num text-[10px] font-bold">
+                      <span style={{ color: twDef?.accent || '#c084fc' }} className="truncate">
+                        {twDef?.shortTag} [{sk?.keyLabel}]
+                      </span>
+                      {isEquippedTarget && (
+                        <span className="text-[9px] text-emerald-300 shrink-0">MATCH</span>
+                      )}
+                    </div>
+                    <div className="font-mono-num text-[11px] font-semibold text-stone-100 truncate">
+                      {sk?.name || `Skill ${item.skillSlot}`}
+                    </div>
+                    <div className="font-mono-num text-[9px] text-stone-400 truncate">
+                      {alreadyLearned ? 'Already Learned' : 'Unlocks Permanently'}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1 pt-1">
+                    <button
+                      type="button"
+                      disabled={alreadyLearned || player.state !== 'alive'}
+                      onClick={() => onUseScroll(item.id)}
+                      className={`py-1 rounded border font-mono-num text-[10px] font-bold ${
+                        alreadyLearned
+                          ? 'bg-stone-900 border-stone-800 text-stone-500 cursor-not-allowed'
+                          : 'bg-emerald-950/75 hover:bg-emerald-800/80 border-emerald-500/80 text-emerald-200 cursor-pointer'
+                      }`}
+                    >
+                      {alreadyLearned ? 'KNOWN' : 'LEARN'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={player.state !== 'alive'}
+                      onClick={() => onDropScroll(item.id)}
+                      className="py-1 rounded border bg-stone-900 hover:bg-rose-950/70 border-stone-700 hover:border-rose-500/70 text-stone-300 hover:text-rose-200 font-mono-num text-[10px] font-bold cursor-pointer"
+                    >
+                      DROP
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface ShopNpcModalProps {
+  npcName: string;
+  player: PlayerHudState;
+  items: ShopItem[];
+  onBuyItem: (itemId: number) => void;
+  onClose: () => void;
+}
+
+export const ShopNpcModal: React.FC<ShopNpcModalProps> = ({
+  npcName,
+  player,
+  items,
+  onBuyItem,
+  onClose,
+}) => {
+  return (
+    <div
+      className="fixed inset-0 z-45 bg-black/82 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-[#0c0a12] border-2 border-amber-500/75 rounded-lg p-5 space-y-4 shadow-[0_0_50px_rgba(245,158,11,0.22)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-stone-800 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-md bg-amber-500/15 border border-amber-500/50 text-amber-300 shrink-0">
+              <Store className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-souls text-base sm:text-lg font-bold text-amber-300 tracking-wider">
+                {npcName.toUpperCase()}
+              </h2>
+              <p className="font-mono-num text-[11px] text-stone-400">
+                “Gold opens every gate, traveler. Pick your wares carefully.”
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-950/60 border border-amber-500/70 font-mono-num text-xs font-bold text-amber-300">
+              <Coins className="w-3.5 h-3.5" />
+              {player.coins}g
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer"
+              aria-label="Close Merchant Shop"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Shop Item Catalog List */}
+        <div className="space-y-2">
+          {items.map((item) => {
+            const soldOut = Boolean(item.globalSold);
+            const alreadyBought = item.purchasedBy.includes(player.id);
+            const canAfford = player.coins >= item.cost;
+            const scrollTarget = item.targetWeapon as WeaponClassId | undefined;
+            const scrollSlot = item.skillSlot || 2;
+            const alreadyLearnedScroll =
+              item.kind === 'skill_scroll' &&
+              Boolean(scrollTarget && (player.learnedSkills?.[scrollTarget] || [1]).includes(scrollSlot));
+            const bagFullForScroll =
+              item.kind === 'skill_scroll' && (player.scrollBag?.length || 0) >= 8;
+            const blockedScroll = alreadyLearnedScroll && bagFullForScroll;
+            const disabled = soldOut || alreadyBought || !canAfford || blockedScroll || player.state !== 'alive';
+
+            const icon =
+              item.kind === 'potion'
+                ? '♥'
+                : item.kind === 'potion_pack'
+                ? '⚗'
+                : item.kind === 'max_hp'
+                ? '✚'
+                : item.kind === 'shield'
+                ? '⛨'
+                : item.kind === 'skill_scroll'
+                ? '✦'
+                : '⚔';
+
+            let buttonLabel = `BUY ${item.cost}g`;
+            if (soldOut) buttonLabel = 'SOLD OUT';
+            else if (alreadyBought) buttonLabel = 'PURCHASED';
+            else if (blockedScroll) buttonLabel = 'KNOWN + FULL';
+            else if (!canAfford) buttonLabel = `NEED ${item.cost}g`;
+
+            return (
+              <div
+                key={item.id}
+                className={`rounded-md border px-3.5 py-2.5 flex items-center justify-between gap-3 transition-colors ${
+                  soldOut || alreadyBought
+                    ? 'bg-stone-950/60 border-stone-800/70 opacity-55'
+                    : 'bg-black/75 border-stone-800 hover:border-stone-600'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className="w-9 h-9 rounded border flex items-center justify-center font-bold text-base shrink-0 bg-stone-950"
+                    style={{ color: item.accent, borderColor: `${item.accent}88` }}
+                  >
+                    {icon}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono-num text-xs font-bold text-stone-100 truncate">
+                        {item.label}
+                      </span>
+                      {alreadyLearnedScroll && !alreadyBought && (
+                        <span className="font-mono-num text-[9px] px-1.5 py-0.5 rounded bg-purple-950/70 border border-purple-500/60 text-purple-200 shrink-0">
+                          {bagFullForScroll ? 'KNOWN' : 'GOES TO BAG'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono-num text-[11px] text-stone-400 truncate">
+                      {item.subLabel}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onBuyItem(item.id);
+                  }}
+                  className={`min-w-[104px] px-3 py-2 rounded border font-mono-num text-[11px] font-bold shrink-0 transition-colors ${
+                    !disabled
+                      ? 'bg-amber-600 hover:bg-amber-500 border-amber-400 text-white cursor-pointer'
+                      : 'bg-stone-900 border-stone-800 text-stone-500 cursor-not-allowed'
+                  }`}
+                >
+                  {buttonLabel}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

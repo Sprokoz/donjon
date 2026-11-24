@@ -74,7 +74,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   const diffs: DifficultyKey[] = ['easy', 'medium', 'hard'];
 
   return (
-    <div className="relative min-h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto">
+    <div className="relative h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
       {/* Dark atmospheric embers */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         {embers.map((s) => (
@@ -179,10 +179,14 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold tracking-wider text-slate-300 uppercase">Deployment Mode</span>
                 <span className="text-xs text-slate-500">
-                  {mode === 'campaign' ? 'Enemy Waves + 4 Bosses' : '4 Bosses Back-to-Back'}
+                  {mode === 'campaign'
+                    ? 'Dungeon + Stairs Down + 4 Bosses'
+                    : mode === 'teamwork_practice'
+                    ? '1P AI Dummies or 1–5P Boss Drills'
+                    : '4 Bosses Back-to-Back'}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 p-1 bg-black/80 border border-slate-800 rounded-md">
+              <div className="grid grid-cols-3 gap-2 p-1 bg-black/80 border border-slate-800 rounded-md">
                 <button
                   type="button"
                   onClick={() => {
@@ -190,13 +194,13 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
                     soundEngine.playUiClick();
                     onSelectMode('campaign');
                   }}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     mode === 'campaign'
                       ? 'bg-red-600 text-white shadow-sm'
                       : 'text-slate-400 hover:text-white hover:bg-slate-900'
                   }`}
                 >
-                  <Swords className="w-4 h-4" />
+                  <Swords className="w-4 h-4 shrink-0" />
                   <span>Campaign</span>
                 </button>
                 <button
@@ -206,14 +210,30 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
                     soundEngine.playUiClick();
                     onSelectMode('boss_rush');
                   }}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     mode === 'boss_rush'
                       ? 'bg-amber-600 text-white shadow-sm'
                       : 'text-slate-400 hover:text-white hover:bg-slate-900'
                   }`}
                 >
-                  <Flame className="w-4 h-4" />
+                  <Flame className="w-4 h-4 shrink-0" />
                   <span>Boss Rush</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.unlock();
+                    soundEngine.playUiClick();
+                    onSelectMode('teamwork_practice');
+                  }}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    mode === 'teamwork_practice'
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  }`}
+                >
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Practice</span>
                 </button>
               </div>
             </div>
@@ -430,6 +450,14 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Version Footer */}
+        <footer className="flex items-center justify-between gap-4 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
+          <span>DUNGEON BOUNCER · BY SPROKOZ</span>
+          <span className="text-amber-400/80 font-semibold tracking-wider uppercase">
+            beta test 0.0.8
+          </span>
+        </footer>
       </div>
     </div>
   );
@@ -526,8 +554,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   const numPlayers: 1 | 2 = coopMode === 'solo' ? 1 : 2;
   const isOnline = coopMode === 'online';
   const isOnlineCampaign = isOnline && mode === 'campaign';
+  const isPracticeMode = mode === 'teamwork_practice';
+  const isMultiOnline = isOnline && (mode === 'campaign' || isPracticeMode);
+  const usesWeaponLoadout = isOnlineCampaign || isPracticeMode;
   const isOnlineConnected = onlineStatus === 'connected';
-  const maxOnlineSlots = isOnlineCampaign ? 5 : 2;
+  const maxOnlineSlots = isMultiOnline ? 5 : 2;
 
   const connectedRoster = lobbyRoster.filter((r) => r.connected);
   const connectedCount = connectedRoster.length;
@@ -536,7 +567,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
   const canHostDeploy = !isOnline
     ? true
-    : isOnlineCampaign
+    : isMultiOnline
     ? allConnectedReady
     : connectedCount >= 2 && allConnectedReady;
 
@@ -557,7 +588,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   };
 
   return (
-    <div className="relative min-h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto">
+    <div className="relative h-dvh w-full bg-[#040407] flex flex-col items-center p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
       <div className="arcade-scanlines pointer-events-none fixed inset-0" />
 
       <div className="relative z-10 w-full max-w-5xl my-auto bg-[#09090e]/95 border border-slate-800 rounded-lg p-5 sm:p-6 space-y-5">
@@ -574,7 +605,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             <span>Back</span>
           </button>
           <h2 className="font-arcade text-xs sm:text-base text-white tracking-wider text-center truncate">
-            {isOnlineCampaign ? 'ONLINE CAMPAIGN LOBBY' : 'COMBAT FRAME LOADOUT'}
+            {isOnlineCampaign
+              ? 'ONLINE CAMPAIGN LOBBY'
+              : isPracticeMode
+              ? 'BOSS TEAMWORK PRACTICE'
+              : 'COMBAT FRAME LOADOUT'}
           </h2>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
@@ -763,7 +798,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                   }
                 >
                   {onlineRole === 'host'
-                    ? isOnlineCampaign
+                    ? isMultiOnline
                       ? `Party ${connectedCount}/5 · ${DIFFICULTY_SETTINGS[difficulty].label}`
                       : isOnlineConnected
                       ? '2/2 Joined · Ready Check'
@@ -776,7 +811,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       : 'Preparing room...'
                     : isOnlineConnected
                     ? `Joined as P${localPlayerId} · ${DIFFICULTY_SETTINGS[difficulty].label} · ${
-                        mode === 'boss_rush' ? 'Boss Rush' : 'Campaign'
+                        mode === 'boss_rush'
+                          ? 'Boss Rush'
+                          : mode === 'teamwork_practice'
+                          ? 'Teamwork Practice'
+                          : 'Campaign'
                       }`
                     : onlineStatus === 'connecting'
                     ? 'Joining room...'
@@ -883,8 +922,10 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 <div className="flex items-center justify-between text-[11px] font-mono-num text-slate-400">
                   <span>
                     PARTY ROSTER ({connectedCount}/{maxOnlineSlots} JOINED ·{' '}
-                    {isOnlineCampaign
-                      ? `${Math.round((1 + Math.max(0, connectedCount - 1) * 0.5) * 10) / 10}x MOBS`
+                    {isMultiOnline
+                      ? isPracticeMode
+                        ? 'TEAMWORK DRILLS'
+                        : `${Math.round((1 + Math.max(0, connectedCount - 1) * 0.5) * 10) / 10}x MOBS`
                       : '2P CO-OP'}
                     )
                   </span>
@@ -956,7 +997,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
                         <div className="flex items-center justify-between gap-1.5">
                           <span className="font-mono-num text-[10px] text-slate-400 truncate">
-                            P{info.id} · {isOnlineCampaign ? 'Adventurer' : clsInfo?.name || 'HERO'}
+                            P{info.id} · {usesWeaponLoadout ? 'Adventurer' : clsInfo?.name || 'HERO'}
                           </span>
                           <span
                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold shrink-0 ${
@@ -991,8 +1032,8 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           </div>
         )}
 
-        {/* CAMPAIGN ONLINE: Color-Only + Ready Check + Dungeon Rules (NO Hero Class Selection) */}
-        {isOnlineCampaign ? (
+        {/* CAMPAIGN ONLINE OR TEAMWORK PRACTICE: Color + Name + Ready Check + Mode Overview */}
+        {usesWeaponLoadout ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left: Your Color Swatch & Ready Toggle */}
             <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-slate-800 flex flex-col justify-between gap-4">
@@ -1030,7 +1071,15 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Classes are locked out before entering the dungeon. Pick your armor color below — store up to <strong className="text-stone-200">3 Weapons in your Bag [X]</strong> and carry <strong className="text-rose-300">Crimson Flasks [C]</strong> from chests &amp; shops.
+                  {isPracticeMode ? (
+                    <>
+                      Practice Boss Teamwork attacks in <strong className="text-cyan-300">1P Solo (with AI Dummies)</strong> or <strong className="text-emerald-300">1–5P Online Co-op</strong>. Swap weapons &amp; trigger mechanics anytime!
+                    </>
+                  ) : (
+                    <>
+                      Classes are locked out before entering the dungeon. Pick your armor color below — carry <strong className="text-stone-200">1 Weapon</strong> at a time, manage your <strong className="text-purple-300">Scroll Bag [I]</strong>, and sip <strong className="text-rose-300">Crimson Flasks [C] (Max 2 · 90s CD)</strong>.
+                    </>
+                  )}
                 </p>
 
                 {/* Color Swatches */}
@@ -1045,7 +1094,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     {COLOR_OPTIONS.map((col) => {
                       const activeCol = playerColors[localPlayerId] || COLOR_OPTIONS[0];
                       const isSel = activeCol.hex === col.hex;
-                      const lockedGuest = onlineRole === 'guest' && !isOnlineConnected;
+                      const lockedGuest = isOnline && onlineRole === 'guest' && !isOnlineConnected;
                       return (
                         <button
                           key={col.hex}
@@ -1074,82 +1123,125 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 </div>
               </div>
 
-              {/* Player Ready Button */}
-              <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                <button
-                  type="button"
-                  disabled={onlineRole === 'guest' && !isOnlineConnected}
-                  onClick={() => {
-                    soundEngine.playUiClick();
-                    onToggleReady();
-                  }}
-                  className={`w-full py-3.5 px-4 rounded-md border font-arcade text-xs tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
-                    localReady
-                      ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                      : 'bg-amber-600/90 hover:bg-amber-500 border-amber-400 text-white'
-                  }`}
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{localReady ? 'READY! (CLICK TO UNREADY)' : 'CLICK TO MARK READY'}</span>
-                </button>
-                <p className="text-center font-mono-num text-[11px] text-slate-400">
-                  {allConnectedReady
-                    ? 'Everyone is Ready! Host may now deploy the expedition.'
-                    : 'Host can launch once all joined players mark Ready.'}
-                </p>
-              </div>
+              {/* Player Ready Button (Online Only) */}
+              {isOnline ? (
+                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  <button
+                    type="button"
+                    disabled={onlineRole === 'guest' && !isOnlineConnected}
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onToggleReady();
+                    }}
+                    className={`w-full py-3.5 px-4 rounded-md border font-arcade text-xs tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${
+                      localReady
+                        ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                        : 'bg-amber-600/90 hover:bg-amber-500 border-amber-400 text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{localReady ? 'READY! (CLICK TO UNREADY)' : 'CLICK TO MARK READY'}</span>
+                  </button>
+                  <p className="text-center font-mono-num text-[11px] text-slate-400">
+                    {allConnectedReady
+                      ? 'Everyone is Ready! Host may now deploy.'
+                      : 'Host can launch once all joined players mark Ready.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-slate-800/80 font-mono-num text-[11px] text-cyan-300 text-center">
+                  2 AI Practice Allies (Dummy Ranger &amp; Dummy Cleric) will automatically join you!
+                </div>
+              )}
             </div>
 
-            {/* Right: Soul Knight Dungeon Campaign Overview */}
-            <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-slate-800 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                <div className="flex items-center gap-2 text-amber-300 font-souls text-sm font-bold tracking-wider">
-                  <Compass className="w-4 h-4 text-amber-400" />
-                  <span>SOUL KNIGHT EXPEDITION RULES</span>
+            {/* Right: Campaign or Teamwork Practice Rules */}
+            {isPracticeMode ? (
+              <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-cyan-800/70 space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2 text-cyan-300 font-souls text-sm font-bold tracking-wider">
+                    <Shield className="w-4 h-4 text-cyan-400" />
+                    <span>BOSS TEAMWORK PRACTICE DRILLS</span>
+                  </div>
+                  <span className="font-mono-num text-[10px] text-emerald-300">
+                    {isOnline ? '1–5P CO-OP' : '1P + AI DUMMIES'}
+                  </span>
                 </div>
-                <span className="font-mono-num text-[10px] text-emerald-300">1–5P SCALED</span>
-              </div>
 
-              <div className="space-y-2.5 text-xs text-slate-300">
-                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-white">5×5 Persistent Floor Grid &amp; Minimap</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Explore connected rooms with a live Right-Side Minimap. Revisit cleared rooms, Shops, Vaults &amp; Bosses — your world state persists! Each teammate adds +50% enemies.
-                  </div>
-                </div>
-                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-amber-200 flex items-center gap-1.5">
-                    <PackageOpen className="w-3.5 h-3.5 text-amber-400" />
-                    <span>3-Slot Weapon Bag [X], Flasks [C] &amp; Strict Roles</span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Swap up to 3 carried weapons with <strong className="text-white">[X]</strong> &amp; sip Flasks with <strong className="text-rose-300">[C]</strong>. Only <strong className="text-sky-300">Tank</strong> casts Sanctuary Domes &amp; purges skills; only <strong className="text-amber-300">Staff</strong> heals.
-                  </div>
-                </div>
-                <div className="grid grid-cols-5 gap-1.5 pt-0.5">
-                  {WEAPONS_CATALOG.map((w) => (
-                    <div
-                      key={w.id}
-                      className="p-1.5 rounded bg-black/80 border border-slate-800 text-center"
-                      title={`${w.name} (${w.roleLabel}): ${w.skillDesc}`}
-                    >
-                      <div className="font-mono-num text-[10px] font-bold" style={{ color: w.accent }}>
-                        {w.shortTag}
-                      </div>
-                      <div className="text-[9px] text-slate-300 truncate mt-0.5">
-                        {w.roleLabel}
-                      </div>
+                <div className="space-y-2.5 text-xs text-slate-300">
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-white">All 5 Weapons &amp; 4 Skills Unlocked</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Switch instantly between <strong className="text-sky-300">Tank Aegis</strong>, <strong className="text-amber-300">Cleric Staff</strong>, <strong className="text-fuchsia-300">Twin Blades</strong>, <strong className="text-rose-300">Warblade</strong> &amp; <strong className="text-emerald-300">Longbow</strong> anytime using the Practice Panel.
                     </div>
-                  ))}
-                </div>
-                <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
-                  <div className="font-semibold text-cyan-200">Boss Teamwork Counters &amp; Loop 2+ Waves</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Shelter inside <strong className="text-sky-300">Tank Sanctuaries</strong> (or Ward Beacons if tankless) against Boss Calamity, and interrupt Rituals with <strong className="text-purple-300">Skills</strong>. Going Deeper adds <strong className="text-rose-300">Multi-HP Mobs &amp; Multi-Waves</strong>!
+                  </div>
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-amber-200">
+                      Trigger Abyssal Meltdown, Apocalypse Cone &amp; Hunter Mark
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Practice standing on the cramped <strong className="text-emerald-300">Safe Island</strong> with Tank&apos;s <strong className="text-sky-300">[E] 4s Front Shield</strong> to purify barrages while AI Dummies or friends shelter behind you!
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-cyan-200">Zero Penalty · Instant Respawn</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Downed players &amp; dummies auto-revive after 3s, and you can swap between all 4 Nightmare Bosses on demand.
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="lg:col-span-6 p-4 sm:p-5 rounded-md bg-black/75 border border-slate-800 space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2 text-amber-300 font-souls text-sm font-bold tracking-wider">
+                    <Compass className="w-4 h-4 text-amber-400" />
+                    <span>SOUL KNIGHT EXPEDITION RULES</span>
+                  </div>
+                  <span className="font-mono-num text-[10px] text-emerald-300">1–5P SCALED</span>
+                </div>
+
+                <div className="space-y-2.5 text-xs text-slate-300">
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-white">Persistent Floor Grid &amp; Stairs Down</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Explore 10 connected rooms (1 Shop, 0–1 Vault, Combat Chambers &amp; Boss). Take <strong className="text-purple-300">STAIRS DOWN</strong> anytime to descend to deeper sub-floors for more rare Weapons &amp; Scrolls before the Boss!
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-amber-200 flex items-center gap-1.5">
+                      <PackageOpen className="w-3.5 h-3.5 text-amber-400" />
+                      <span>1 Weapon + Bag [I] · Max 2 Flasks (90s CD)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Press <strong className="text-white">[I]</strong> to drop your Weapon or learn rare <strong className="text-purple-300">[Q/R/F] Scrolls</strong>. Scrolls &amp; Weapons are rare — talk to <strong className="text-amber-300">Merchant Vex [E]</strong> in Shops!
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+                    {WEAPONS_CATALOG.map((w) => (
+                      <div
+                        key={w.id}
+                        className="p-1.5 rounded bg-black/80 border border-slate-800 text-center"
+                        title={`${w.name} (${w.roleLabel}): ${w.skillDesc}`}
+                      >
+                        <div className="font-mono-num text-[10px] font-bold" style={{ color: w.accent }}>
+                          {w.shortTag}
+                        </div>
+                        <div className="text-[9px] text-slate-300 truncate mt-0.5">
+                          {w.roleLabel}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-2.5 rounded bg-slate-950/90 border border-slate-800/90">
+                    <div className="font-semibold text-cyan-200">True Boss Teamwork &amp; Loop 2+ Escalation</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Gather on the <strong className="text-emerald-300">Safe Island</strong> behind <strong className="text-sky-300">Tank [E] Front Shield</strong> during Abyssal Meltdown barrages &amp; Hunter Marks. Going Deeper spawns Multi-HP Waves!
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* SOLO, 2P LOCAL, OR 2P ONLINE BOSS RUSH: Classic Class + Color Selection (+ Online Ready Button) */
@@ -1361,12 +1453,16 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             }}
             className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)] whitespace-nowrap"
           >
-            {isOnline && !isOnlineCampaign && connectedCount < 2
+            {isOnline && !isMultiOnline && connectedCount < 2
               ? 'WAITING FOR PARTNER TO JOIN...'
               : isOnline && !allConnectedReady
               ? !localReady
                 ? 'MARK YOURSELF READY TO DEPLOY'
                 : `WAITING ON ${notReadyPlayers.length} PLAYER(S) TO READY...`
+              : isPracticeMode
+              ? isOnline
+                ? `LAUNCH ${connectedCount}P TEAMWORK PRACTICE`
+                : 'LAUNCH TEAMWORK PRACTICE'
               : isOnlineCampaign
               ? `DEPLOY ${connectedCount}P EXPEDITION`
               : 'DEPLOY INTO ARENA'}

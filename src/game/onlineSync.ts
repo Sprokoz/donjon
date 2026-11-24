@@ -7,6 +7,7 @@ import {
   BoonDef,
   BoonId,
   Boss,
+  BossChannelKind,
   BossProjectile,
   CameraState,
   CANVAS_HEIGHT,
@@ -43,7 +44,9 @@ import {
   RoomKind,
   RunSummary,
   ShopItem,
+  ShopNpc,
   SkillScrollDrop,
+  SkillScrollItem,
   SkillZone,
   SlashArc,
   StageKey,
@@ -117,9 +120,10 @@ export interface LobbyLoadoutPayload {
 export interface SyncedPlayer {
   id: PlayerId;
   name: string;
+  isBot?: boolean;
   heroClass: HeroClassId;
   weapon: WeaponId;
-  weaponInventory: WeaponClassId[];
+  scrollBag: SkillScrollItem[];
   potions: number;
   potionCooldownTimer: number;
   coins: number;
@@ -154,7 +158,7 @@ export interface SyncedPlayer {
   usingDash2: boolean;
   invulnFrames: number;
   unlockedSkillTier: number;
-  weaponSkillTiers: Partial<Record<WeaponClassId, number>>;
+  learnedSkills: Partial<Record<WeaponClassId, number[]>>;
   skillCooldowns: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
   abilityReady: boolean;
@@ -184,6 +188,7 @@ export interface SyncedRuntimeSnapshot {
   mode: GameMode;
   numPlayers: number;
   isOnlineCampaign: boolean;
+  isTeamworkPractice?: boolean;
   roomKind: RoomKind;
   roomDepth: number;
   roomWave: number;
@@ -199,6 +204,7 @@ export interface SyncedRuntimeSnapshot {
   scrollDrops: SkillScrollDrop[];
   skillZones: SkillZone[];
   gates: DungeonGate[];
+  shopNpc: ShopNpc | null;
   shopItems: ShopItem[];
   finalVote: FinalVoteState | null;
   pingByPlayer: Record<number, number | null>;
@@ -298,8 +304,12 @@ export type OnlineMessage =
       summary?: RunSummary | null;
       pausedBy?: PlayerId;
     }
-  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'cycle_weapon' }
-  | { type: 'cmd'; action: 'select_weapon'; slot: number }
+  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'drop_weapon' }
+  | { type: 'cmd'; action: 'use_scroll' | 'drop_scroll'; scrollId: number }
+  | { type: 'cmd'; action: 'buy_shop_item'; itemId: number }
+  | { type: 'cmd'; action: 'switch_practice_weapon'; weaponId: WeaponId }
+  | { type: 'cmd'; action: 'trigger_practice_attack'; kind?: BossChannelKind }
+  | { type: 'cmd'; action: 'switch_practice_boss'; stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss' }
   | { type: 'cast_vote'; choice: 'end' | 'deeper' };
 
 export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | null {
@@ -308,7 +318,7 @@ export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | nu
     floorNumber: rt.floorNumber,
     loopLevel: rt.loopLevel,
     currentRoomKey: rt.currentRoomKey,
-    gridSize: 5,
+    gridSize: 6,
     nodes: Object.values(rt.floorGrid).map((r) => ({
       key: r.key,
       gx: r.gx,
@@ -342,6 +352,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     mode: rt.mode,
     numPlayers: rt.numPlayers,
     isOnlineCampaign: rt.isOnlineCampaign,
+    isTeamworkPractice: Boolean(rt.isTeamworkPractice),
     roomKind: rt.roomKind,
     roomDepth: rt.roomDepth,
     roomWave: rt.roomWave,
@@ -360,6 +371,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       playersInside: [...g.playersInside],
       holdProgress: r2(g.holdProgress),
     })),
+    shopNpc: rt.shopNpc ? { ...rt.shopNpc } : null,
     shopItems: rt.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
     finalVote: rt.finalVote
       ? {
@@ -388,9 +400,10 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     players: rt.players.map((p) => ({
       id: p.id,
       name: p.name || `P${p.id}`,
+      isBot: Boolean(p.isBot),
       heroClass: p.heroClass,
       weapon: p.weapon,
-      weaponInventory: [...p.weaponInventory],
+      scrollBag: p.scrollBag.map((s) => ({ ...s })),
       potions: p.potions,
       potionCooldownTimer: r1(p.potionCooldownTimer),
       coins: p.coins,
@@ -431,7 +444,9 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       usingDash2: p.usingDash2,
       invulnFrames: r2(p.invulnFrames),
       unlockedSkillTier: p.unlockedSkillTier,
-      weaponSkillTiers: { ...p.weaponSkillTiers },
+      learnedSkills: Object.fromEntries(
+        Object.entries(p.learnedSkills || {}).map(([k, v]) => [k, Array.isArray(v) ? [...v] : [1]])
+      ),
       skillCooldowns: [
         r1(p.skillCooldowns[0] || 0),
         r1(p.skillCooldowns[1] || 0),
@@ -512,6 +527,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       attackTimer: r2(rt.boss.attackTimer),
       pulseSize: r1(rt.boss.pulseSize),
       channelTimer: rt.boss.channelTimer ? r2(rt.boss.channelTimer) : 0,
+      channelTetherPair: rt.boss.channelTetherPair ? [...rt.boss.channelTetherPair] as [PlayerId, PlayerId] : undefined,
       channelNodes: rt.boss.channelNodes ? rt.boss.channelNodes.map((n) => ({ ...n })) : undefined,
     },
     bossProjectiles: rt.bossProjectiles.map((bp) => ({
@@ -646,15 +662,22 @@ function lerpNum(prev: number, target: number, alpha: number, snapThreshold = 95
 }
 
 function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
+  const learnedCopy: Partial<Record<WeaponClassId, number[]>> = {};
+  if (sp.learnedSkills) {
+    for (const [k, v] of Object.entries(sp.learnedSkills)) {
+      if (Array.isArray(v)) learnedCopy[k as WeaponClassId] = [...v];
+    }
+  }
   const base: Player = {
     ...sp,
     name: sp.name || `P${sp.id}`,
-    weaponInventory: Array.isArray(sp.weaponInventory) ? [...sp.weaponInventory] : [],
+    isBot: Boolean(sp.isBot),
+    scrollBag: Array.isArray(sp.scrollBag) ? sp.scrollBag.map((s) => ({ ...s })) : [],
     potions: sp.potions ?? 0,
     potionCooldownTimer: sp.potionCooldownTimer ?? 0,
     frontShieldTimer: sp.frontShieldTimer ?? 0,
     swapCooldownTimer: 0,
-    weaponSkillTiers: { ...(sp.weaponSkillTiers || {}) },
+    learnedSkills: learnedCopy,
     grazedIds: prev ? prev.grazedIds : new Set<number>(),
     _lastDashPressed: false,
     _lastAbilityPressed: false,
@@ -662,7 +685,6 @@ function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
     _lastSkill3Pressed: false,
     _lastSkill4Pressed: false,
     _lastPotionPressed: false,
-    _lastCycleWeaponPressed: false,
     cleanDodgeFailed: false,
   };
   return base;
@@ -759,6 +781,7 @@ export function applySyncedSnapshotToGuest(
       mode: snap.mode,
       numPlayers: snap.numPlayers,
       isOnlineCampaign: snap.isOnlineCampaign,
+      isTeamworkPractice: Boolean(snap.isTeamworkPractice),
       roomKind: snap.roomKind,
       roomDepth: snap.roomDepth,
       roomWave: snap.roomWave || 1,
@@ -774,9 +797,9 @@ export function applySyncedSnapshotToGuest(
       scrollDrops: snap.scrollDrops.map((sd) => ({ ...sd })),
       skillZones: snap.skillZones.map((sz) => ({ ...sz })),
       gates: snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] })),
+      shopNpc: snap.shopNpc ? { ...snap.shopNpc } : null,
       shopItems: snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
       lastKilledPos: null,
-      shopBuyTimers: {},
       finalVote: snap.finalVote ? { ...snap.finalVote, votes: { ...snap.finalVote.votes } } : null,
       finalVoteResolveDelay: 0,
       pingByPlayer: { ...snap.pingByPlayer },
@@ -863,6 +886,9 @@ export function applySyncedSnapshotToGuest(
       tutorialGrazesStart: 0,
       tutorialFireTimer: 0,
       tutorialCounterDone: false,
+      practiceAttackTimer: 4,
+      practiceWeapon: 'tank_shield',
+      bossProjBurstCooldowns: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       cheats: { ...DEFAULT_CHEATS },
       cheatsUsed: snap.cheatsUsed,
       bossHitCooldowns: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
@@ -888,6 +914,7 @@ export function applySyncedSnapshotToGuest(
   displayRt.mode = snap.mode;
   displayRt.numPlayers = snap.numPlayers;
   displayRt.isOnlineCampaign = snap.isOnlineCampaign;
+  displayRt.isTeamworkPractice = Boolean(snap.isTeamworkPractice);
   displayRt.roomKind = snap.roomKind;
   displayRt.roomDepth = snap.roomDepth;
   displayRt.roomWave = snap.roomWave || 1;
@@ -908,6 +935,7 @@ export function applySyncedSnapshotToGuest(
   displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd }));
   displayRt.skillZones = snap.skillZones.map((sz) => ({ ...sz }));
   displayRt.gates = snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] }));
+  displayRt.shopNpc = snap.shopNpc ? { ...snap.shopNpc } : null;
   displayRt.shopItems = snap.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] }));
   displayRt.finalVote = snap.finalVote ? { ...snap.finalVote, votes: { ...snap.finalVote.votes } } : null;
   displayRt.pingByPlayer = { ...snap.pingByPlayer };
@@ -952,6 +980,7 @@ export function applySyncedSnapshotToGuest(
   const prevBoss = displayRt.boss;
   displayRt.boss = {
     ...snap.boss,
+    channelTetherPair: snap.boss.channelTetherPair ? [...snap.boss.channelTetherPair] as [PlayerId, PlayerId] : undefined,
     channelNodes: snap.boss.channelNodes ? snap.boss.channelNodes.map((n) => ({ ...n })) : undefined,
     x: lerpNum(prevBoss.x, snap.boss.x, lerpAlpha, 140),
     y: lerpNum(prevBoss.y, snap.boss.y, lerpAlpha, 140),

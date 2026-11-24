@@ -8,17 +8,53 @@
     --font-mono: 'JetBrains Mono', monospace;
   }
 
+  html {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #050406;
     color: #e7e5e4;
     margin: 0;
     padding: 0;
+    min-height: 100%;
     user-select: none;
-    overscroll-behavior: none;
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* Black & Purple Theme Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #9333ea #050408;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #050408;
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #9333ea, #581c87);
+  border-radius: 6px;
+  border: 1.5px solid #050408;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #a855f7, #7e22ce);
+}
+
+*::-webkit-scrollbar-corner {
+  background: #050408;
 }
 
 .font-arcade {

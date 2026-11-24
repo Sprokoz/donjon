@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FastForward, FlaskConical, Lock, Repeat, Sparkles, Wind } from 'lucide-react';
+import { Briefcase, FastForward, FlaskConical, Lock, Sparkles, Store, Wind } from 'lucide-react';
 import { HERO_CLASSES, PlayerHudState, WEAPONS_CATALOG } from '../game/types';
 import { soundEngine } from '../game/soundEngine';
 
@@ -14,7 +14,8 @@ interface MobileControlsProps {
   onAbilityChange: (pressed: boolean) => void;
   onSkillSlotChange?: (slot: 2 | 3 | 4, pressed: boolean) => void;
   onUsePotion?: () => void;
-  onCycleWeapon?: () => void;
+  onOpenInventory?: () => void;
+  onOpenShop?: () => void;
   onSkipIntro?: () => void;
 }
 
@@ -29,7 +30,8 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onAbilityChange,
   onSkillSlotChange,
   onUsePotion,
-  onCycleWeapon,
+  onOpenInventory,
+  onOpenShop,
   onSkipIntro,
 }) => {
   const clsDef = HERO_CLASSES.find((c) => c.id === p1.heroClass);
@@ -261,24 +263,39 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         </button>
       )}
 
-      {/* Right: Flask + Weapon Swap + 4-Skill Cluster + Primary Dash */}
+      {/* Right: Flask + Inventory Bag + Merchant Shop + 4-Skill Cluster + Primary Dash */}
       <div className="pointer-events-auto flex flex-col items-end gap-1.5">
-        {/* Compact Quick Belt Row: Flask + Weapon Bag Cycle */}
-        {(onUsePotion || (isOnlineCampaign && onCycleWeapon)) && (
+        {/* Compact Quick Belt Row: Shop (when near Vex) + Bag + Flask */}
+        {(onUsePotion || (isOnlineCampaign && onOpenInventory) || (isOnlineCampaign && p1.nearMerchant && onOpenShop)) && (
           <div className="flex items-center gap-1.5">
-            {isOnlineCampaign && onCycleWeapon && (p1.weaponInventory?.length || 0) > 1 && (
+            {isOnlineCampaign && p1.nearMerchant && onOpenShop && (
               <button
                 type="button"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   soundEngine.unlock();
-                  onCycleWeapon();
+                  onOpenShop();
                 }}
-                className="min-h-[44px] px-2.5 rounded-full bg-black/80 border border-amber-500/60 text-amber-200 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
+                className="min-h-[44px] px-2.5 rounded-lg bg-amber-950/90 border border-amber-400 text-amber-200 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer animate-pulse"
                 style={{ touchAction: 'none' }}
               >
-                <Repeat className="w-3.5 h-3.5 text-amber-400" />
-                <span>BAG</span>
+                <Store className="w-3.5 h-3.5 text-amber-300" />
+                <span>SHOP</span>
+              </button>
+            )}
+            {isOnlineCampaign && onOpenInventory && (
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  soundEngine.unlock();
+                  onOpenInventory();
+                }}
+                className="min-h-[44px] px-2.5 rounded-lg bg-black/85 border border-stone-500/80 text-stone-200 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
+                style={{ touchAction: 'none' }}
+              >
+                <Briefcase className="w-3.5 h-3.5 text-amber-400" />
+                <span>BAG {(p1.scrollBag || []).length}/8</span>
               </button>
             )}
             {onUsePotion && (
@@ -290,7 +307,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   soundEngine.unlock();
                   onUsePotion();
                 }}
-                className="min-h-[44px] px-2.5 rounded-full bg-rose-950/75 disabled:bg-black/60 border border-rose-500/75 disabled:border-stone-700 text-rose-200 disabled:text-stone-500 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
+                className="min-h-[44px] px-2.5 rounded-lg bg-rose-950/75 disabled:bg-black/60 border border-rose-500/75 disabled:border-stone-700 text-rose-200 disabled:text-stone-500 font-mono-num text-[9px] font-bold flex items-center gap-1 touch-none cursor-pointer"
                 style={{ touchAction: 'none' }}
               >
                 <FlaskConical className="w-3.5 h-3.5" />
@@ -305,7 +322,10 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           <div className="flex items-center gap-1.5">
             {([2, 3, 4] as const).map((slotNum) => {
               const sDef = skillsList[slotNum - 1];
-              const unlocked = unlockedTier >= slotNum;
+              const learnedArr = p1.weapon !== 'none' ? p1.learnedSkills?.[p1.weapon] || [1] : [];
+              const unlocked = isOnlineCampaign
+                ? p1.weapon !== 'none' && learnedArr.includes(slotNum)
+                : unlockedTier >= slotNum;
               const cd = p1.skillCooldowns?.[slotNum - 1] || 0;
               const ready = unlocked && cd <= 0;
               return (

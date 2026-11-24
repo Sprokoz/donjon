@@ -1,7 +1,7 @@
 export type PlayerId = 1 | 2 | 3 | 4 | 5;
 
 export type DifficultyKey = 'easy' | 'medium' | 'hard';
-export type GameMode = 'campaign' | 'boss_rush' | 'tutorial';
+export type GameMode = 'campaign' | 'boss_rush' | 'teamwork_practice' | 'tutorial';
 export type HeroClassId = 'ronin' | 'phantom' | 'vanguard' | 'volt';
 
 export type WeaponClassId =
@@ -156,12 +156,19 @@ export interface DashTrailPoint {
   angle: number;
 }
 
+export interface SkillScrollItem {
+  id: number;
+  targetWeapon: WeaponClassId;
+  skillSlot: 2 | 3 | 4;
+}
+
 export interface Player {
   id: PlayerId;
   name: string;
+  isBot?: boolean;
   heroClass: HeroClassId;
   weapon: WeaponId;
-  weaponInventory: WeaponClassId[];
+  scrollBag: SkillScrollItem[];
   potions: number;
   potionCooldownTimer: number;
   swapCooldownTimer: number;
@@ -202,10 +209,9 @@ export interface Player {
   _lastSkill3Pressed: boolean;
   _lastSkill4Pressed: boolean;
   _lastPotionPressed: boolean;
-  _lastCycleWeaponPressed: boolean;
-  // Class / Weapon active skills (1..4 unlocked via Weapon / Scrolls / Relics)
+  // Class / Weapon active skills (slot 1 unlocked on pickup; slots 2, 3, 4 unlocked via specific Scrolls)
   unlockedSkillTier: number;
-  weaponSkillTiers: Partial<Record<WeaponClassId, number>>;
+  learnedSkills: Partial<Record<WeaponClassId, number[]>>;
   skillCooldowns: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
   abilityReady: boolean;
@@ -326,6 +332,17 @@ export interface Enemy {
   shootTimer?: number;
 }
 
+export type BossChannelKind =
+  | 'interrupt'
+  | 'siege_beam'
+  | 'cursed_floor'
+  | 'gravity_storm'
+  | 'hunter_mark'
+  | 'overload_pylons'
+  | 'abyss_tether'
+  | 'demon_seal_purge'
+  | 'meteor_soak';
+
 export interface Boss {
   x: number;
   y: number;
@@ -356,7 +373,7 @@ export interface Boss {
   postureDecayGrace: number;
   postureUnlocked: boolean;
   wallDirection: { isHorizontal: boolean; startX?: number; dirX?: number; startY?: number; dirY?: number } | null;
-  channelKind?: 'interrupt' | 'siege_beam' | 'cursed_floor' | 'sync_seals' | null;
+  channelKind?: BossChannelKind | null;
   channelTimer?: number;
   channelMaxTimer?: number;
   channelHits?: number;
@@ -366,6 +383,8 @@ export interface Boss {
   channelSafeY?: number;
   channelSafeR?: number;
   channelAngle?: number;
+  channelTargetPlayerId?: PlayerId;
+  channelTetherPair?: [PlayerId, PlayerId];
   channelNodes?: { x: number; y: number; r: number; activated: boolean }[];
 }
 
@@ -600,6 +619,7 @@ export interface ChestDrop {
   weaponId?: Exclude<WeaponId, 'none'>;
   bonusPotions?: number;
   bonusScrollWeapon?: WeaponClassId;
+  bonusScrollSlot?: 2 | 3 | 4;
 }
 
 export interface WeaponDrop {
@@ -615,6 +635,7 @@ export interface WeaponDrop {
 export interface SkillScrollDrop {
   id: number;
   targetWeapon: WeaponClassId;
+  skillSlot: 2 | 3 | 4;
   x: number;
   y: number;
   size: number;
@@ -635,6 +656,7 @@ export interface DungeonGate {
   targetStage: StageKey;
   targetRoomKey?: string;
   isNextFloorPortal?: boolean;
+  isStairsDown?: boolean;
   visitedTarget?: boolean;
   clearedTarget?: boolean;
   label: string;
@@ -642,6 +664,13 @@ export interface DungeonGate {
   accent: string;
   playersInside: number[];
   holdProgress: number;
+}
+
+export interface ShopNpc {
+  x: number;
+  y: number;
+  name: string;
+  radius: number;
 }
 
 export interface ShopItem {
@@ -656,6 +685,7 @@ export interface ShopItem {
   accent: string;
   weaponId?: WeaponClassId;
   targetWeapon?: WeaponClassId;
+  skillSlot?: 2 | 3 | 4;
   purchasedBy: number[];
   globalSold?: boolean;
 }
@@ -710,9 +740,10 @@ export interface AmbientMote {
 export interface PlayerHudState {
   id: PlayerId;
   name: string;
+  isBot?: boolean;
   heroClass: HeroClassId;
   weapon: WeaponId;
-  weaponInventory: WeaponClassId[];
+  scrollBag: SkillScrollItem[];
   potions: number;
   potionCooldown: number;
   coins: number;
@@ -722,7 +753,7 @@ export interface PlayerHudState {
   maxHp: number;
   bonusMaxHp: number;
   unlockedSkillTier: number;
-  weaponSkillTiers: Partial<Record<WeaponClassId, number>>;
+  learnedSkills: Partial<Record<WeaponClassId, number[]>>;
   skillCooldowns: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
   state: Player['state'];
@@ -740,6 +771,7 @@ export interface PlayerHudState {
   cloak: number;
   sealed: boolean;
   frontShield?: number;
+  nearMerchant?: boolean;
 }
 
 export interface HudSnapshot {
@@ -763,6 +795,8 @@ export interface HudSnapshot {
   roomDepth: number;
   loopLevel: number;
   floorMap?: FloorMapHudSnapshot;
+  shopCatalog?: ShopItem[];
+  shopNpcName?: string | null;
   finalVote?: FinalVoteState | null;
   bossesDefeatedCount: number;
   gatesActive: boolean;
@@ -775,12 +809,13 @@ export interface HudSnapshot {
   bossPhase: 1 | 2;
   bossState: Boss['state'];
   bossChannel?: {
-    kind: 'interrupt' | 'siege_beam' | 'cursed_floor' | 'sync_seals';
+    kind: BossChannelKind;
     label: string;
     timer: number;
     maxTimer: number;
     hits: number;
     hitsNeeded: number;
+    targetPlayerId?: PlayerId;
   } | null;
   medkitInventoryCount: number;
   medkitNotif: string | null;
@@ -789,6 +824,7 @@ export interface HudSnapshot {
   coopPrompt: string | null;
   cheatsUsed: boolean;
   isTutorial: boolean;
+  isTeamworkPractice?: boolean;
   tutorialStep: number;
   tutorialTitle: string;
   tutorialObjective: string;
@@ -1080,60 +1116,60 @@ export const DIFFICULTY_SETTINGS: Record<DifficultyKey, DifficultyConfig> = {
     label: 'RECRUIT',
     baseMaxHp: 100,
     damageMultiplier: 0.9,
-    mechaHP: 42,
-    mechaPhase2HP: 21,
-    bossHP: 46,
-    phase2HP: 23,
-    oniHP: 54,
-    oniPhase2HP: 27,
-    eclipseHP: 64,
-    eclipsePhase2HP: 32,
+    mechaHP: 76,
+    mechaPhase2HP: 38,
+    bossHP: 88,
+    phase2HP: 44,
+    oniHP: 102,
+    oniPhase2HP: 51,
+    eclipseHP: 120,
+    eclipsePhase2HP: 60,
     scoreMultiplier: 1.0,
     bulletSpeedMult: 1.1,
     cadenceMult: 1.12,
     color: '#34d399',
     borderColor: '#059669',
-    summary: '100 Base HP · 0.90x DMG · Balanced Boss HP & Pace · Free Co-op Revive',
+    summary: '100 Base HP · 0.90x DMG · Tanky Bosses & Balanced Pace · Free Co-op Revive',
   },
   medium: {
     key: 'medium',
     label: 'SLAYER',
     baseMaxHp: 100,
     damageMultiplier: 1.2,
-    mechaHP: 66,
-    mechaPhase2HP: 33,
-    bossHP: 76,
-    phase2HP: 38,
-    oniHP: 88,
-    oniPhase2HP: 44,
-    eclipseHP: 100,
-    eclipsePhase2HP: 50,
+    mechaHP: 120,
+    mechaPhase2HP: 60,
+    bossHP: 138,
+    phase2HP: 69,
+    oniHP: 160,
+    oniPhase2HP: 80,
+    eclipseHP: 184,
+    eclipsePhase2HP: 92,
     scoreMultiplier: 1.5,
     bulletSpeedMult: 1.24,
     cadenceMult: 1.26,
     color: '#fbbf24',
     borderColor: '#b45309',
-    summary: '100 Base HP · 1.20x DMG · +50% Intensity & Scaled Boss HP · 1.5x Score',
+    summary: '100 Base HP · 1.20x DMG · +50% Intensity & Buffed Boss HP · 1.5x Score',
   },
   hard: {
     key: 'hard',
     label: 'NIGHTMARE',
     baseMaxHp: 100,
     damageMultiplier: 1.4,
-    mechaHP: 84,
-    mechaPhase2HP: 42,
-    bossHP: 96,
-    phase2HP: 48,
-    oniHP: 110,
-    oniPhase2HP: 55,
-    eclipseHP: 126,
-    eclipsePhase2HP: 63,
+    mechaHP: 156,
+    mechaPhase2HP: 78,
+    bossHP: 176,
+    phase2HP: 88,
+    oniHP: 204,
+    oniPhase2HP: 102,
+    eclipseHP: 236,
+    eclipsePhase2HP: 118,
     scoreMultiplier: 2.5,
     bulletSpeedMult: 1.0,
     cadenceMult: 1.0,
     color: '#f43f5e',
     borderColor: '#be123c',
-    summary: '100 Base HP · Extreme Dodgeable Boss Patterns · 1.40x DMG · Medkit Revive · 2.5x Score',
+    summary: '100 Base HP · Boss Teamwork Attacks · 1.40x DMG · Medkit Revive · 2.5x Score',
   },
 };
 

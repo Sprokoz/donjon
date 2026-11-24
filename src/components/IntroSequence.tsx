@@ -683,7 +683,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
 
   return (
     <div
-      className="relative min-h-dvh w-full overflow-hidden bg-[#040307] flex flex-col items-center justify-between p-6 select-none"
+      className="relative h-dvh w-full overflow-y-auto overflow-x-hidden bg-[#040307] flex flex-col items-center justify-between p-6 select-none"
       onClick={() => soundEngine.unlock()}
     >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
@@ -762,7 +762,10 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       </main>
 
       {/* Quiet Footer */}
-      <footer className="relative z-10 w-full max-w-5xl flex items-center justify-center gap-4 text-xs text-stone-400">
+      <footer className="relative z-10 w-full max-w-5xl flex items-center justify-between gap-4 text-xs text-stone-400">
+        <span className="font-mono-num text-[11px] text-amber-400/75 font-semibold tracking-wider uppercase">
+          beta test 0.0.8
+        </span>
         <button
           type="button"
           onClick={() => {

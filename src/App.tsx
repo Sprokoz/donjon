@@ -6,8 +6,10 @@ import {
   ControlsModal,
   EndScreenModal,
   FinalBossVoteModal,
+  InventoryModal,
   OnlineDisconnectModal,
   PauseModal,
+  ShopNpcModal,
   StageTransitionModal,
 } from './components/Modals';
 import { HeroSetup, TitleMenu } from './components/TitleFlow';
@@ -22,19 +24,25 @@ import {
   cheatWarpBoss,
   computeRank,
   createInitialGameRuntime,
+  dropBagScroll,
+  dropEquippedWeapon,
   extractHudSnapshot,
   GameRuntime,
   getBoonChoices,
   loadLeaderboard,
+  purchaseShopItemById,
   saveLeaderboardEntry,
   setRuntimeCheats,
   skipBossIntro,
   stepGame,
-  switchInventoryWeapon,
+  switchPracticeBoss,
+  switchPracticeWeapon,
   switchTutorialClass,
   switchTutorialWeapon,
   TouchInputState,
   transitionToStage,
+  triggerPracticeAttack,
+  useBagScroll,
   usePlayerPotion,
 } from './game/engine';
 import {
@@ -123,7 +131,6 @@ function readLocalGuestInput(
   const skill3 = Boolean(touch.skill3 || keys['r'] || keys['3']);
   const skill4 = Boolean(touch.skill4 || keys['f'] || keys['4']);
   const usePotion = Boolean(touch.usePotion || keys['c'] || keys['h']);
-  const cycleWeapon = Boolean(touch.cycleWeapon || keys['x']);
   return {
     x: Math.max(-1, Math.min(1, x)),
     y: Math.max(-1, Math.min(1, y)),
@@ -133,7 +140,6 @@ function readLocalGuestInput(
     skill3,
     skill4,
     usePotion,
-    cycleWeapon,
   };
 }
 
@@ -193,6 +199,8 @@ export default function App() {
   const [showControlsModal, setShowControlsModal] = useState(false);
   const [showCheatsModal, setShowCheatsModal] = useState(false);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [showShopModal, setShowShopModal] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [musicVol, setMusicVol] = useState(0.65);
   const [sfxVol, setSfxVol] = useState(0.8);
@@ -212,7 +220,7 @@ export default function App() {
   const [menuAudioBlocked, setMenuAudioBlocked] = useState(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
+    return Boolean(window.matchMedia?.('(pointer: coarse)').matches);
   });
 
   const numPlayers: number =
@@ -257,10 +265,32 @@ export default function App() {
   const localPlayerNameRef = useRef<string>(localPlayerName);
   const guestConfigsRef = useRef(guestConfigs);
   const pingByPlayerRef = useRef(pingByPlayer);
+  const showInventoryModalRef = useRef(showInventoryModal);
+  const showShopModalRef = useRef(showShopModal);
+  const hudRef = useRef<HudSnapshot | null>(hud);
 
   useEffect(() => {
     localPlayerNameRef.current = localPlayerName;
   }, [localPlayerName]);
+
+  useEffect(() => {
+    showInventoryModalRef.current = showInventoryModal;
+  }, [showInventoryModal]);
+
+  useEffect(() => {
+    showShopModalRef.current = showShopModal;
+  }, [showShopModal]);
+
+  useEffect(() => {
+    hudRef.current = hud;
+  }, [hud]);
+
+  useEffect(() => {
+    if (screen !== 'PLAYING') {
+      setShowInventoryModal(false);
+      setShowShopModal(false);
+    }
+  }, [screen]);
 
   const onlineSessionRef = useRef<OnlineSession | null>(null);
   const stageTransitionTimerRef = useRef<number | null>(null);
@@ -734,7 +764,8 @@ export default function App() {
     ) => {
       const session = onlineSessionRef.current;
       if (!session || session.getRole() !== 'host') return;
-      const maxPlayers = modeRef.current === 'campaign' ? 5 : 2;
+      const maxPlayers =
+        modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' ? 5 : 2;
       session.setMaxPlayers(maxPlayers);
       const roster = buildHostRoster(overrideGuests, overridePings);
       if (session.isConnected()) {
@@ -830,18 +861,50 @@ export default function App() {
             usePlayerPotion(rt, gp);
             setHud(extractHudSnapshot(rt));
           }
-        } else if (msg.action === 'cycle_weapon') {
+        } else if (msg.action === 'drop_weapon') {
           const rt = runtimeRef.current;
           const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
           if (rt && gp) {
-            switchInventoryWeapon(rt, gp);
+            dropEquippedWeapon(rt, gp);
             setHud(extractHudSnapshot(rt));
           }
-        } else if (msg.action === 'select_weapon') {
+        } else if (msg.action === 'use_scroll') {
           const rt = runtimeRef.current;
           const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
           if (rt && gp) {
-            switchInventoryWeapon(rt, gp, msg.slot);
+            useBagScroll(rt, gp, msg.scrollId);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'drop_scroll') {
+          const rt = runtimeRef.current;
+          const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
+          if (rt && gp) {
+            dropBagScroll(rt, gp, msg.scrollId);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'buy_shop_item') {
+          const rt = runtimeRef.current;
+          const gp = rt?.players.find((pl) => pl.id === fromPlayerId);
+          if (rt && gp) {
+            purchaseShopItemById(rt, gp, msg.itemId);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'switch_practice_weapon') {
+          const rt = runtimeRef.current;
+          if (rt && msg.weaponId !== 'none') {
+            switchPracticeWeapon(rt, fromPlayerId, msg.weaponId);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'trigger_practice_attack') {
+          const rt = runtimeRef.current;
+          if (rt && fromPlayerId === 1) {
+            triggerPracticeAttack(rt, msg.kind);
+            setHud(extractHudSnapshot(rt));
+          }
+        } else if (msg.action === 'switch_practice_boss') {
+          const rt = runtimeRef.current;
+          if (rt && fromPlayerId === 1) {
+            switchPracticeBoss(rt, msg.stage);
             setHud(extractHudSnapshot(rt));
           }
         } else if (msg.action === 'pause') {
@@ -970,7 +1033,7 @@ export default function App() {
     setLocalPlayerId(1);
     setLocalReady(false);
 
-    const maxP = modeRef.current === 'campaign' ? 5 : 2;
+    const maxP = modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' ? 5 : 2;
     const session = new OnlineSession(
       'host',
       code,
@@ -1170,6 +1233,14 @@ export default function App() {
         }
       }
       if (k === 'escape') {
+        if (showInventoryModalRef.current) {
+          setShowInventoryModal(false);
+          return;
+        }
+        if (showShopModalRef.current) {
+          setShowShopModal(false);
+          return;
+        }
         if (showCheatsModal) {
           setShowCheatsModal(false);
           return;
@@ -1196,6 +1267,38 @@ export default function App() {
             setScreen('PLAYING');
             broadcastScreenMessage({ type: 'screen', screen: 'PLAYING' });
           }
+          return;
+        }
+      }
+      if ((k === 'i' || k === 'b') && screenRef.current === 'PLAYING') {
+        const curHud = hudRef.current;
+        if (curHud?.isOnlineCampaign && !curHud.isTutorial && !showControlsModal && !showCheatsModal) {
+          e.preventDefault();
+          soundEngine.playUiClick();
+          setShowShopModal(false);
+          setShowInventoryModal((prev) => !prev);
+          keysRef.current = {};
+          return;
+        }
+      }
+      if (k === (controlsRef.current.p1.ability || 'e') && screenRef.current === 'PLAYING') {
+        const curHud = hudRef.current;
+        const myPid = activeOnlineRoleRef.current === 'guest' ? localPlayerIdRef.current : 1;
+        const me = curHud?.players?.find((pl) => pl.id === myPid);
+        if (
+          curHud?.isOnlineCampaign &&
+          !curHud.isTutorial &&
+          me?.nearMerchant &&
+          curHud?.shopCatalog &&
+          curHud.shopCatalog.length > 0 &&
+          !showInventoryModalRef.current &&
+          !showControlsModal &&
+          !showCheatsModal
+        ) {
+          e.preventDefault();
+          soundEngine.playUiClick();
+          setShowShopModal((prev) => !prev);
+          keysRef.current = {};
           return;
         }
       }
@@ -1275,8 +1378,11 @@ export default function App() {
 
       if (role === 'guest') {
         // Guest thin-client: stream inputs & render 60fps interpolated Host snapshots
-        if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal) {
-          const curInput = readLocalGuestInput(keysRef.current, controlsRef.current, touchInputRef.current);
+        const uiModalOpen = showControlsModal || showCheatsModal || showInventoryModalRef.current || showShopModalRef.current;
+        if (screenRef.current === 'PLAYING') {
+          const curInput: TouchInputState = uiModalOpen
+            ? { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false, usePotion: false }
+            : readLocalGuestInput(keysRef.current, controlsRef.current, touchInputRef.current);
           const changed =
             Math.abs(curInput.x - lastSentGuestInput.x) > 0.02 ||
             Math.abs(curInput.y - lastSentGuestInput.y) > 0.02 ||
@@ -1285,8 +1391,7 @@ export default function App() {
             Boolean(curInput.skill2) !== Boolean(lastSentGuestInput.skill2) ||
             Boolean(curInput.skill3) !== Boolean(lastSentGuestInput.skill3) ||
             Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4) ||
-            Boolean(curInput.usePotion) !== Boolean(lastSentGuestInput.usePotion) ||
-            Boolean(curInput.cycleWeapon) !== Boolean(lastSentGuestInput.cycleWeapon);
+            Boolean(curInput.usePotion) !== Boolean(lastSentGuestInput.usePotion);
           guestInputHeartbeatAccum += dt;
           if (changed || guestInputHeartbeatAccum >= 0.035) {
             guestInputHeartbeatAccum = 0;
@@ -1320,12 +1425,13 @@ export default function App() {
         const rt = runtimeRef.current;
         if (rt && canvas) {
           if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal) {
+            const hostModalOpen = showInventoryModalRef.current || showShopModalRef.current;
             stepGame(
               rt,
               dt,
-              keysRef.current,
+              hostModalOpen ? {} : keysRef.current,
               controlsRef.current,
-              touchInputRef.current,
+              hostModalOpen ? { x: 0, y: 0, dash: false, ability: false } : touchInputRef.current,
               role === 'host' ? remoteInputsRef.current : undefined
             );
 
@@ -1473,30 +1579,69 @@ export default function App() {
     }
   }, []);
 
-  const handleSelectWeaponSlot = useCallback((slotIndex: number) => {
+  const handleDropWeapon = useCallback(() => {
     if (activeOnlineRoleRef.current === 'guest') {
-      onlineSessionRef.current?.send({ type: 'cmd', action: 'select_weapon', slot: slotIndex });
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'drop_weapon' });
       return;
     }
     const rt = runtimeRef.current;
     if (!rt) return;
     const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && switchInventoryWeapon(rt, p1, slotIndex)) {
+    if (p1) {
+      dropEquippedWeapon(rt, p1);
       setHud(extractHudSnapshot(rt));
     }
   }, []);
 
-  const handleCycleWeapon = useCallback(() => {
+  const handleUseScroll = useCallback((scrollId: number) => {
     if (activeOnlineRoleRef.current === 'guest') {
-      onlineSessionRef.current?.send({ type: 'cmd', action: 'cycle_weapon' });
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'use_scroll', scrollId });
       return;
     }
     const rt = runtimeRef.current;
     if (!rt) return;
     const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && switchInventoryWeapon(rt, p1)) {
+    if (p1 && useBagScroll(rt, p1, scrollId)) {
       setHud(extractHudSnapshot(rt));
     }
+  }, []);
+
+  const handleDropScroll = useCallback((scrollId: number) => {
+    if (activeOnlineRoleRef.current === 'guest') {
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'drop_scroll', scrollId });
+      return;
+    }
+    const rt = runtimeRef.current;
+    if (!rt) return;
+    const p1 = rt.players.find((pl) => pl.id === 1);
+    if (p1 && dropBagScroll(rt, p1, scrollId)) {
+      setHud(extractHudSnapshot(rt));
+    }
+  }, []);
+
+  const handleBuyShopItem = useCallback((itemId: number) => {
+    if (activeOnlineRoleRef.current === 'guest') {
+      onlineSessionRef.current?.send({ type: 'cmd', action: 'buy_shop_item', itemId });
+      return;
+    }
+    const rt = runtimeRef.current;
+    if (!rt) return;
+    const p1 = rt.players.find((pl) => pl.id === 1);
+    if (p1 && purchaseShopItemById(rt, p1, itemId)) {
+      setHud(extractHudSnapshot(rt));
+    }
+  }, []);
+
+  const handleOpenInventory = useCallback(() => {
+    keysRef.current = {};
+    setShowShopModal(false);
+    setShowInventoryModal(true);
+  }, []);
+
+  const handleOpenShop = useCallback(() => {
+    keysRef.current = {};
+    setShowInventoryModal(false);
+    setShowShopModal(true);
   }, []);
 
   const handleUpdateCheats = useCallback((next: CheatsConfig) => {
@@ -1701,9 +1846,37 @@ export default function App() {
             switchTutorialWeapon(rt, weapon);
             setHud(extractHudSnapshot(rt));
           }}
+          onSwitchPracticeWeapon={(weapon) => {
+            if (activeOnlineRole === 'guest') {
+              onlineSessionRef.current?.send({
+                type: 'cmd',
+                action: 'switch_practice_weapon',
+                weaponId: weapon,
+              });
+              return;
+            }
+            const rt = runtimeRef.current;
+            if (!rt) return;
+            switchPracticeWeapon(rt, 1, weapon);
+            setHud(extractHudSnapshot(rt));
+          }}
+          onTriggerPracticeAttack={(attackKind) => {
+            if (activeOnlineRole === 'guest') return;
+            const rt = runtimeRef.current;
+            if (!rt) return;
+            triggerPracticeAttack(rt, attackKind);
+            setHud(extractHudSnapshot(rt));
+          }}
+          onSwitchPracticeBoss={(bossStage) => {
+            if (activeOnlineRole === 'guest') return;
+            const rt = runtimeRef.current;
+            if (!rt) return;
+            switchPracticeBoss(rt, bossStage);
+            setHud(extractHudSnapshot(rt));
+          }}
           onUsePotion={handleUsePotion}
-          onSelectWeaponSlot={handleSelectWeaponSlot}
-          onCycleWeapon={handleCycleWeapon}
+          onOpenInventory={handleOpenInventory}
+          onOpenShop={handleOpenShop}
           onNextTutorialStep={() => {
             const rt = runtimeRef.current;
             if (!rt) return;
@@ -1870,6 +2043,36 @@ export default function App() {
           }}
         />
       )}
+
+      {(() => {
+        const localHudPlayer =
+          hud?.players?.find((pl) => pl.id === localPlayerNum) || hud?.p1;
+        if (screen !== 'PLAYING' || !hud?.isOnlineCampaign || !localHudPlayer) return null;
+        return (
+          <>
+            {showInventoryModal && (
+              <InventoryModal
+                player={localHudPlayer}
+                isOnlineCampaign={hud.isOnlineCampaign}
+                onDropWeapon={handleDropWeapon}
+                onUseScroll={handleUseScroll}
+                onDropScroll={handleDropScroll}
+                onUsePotion={handleUsePotion}
+                onClose={() => setShowInventoryModal(false)}
+              />
+            )}
+            {showShopModal && hud.shopCatalog && localHudPlayer.nearMerchant && (
+              <ShopNpcModal
+                npcName={hud.shopNpcName || 'Gilded Broker Vex'}
+                player={localHudPlayer}
+                items={hud.shopCatalog}
+                onBuyItem={handleBuyShopItem}
+                onClose={() => setShowShopModal(false)}
+              />
+            )}
+          </>
+        );
+      })()}
 
       {disconnectModal && (
         <OnlineDisconnectModal

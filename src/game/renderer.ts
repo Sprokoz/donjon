@@ -557,6 +557,127 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
     ctx.fillRect(-8 + vx * 0.6, -5 + vy * 0.6, 16, 3);
   }
 
+  // Weapon-Specific Helmet / Headgear (clearly identifies equipped class weapon)
+  if (p.state === 'alive' && p.weapon !== 'none') {
+    ctx.save();
+    if (p.weapon === 'holy_staff') {
+      // Priest Mitre / Cleric Bandana + Flowing White-Gold Tails
+      ctx.fillStyle = '#fef3c7';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r + 2, -r + 5);
+      ctx.lineTo(-r - 9, -r + 11);
+      ctx.lineTo(-r + 1, -r + 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(r - 2, -r + 5);
+      ctx.lineTo(r + 9, -r + 11);
+      ctx.lineTo(r - 1, -r + 10);
+      ctx.closePath();
+      ctx.fill();
+
+      // Mitre Crown Cap on top of head
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.65, -r + 6);
+      ctx.lineTo(0, -r - 12);
+      ctx.lineTo(r * 0.65, -r + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Gold Cross Emblem
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(-1.5, -r - 5, 3, 9);
+      ctx.fillRect(-4.5, -r - 2, 9, 3);
+    } else if (p.weapon === 'tank_shield') {
+      // Heavy Steel Knight Greathelm with Cyan T-Visor
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.roundRect(-r * 0.72, -r - 5, r * 1.44, 15, 4);
+      ctx.fill();
+      ctx.stroke();
+      // Crest ridge
+      ctx.fillStyle = '#7dd3fc';
+      ctx.fillRect(-3, -r - 9, 6, 5);
+      // Cyan T-Visor
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(-r * 0.45, -r + 2, r * 0.9, 4);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(-r * 0.36, -r + 3, r * 0.72, 2);
+    } else if (p.weapon === 'assassin_blades') {
+      // Shinobi Cowl & Trailing Purple Scarf/Bandana
+      ctx.fillStyle = '#2e1065';
+      ctx.strokeStyle = '#e879f9';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.68, -r + 5);
+      ctx.lineTo(0, -r - 6);
+      ctx.lineTo(r * 0.68, -r + 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Trailing scarf ribbon
+      const flap = Math.sin(now / 120) * 3;
+      ctx.fillStyle = '#c026d3';
+      ctx.beginPath();
+      ctx.moveTo(-r + 3, -r + 4);
+      ctx.lineTo(-r - 12, -r + 2 + flap);
+      ctx.lineTo(-r - 8, -r + 8 + flap);
+      ctx.lineTo(-r + 2, -r + 7);
+      ctx.closePath();
+      ctx.fill();
+    } else if (p.weapon === 'warrior_greatsword') {
+      // Crimson & Gold Horned Vanguard Warhelm
+      ctx.fillStyle = '#450a0a';
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-r * 0.65, -r - 3, r * 1.3, 11, 3);
+      ctx.fill();
+      ctx.stroke();
+      // Broad gold-tipped horns
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.55, -r + 2);
+      ctx.lineTo(-r - 7, -r - 10);
+      ctx.lineTo(-r * 0.28, -r + 1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.55, -r + 2);
+      ctx.lineTo(r + 7, -r - 10);
+      ctx.lineTo(r * 0.28, -r + 1);
+      ctx.closePath();
+      ctx.fill();
+    } else if (p.weapon === 'ranger_bow') {
+      // Emerald Feathered Forester Hood
+      ctx.fillStyle = '#064e3b';
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.72, -r + 6);
+      ctx.lineTo(0, -r - 9);
+      ctx.lineTo(r * 0.72, -r + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Plume Feather
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.moveTo(r * 0.3, -r - 4);
+      ctx.lineTo(r * 0.92, -r - 13);
+      ctx.lineTo(r * 0.55, -r + 1);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Player badge
   ctx.fillStyle = 'rgba(255,255,255,0.88)';
   ctx.font = 'bold 8px "JetBrains Mono", monospace';
@@ -668,24 +789,33 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
     ctx.restore();
   }
 
-  // Held Razor Blade when armed
+  // Orbiting Blade Strike Orb when armed (distinct halo orb so it never looks like a stray held sword)
   if (p.state === 'alive' && p.hasKnife) {
+    const orbAng = now / 170;
+    const orbDist = r + 13;
+    const ox = Math.cos(orbAng) * orbDist;
+    const oy = Math.sin(orbAng) * orbDist;
+    const orbColor = p.empoweredStrike ? '#fde047' : p.color;
+
     ctx.save();
-    ctx.rotate(p.facingAngle);
-    // Guard
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(r - 2, -5, 4, 10);
-    // Razor steel + energy edge
-    ctx.fillStyle = '#f8fafc';
+    ctx.strokeStyle = orbColor;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([4, 5]);
     ctx.beginPath();
-    ctx.moveTo(r + 2, -4.5);
-    ctx.lineTo(r + 27, 0);
-    ctx.lineTo(r + 2, 4.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = p.empoweredStrike ? '#fde047' : p.color;
-    ctx.lineWidth = 1.8;
+    ctx.arc(0, 0, orbDist, orbAng, orbAng + Math.PI * 1.35);
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.globalAlpha = 0.98;
+    ctx.fillStyle = orbColor;
+    ctx.beginPath();
+    ctx.arc(ox, oy, 6.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(ox, oy, 2.7, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -736,15 +866,16 @@ function drawHeroSprite(ctx: CanvasRenderingContext2D, p: Player, now: number) {
   }
 
   // Player Nameplate above character
-  const displayName = (p.name || `P${p.id}`).slice(0, 14);
+  const baseName = (p.name || `P${p.id}`).slice(0, 14);
+  const displayName = p.isBot ? `[BOT] ${baseName}` : baseName;
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 9px "JetBrains Mono", monospace';
-  const nameY = p.y - (p.sealed ? 26 : 12);
+  const nameY = p.y - (p.sealed ? 26 : 16);
   ctx.strokeStyle = '#020617';
   ctx.lineWidth = 3.5;
   ctx.strokeText(displayName, cx, nameY);
-  ctx.fillStyle = p.state === 'down' ? '#fda4af' : p.id === 1 ? '#ffffff' : '#e2e8f0';
+  ctx.fillStyle = p.state === 'down' ? '#fda4af' : p.isBot ? '#67e8f9' : p.id === 1 ? '#ffffff' : '#e2e8f0';
   ctx.fillText(displayName, cx, nameY);
   ctx.restore();
 }
@@ -2536,8 +2667,8 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
         refX,
         refY,
         g.accent,
-        g.isNextFloorPortal ? '⬇' : g.roomType === 'boss' ? '☠' : g.roomType === 'shop' ? '$' : g.roomType === 'treasure' ? '◈' : '⛩',
-        g.isNextFloorPortal ? 'FLOOR+' : g.dir.toUpperCase(),
+        g.isNextFloorPortal || g.isStairsDown ? '⬇' : g.roomType === 'boss' ? '☠' : g.roomType === 'shop' ? '$' : g.roomType === 'treasure' ? '◈' : '⛩',
+        g.isNextFloorPortal ? 'FLOOR+' : g.isStairsDown ? 'STAIRS' : g.dir.toUpperCase(),
         rt,
         now
       );
@@ -2783,7 +2914,11 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     const maxT = rt.boss.channelMaxTimer || 3.5;
     const frac = 1 - Math.max(0, Math.min(1, (rt.boss.channelTimer || 0) / maxT));
     const hasTank = rt.players.some(
-      (pl) => pl.state === 'alive' && (rt.isOnlineCampaign ? pl.weapon === 'tank_shield' : pl.heroClass === 'vanguard')
+      (pl) =>
+        pl.state === 'alive' &&
+        (rt.isOnlineCampaign || rt.isTeamworkPractice
+          ? pl.weapon === 'tank_shield'
+          : pl.heroClass === 'vanguard')
     );
 
     ctx.save();
@@ -2833,10 +2968,10 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
     } else if (rt.boss.channelKind === 'cursed_floor') {
       const sx = rt.boss.channelSafeX ?? rt.arenaWidth * 0.5;
       const sy = rt.boss.channelSafeY ?? rt.arenaHeight * 0.66;
-      const sr = rt.boss.channelSafeR ?? 92;
+      const sr = rt.boss.channelSafeR ?? 98;
 
-      // Entire arena floor danger except the single tiny Safe Island cut-out
-      ctx.fillStyle = `rgba(220, 38, 38, ${0.18 + frac * 0.34})`;
+      // Entire arena floor burns molten magma except the single tiny Safe Island cut-out
+      ctx.fillStyle = `rgba(220, 38, 38, ${0.22 + frac * 0.28})`;
       ctx.beginPath();
       ctx.rect(0, 0, rt.arenaWidth, rt.arenaHeight);
       ctx.moveTo(sx + sr, sy);
@@ -2844,7 +2979,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.fill('evenodd');
 
       // Cramped Safe Island emerald highlight
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
       ctx.beginPath();
       ctx.arc(sx, sy, sr, 0, Math.PI * 2);
       ctx.fill();
@@ -2858,9 +2993,9 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.strokeStyle = '#fde047';
       ctx.lineWidth = 2.5;
       ctx.setLineDash([8, 6]);
-      ctx.lineDashOffset = -(now / 26);
+      ctx.lineDashOffset = -(now / 24);
       ctx.beginPath();
-      ctx.arc(sx, sy, sr - 7, 0, Math.PI * 2);
+      ctx.arc(sx, sy, sr - 8, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -2868,31 +3003,195 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.font = 'bold 9px "Press Start 2P", monospace';
       ctx.strokeStyle = '#020617';
       ctx.lineWidth = 3.5;
-      const islandText = hasTank ? 'SAFE ISLAND · TANK SHIELD [E] FRONT' : 'SAFE ISLAND · DODGE SHOTS HARD';
+      const islandText = hasTank
+        ? 'ONLY SAFE ISLAND! · TANK [E] SHIELD BARRAGE!'
+        : 'ONLY SAFE ISLAND! · DODGE RAPID SHOTS!';
       ctx.strokeText(islandText, sx, sy - sr - 12);
       ctx.fillStyle = '#6ee7b7';
       ctx.fillText(islandText, sx, sy - sr - 12);
-    } else if (rt.boss.channelKind === 'sync_seals' && rt.boss.channelNodes) {
-      for (const node of rt.boss.channelNodes) {
-        const active = node.activated;
-        ctx.fillStyle = active ? 'rgba(52, 211, 153, 0.26)' : 'rgba(251, 191, 36, 0.16)';
+    } else if (rt.boss.channelKind === 'gravity_storm') {
+      // Swirling Gravity Vortex + Crimson Core Implosion Ring
+      const maxPullR = 360;
+      const pulse = 0.65 + Math.sin(now / 75) * 0.25;
+      ctx.fillStyle = `rgba(147, 51, 234, ${0.12 + frac * 0.16})`;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, maxPullR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core blast zone at 0s (155px radius)
+      ctx.fillStyle = `rgba(225, 29, 72, ${0.16 + frac * 0.24})`;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, 155, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(251, 113, 133, ${0.7 + pulse * 0.25})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, 155, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Concentric inward-spinning vortex rings
+      for (let rIdx = 0; rIdx < 3; rIdx++) {
+        const ringR = 195 + rIdx * 65 - ((now / 12 + rIdx * 28) % 65);
+        ctx.strokeStyle = `rgba(192, 132, 252, ${0.55 - rIdx * 0.12})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([12, 10]);
+        ctx.lineDashOffset = now / 22;
+        ctx.beginPath();
+        ctx.arc(bcx, bcy, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const gravMsg = 'GRAVITY VORTEX · DASH OUT OF CORE!';
+      ctx.strokeText(gravMsg, bcx, bcy - 168);
+      ctx.fillStyle = '#e9d5ff';
+      ctx.fillText(gravMsg, bcx, bcy - 168);
+    } else if (rt.boss.channelKind === 'hunter_mark') {
+      const target =
+        rt.players.find((pl) => pl.id === rt.boss.channelTargetPlayerId && pl.state === 'alive') ||
+        rt.players.find((pl) => pl.state === 'alive');
+      if (target) {
+        const tcx = target.x + target.size / 2;
+        const tcy = target.y + target.size / 2;
+        const pulse = 0.65 + Math.sin(now / 65) * 0.35;
+
+        // Crimson sniper lock beam
+        ctx.strokeStyle = `rgba(244, 63, 94, ${0.4 + frac * 0.55})`;
+        ctx.lineWidth = 3 + frac * 4;
+        ctx.setLineDash([14, 6]);
+        ctx.lineDashOffset = -(now / 18);
+        ctx.beginPath();
+        ctx.moveTo(bcx, bcy);
+        ctx.lineTo(tcx, tcy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Crosshair reticle around marked ally
+        ctx.strokeStyle = `rgba(251, 113, 133, ${pulse})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(tcx, tcy, 30 - frac * 8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 9px "Press Start 2P", monospace';
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3.5;
+        const markMsg = hasTank
+          ? 'MARKED! · TANK [E] INTERCEPT BEAM!'
+          : 'HUNTED! · STAGGER BOSS OR DASH!';
+        ctx.strokeText(markMsg, tcx, tcy - 38);
+        ctx.fillStyle = '#fda4af';
+        ctx.fillText(markMsg, tcx, tcy - 38);
+      }
+    } else if (rt.boss.channelKind === 'overload_pylons' && rt.boss.channelNodes) {
+      rt.boss.channelNodes.forEach((node, idx) => {
+        const pulse = 0.72 + Math.sin(now / 75 + idx) * 0.25;
+        ctx.strokeStyle = node.activated ? 'rgba(52, 211, 153, 0.9)' : 'rgba(34, 211, 238, 0.75)';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([10, 6]);
+        ctx.lineDashOffset = -(now / 22);
+        ctx.beginPath();
+        ctx.moveTo(bcx, bcy);
+        ctx.lineTo(node.x, node.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = node.activated ? 'rgba(16, 185, 129, 0.28)' : 'rgba(6, 182, 212, 0.16)';
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = active ? '#34d399' : '#fbbf24';
-        ctx.lineWidth = active ? 4 : 3;
+        ctx.strokeStyle = node.activated ? '#34d399' : `rgba(34, 211, 238, ${pulse})`;
+        ctx.lineWidth = node.activated ? 4.5 : 3;
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Tether from seal to boss
-        ctx.strokeStyle = active ? 'rgba(52, 211, 153, 0.72)' : 'rgba(251, 191, 36, 0.35)';
-        ctx.lineWidth = active ? 3 : 1.5;
-        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = node.activated ? '#a7f3d0' : '#fbbf24';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(node.x, node.y);
-        ctx.lineTo(bcx, bcy);
+        ctx.arc(node.x, node.y, Math.max(12, node.r * (1 - frac)), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 9px "Press Start 2P", monospace';
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3.5;
+        const nLabel = node.activated ? `PYLON ${idx + 1} LOCKED!` : `STAND PYLON ${idx + 1}!`;
+        ctx.strokeText(nLabel, node.x, node.y - node.r - 10);
+        ctx.fillStyle = node.activated ? '#6ee7b7' : '#67e8f9';
+        ctx.fillText(nLabel, node.x, node.y - node.r - 10);
+      });
+    } else if (rt.boss.channelKind === 'abyss_tether' && rt.boss.channelTetherPair) {
+      const [idA, idB] = rt.boss.channelTetherPair;
+      const pA = rt.players.find((pl) => pl.id === idA && pl.state === 'alive');
+      const pB = idB !== idA ? rt.players.find((pl) => pl.id === idB && pl.state === 'alive') : undefined;
+      if (pA) {
+        const ax = pA.x + pA.size / 2;
+        const ay = pA.y + pA.size / 2;
+        const bxT = pB ? pB.x + pB.size / 2 : bcx;
+        const byT = pB ? pB.y + pB.size / 2 : bcy;
+        const dist = Math.round(Math.hypot(bxT - ax, byT - ay));
+
+        // Crackling jagged tether beam
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        const segs = 9;
+        for (let s = 1; s < segs; s++) {
+          const t = s / segs;
+          const jitter = Math.sin(now / 35 + s * 2.4) * 10;
+          const nx = ax + (bxT - ax) * t;
+          const ny = ay + (byT - ay) * t;
+          const ang = Math.atan2(byT - ay, bxT - ax) + Math.PI / 2;
+          ctx.lineTo(nx + Math.cos(ang) * jitter, ny + Math.sin(ang) * jitter);
+        }
+        ctx.lineTo(bxT, byT);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#f0abfc';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 28, 0, Math.PI * 2);
+        if (pB) {
+          ctx.moveTo(bxT + 28, byT);
+          ctx.arc(bxT, byT, 28, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+
+        const mx = (ax + bxT) / 2;
+        const my = (ay + byT) / 2 - 14;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 9px "Press Start 2P", monospace';
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3.5;
+        const tMsg = `SNAP >340px (${dist}px)`;
+        ctx.strokeText(tMsg, mx, my);
+        ctx.fillStyle = dist >= 280 ? '#6ee7b7' : '#e879f9';
+        ctx.fillText(tMsg, mx, my);
+      }
+    } else if (rt.boss.channelKind === 'demon_seal_purge') {
+      rt.players.forEach((pl) => {
+        if (pl.state !== 'alive' || !pl.sealed) return;
+        const px = pl.x + pl.size / 2;
+        const py = pl.y + pl.size / 2;
+        ctx.fillStyle = `rgba(249, 115, 22, ${0.22 + frac * 0.25})`;
+        ctx.beginPath();
+        ctx.arc(px, py, 44, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#fb923c';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 5]);
+        ctx.lineDashOffset = -(now / 20);
+        ctx.beginPath();
+        ctx.arc(px, py, 44, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
 
@@ -2900,11 +3199,59 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         ctx.font = 'bold 9px "Press Start 2P", monospace';
         ctx.strokeStyle = '#020617';
         ctx.lineWidth = 3.5;
-        const lbl = active ? 'SEAL LOCKED!' : 'STEP HERE!';
-        ctx.strokeText(lbl, node.x, node.y - node.r - 10);
-        ctx.fillStyle = active ? '#6ee7b7' : '#fde047';
-        ctx.fillText(lbl, node.x, node.y - node.r - 10);
-      }
+        const sMsg = hasTank ? 'SEALED! · TANK [E] PURGE!' : 'SEALED! · ALLY TOUCH RESCUE!';
+        ctx.strokeText(sMsg, px, py - 48);
+        ctx.fillStyle = '#fdba74';
+        ctx.fillText(sMsg, px, py - 48);
+      });
+    } else if (rt.boss.channelKind === 'meteor_soak') {
+      const sx = rt.boss.channelSafeX ?? rt.arenaWidth * 0.5;
+      const sy = rt.boss.channelSafeY ?? rt.arenaHeight * 0.7;
+      const sr = rt.boss.channelSafeR ?? 142;
+      const insidePlayers = rt.players.filter(
+        (pl) => pl.state === 'alive' && Math.hypot(pl.x + pl.size / 2 - sx, pl.y + pl.size / 2 - sy) <= sr + 14
+      );
+      const hasAegisInside = insidePlayers.some(
+        (pl) =>
+          pl.frontShieldTimer > 0 ||
+          rt.skillZones.some(
+            (z) =>
+              (z.kind === 'sanctuary_dome' || z.kind === 'aegis_beacon') &&
+              Math.hypot(pl.x + pl.size / 2 - z.x, pl.y + pl.size / 2 - z.y) <= z.radius + 16
+          )
+      );
+
+      ctx.fillStyle = hasAegisInside
+        ? 'rgba(56, 189, 248, 0.22)'
+        : insidePlayers.length >= 2
+        ? 'rgba(251, 191, 36, 0.22)'
+        : 'rgba(239, 68, 68, 0.22)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Contracting meteor drop ring
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.24)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.max(18, sr * frac), 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = hasAegisInside ? '#38bdf8' : insidePlayers.length >= 2 ? '#fde047' : '#f43f5e';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const soakText = hasAegisInside
+        ? `AEGIS SOAK READY (0 DMG) · ${insidePlayers.length} IN`
+        : `STACK IN METEOR RING! (${insidePlayers.length} IN · ${Math.round(68 / Math.max(1, insidePlayers.length))} DMG EA)`;
+      ctx.strokeText(soakText, sx, sy - sr - 12);
+      ctx.fillStyle = hasAegisInside ? '#7dd3fc' : insidePlayers.length >= 2 ? '#fde047' : '#fda4af';
+      ctx.fillText(soakText, sx, sy - sr - 12);
     }
     ctx.restore();
   }
@@ -3038,6 +3385,16 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
           ctx.beginPath();
           ctx.roundRect(g.x + 8, g.y + 8, g.width - 16, g.height - 16, 999);
           ctx.stroke();
+        } else if (g.isStairsDown) {
+          ctx.setLineDash([]);
+          ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
+          // Crisp descending stone stair steps
+          for (let s = 0; s < 4; s++) {
+            const sy = g.y + 10 + s * Math.max(6, (g.height - 20) / 4);
+            const inset = 9 + s * 4;
+            ctx.fillStyle = s % 2 === 0 ? 'rgba(192, 132, 252, 0.55)' : 'rgba(147, 51, 234, 0.45)';
+            ctx.fillRect(g.x + inset, sy, Math.max(10, g.width - inset * 2), 4.5);
+          }
         } else {
           ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
         }
@@ -3071,7 +3428,13 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         ctx.font = 'bold 9px "Press Start 2P", monospace';
         ctx.strokeStyle = '#020617';
         ctx.lineWidth = 4;
-        const tagSuffix = g.clearedTarget ? ' [✓]' : g.visitedTarget ? ' [•]' : '';
+        const tagSuffix = g.isStairsDown
+          ? ' [STAIRS]'
+          : g.clearedTarget
+          ? ' [✓]'
+          : g.visitedTarget
+          ? ' [•]'
+          : '';
         const titleTxt = `${g.label}${tagSuffix}`;
         ctx.strokeText(titleTxt, tx, ty);
         ctx.fillStyle = g.accent;
@@ -3086,91 +3449,89 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       });
     }
 
-    // 2. Merchant Shop Shrine & Item Pedestals
-    if (rt.shopItems.length > 0) {
-      const mcx = rt.arenaWidth / 2;
-      const mcy = rt.arenaHeight / 2 - 90;
+    // 2. Interactive Merchant NPC (Gilded Broker Vex)
+    if (rt.shopNpc) {
+      const npc = rt.shopNpc;
+      const pulse = 0.75 + Math.sin(now / 210) * 0.25;
+      const nearby = rt.players.some(
+        (pl) =>
+          pl.state === 'alive' &&
+          Math.hypot(pl.x + pl.size / 2 - npc.x, pl.y + pl.size / 2 - npc.y) <= npc.radius + 32
+      );
+
       ctx.save();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(251, 191, 36, 0.12)';
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.45)';
-      ctx.lineWidth = 2;
+      // Velvet merchant rug & lantern aura
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.36)';
+      ctx.strokeStyle = nearby ? '#fde047' : '#fbbf24';
+      ctx.lineWidth = nearby ? 3 : 2;
       ctx.beginPath();
-      ctx.roundRect(mcx - 165, mcy - 26, 330, 52, 8);
+      ctx.roundRect(npc.x - 95, npc.y - 44, 190, 94, 10);
       ctx.fill();
       ctx.stroke();
 
-      ctx.font = 'bold 12px "Press Start 2P", monospace';
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.12 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(npc.x, npc.y, npc.radius + 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Interaction radius dashed ring
+      ctx.strokeStyle = nearby ? 'rgba(253, 224, 71, 0.75)' : 'rgba(251, 191, 36, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 6]);
+      ctx.lineDashOffset = -(now / 35);
+      ctx.beginPath();
+      ctx.arc(npc.x, npc.y, npc.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Stall table & wares icons
+      ctx.fillStyle = '#451a03';
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(npc.x - 54, npc.y + 12, 108, 22, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Hooded Merchant Sprite (Vex)
+      ctx.fillStyle = '#312e81';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(npc.x, npc.y - 8, 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Glowing golden merchant eyes
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(npc.x - 6, npc.y - 10, 4, 4);
+      ctx.fillRect(npc.x + 2, npc.y - 10, 4, 4);
+
+      // Tiny wares displayed on wooden counter
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillText('⚗', npc.x - 32, npc.y + 27);
+      ctx.fillStyle = '#c084fc';
+      ctx.fillText('✦', npc.x, npc.y + 27);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('⚔', npc.x + 32, npc.y + 27);
+
+      // Nameplate & Interactive Prompt
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 4;
+      ctx.strokeText(npc.name.toUpperCase(), npc.x, npc.y - 54);
       ctx.fillStyle = '#fbbf24';
-      ctx.fillText('MERCHANT OUTPOST', mcx, mcy - 2);
+      ctx.fillText(npc.name.toUpperCase(), npc.x, npc.y - 54);
+
+      const promptTxt = nearby ? '[E] TALK TO MERCHANT (OPEN SHOP)' : 'WALK NEAR VEX & PRESS [E]';
       ctx.font = 'bold 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText('STAND ON PEDESTAL OR PRESS [E] TO PURCHASE', mcx, mcy + 16);
+      ctx.strokeText(promptTxt, npc.x, npc.y + 64);
+      ctx.fillStyle = nearby ? '#6ee7b7' : '#e2e8f0';
+      ctx.fillText(promptTxt, npc.x, npc.y + 64);
       ctx.restore();
-
-      rt.shopItems.forEach((item) => {
-        ctx.save();
-        const soldOut = Boolean(item.globalSold);
-        ctx.globalAlpha = soldOut ? 0.35 : 1;
-
-        ctx.fillStyle = '#090d16';
-        ctx.strokeStyle = item.accent;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(item.x, item.y, item.size * 0.72, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        // Radial buy charge if any player is standing on pedestal
-        let maxProg = 0;
-        rt.players.forEach((pl) => {
-          const val = rt.shopBuyTimers[`${pl.id}-${item.id}`] || 0;
-          if (val > maxProg) maxProg = val;
-        });
-        if (maxProg > 0) {
-          ctx.strokeStyle = '#34d399';
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.arc(item.x, item.y, item.size * 0.85, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (maxProg / 0.65));
-          ctx.stroke();
-        }
-
-        const icon =
-          item.kind === 'potion'
-            ? '♥'
-            : item.kind === 'potion_pack'
-            ? '⚗'
-            : item.kind === 'max_hp'
-            ? '✚'
-            : item.kind === 'shield'
-            ? '⛨'
-            : item.kind === 'skill_scroll'
-            ? '✦'
-            : '⚔';
-        ctx.fillStyle = item.accent;
-        ctx.font = 'bold 18px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(icon, item.x, item.y + 1);
-        ctx.textBaseline = 'alphabetic';
-
-        ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        ctx.strokeStyle = '#020617';
-        ctx.lineWidth = 3.5;
-        ctx.strokeText(item.label, item.x, item.y - 36);
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillText(item.label, item.x, item.y - 36);
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillText(item.subLabel, item.x, item.y + 42);
-
-        const priceTag = soldOut ? 'SOLD OUT' : `${item.cost}g`;
-        ctx.fillStyle = soldOut ? '#64748b' : '#fbbf24';
-        ctx.font = 'bold 10px "Press Start 2P", monospace';
-        ctx.strokeText(priceTag, item.x, item.y + 58);
-        ctx.fillText(priceTag, item.x, item.y + 58);
-        ctx.restore();
-      });
     }
 
     // 3. Treasure Chests
@@ -3297,11 +3658,14 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       ctx.fillRect(sd.x - 6, sy, 12, 2.5);
       ctx.fillRect(sd.x - 6, sy + 5, 8, 2.5);
 
+      const slotKey = sd.skillSlot === 2 ? 'Q' : sd.skillSlot === 3 ? 'R' : 'F';
+      const skName = wDef?.skills[sd.skillSlot - 1]?.shortName || `S${sd.skillSlot}`;
+
       ctx.textAlign = 'center';
       ctx.font = 'bold 9px "Press Start 2P", monospace';
       ctx.strokeStyle = '#020617';
       ctx.lineWidth = 3.5;
-      const topTag = `${wShort} SCROLL`;
+      const topTag = `${wShort} [${slotKey}] SCROLL`;
       ctx.strokeText(topTag, sd.x, sy - 23);
       ctx.fillStyle = scrollCol;
       ctx.fillText(topTag, sd.x, sy - 23);
@@ -3310,9 +3674,9 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
         (pl) =>
           pl.state === 'alive' &&
           pl.weapon === sd.targetWeapon &&
-          (pl.weaponSkillTiers[sd.targetWeapon] ?? pl.unlockedSkillTier) < 4
+          !(pl.learnedSkills?.[sd.targetWeapon] || [1]).includes(sd.skillSlot)
       );
-      const subHint = holderNeedsIt ? `FOR ${wShort} USER` : `LEARN ${wShort} SKILL`;
+      const subHint = holderNeedsIt ? `${skName.toUpperCase()} · BAG [I]` : `STORE IN BAG [I]`;
       ctx.font = 'bold 8px "JetBrains Mono", monospace';
       ctx.strokeText(subHint, sd.x, sy + 28);
       ctx.fillStyle = '#fde68a';
@@ -3605,10 +3969,16 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
       } else {
         const ringColor =
           rt.boss.channelKind === 'siege_beam'
-            ? '#f43f5e'
-            : rt.boss.channelKind === 'cursed_floor'
+            ? '#38bdf8'
+            : rt.boss.channelKind === 'cursed_floor' || rt.boss.channelKind === 'meteor_soak'
             ? '#fbbf24'
-            : '#34d399';
+            : rt.boss.channelKind === 'overload_pylons'
+            ? '#22d3ee'
+            : rt.boss.channelKind === 'abyss_tether' || rt.boss.channelKind === 'gravity_storm'
+            ? '#c084fc'
+            : rt.boss.channelKind === 'demon_seal_purge'
+            ? '#fb923c'
+            : '#f43f5e';
         ctx.strokeStyle = ringColor;
         ctx.lineWidth = 3.5;
         ctx.beginPath();

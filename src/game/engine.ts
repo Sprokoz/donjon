@@ -2652,10 +2652,10 @@ function spawnRoomChest(
   const cy = Math.max(120, Math.min(rt.arenaHeight - 120, y));
 
   const basePerPlayer =
-    (rewardKind === 'coins' || rewardKind === 'treasure' ? 24 : 14) +
-    Math.floor(Math.random() * 4) * 5 +
-    Math.min(24, rt.roomDepth * 3) +
-    Math.max(0, rt.loopLevel - 1) * 14;
+    (rewardKind === 'treasure' ? 16 : rewardKind === 'coins' ? 10 : 6) +
+    Math.floor(Math.random() * 3) * 2 +
+    Math.min(10, Math.floor(rt.roomDepth * 1.2)) +
+    Math.max(0, rt.loopLevel - 1) * 6;
 
   // Scrolls are genuinely RARE (6% on combat chests, 18% on vault chests)
   const scrollRollChance = rewardKind === 'treasure' ? 0.18 : 0.06;
@@ -2997,7 +2997,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'potion',
       label: 'CRIMSON FLASK (MAX 2)',
       subLabel: '+35 HP & +1 BAG FLASK (90s CD)',
-      cost: 34,
+      cost: 65,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -3009,7 +3009,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'potion_pack',
       label: 'SANGUINE DRAUGHT',
       subLabel: 'RESTORE +65 HP INSTANTLY',
-      cost: 38,
+      cost: 60,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -3021,7 +3021,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'max_hp',
       label: 'VITALITY TONIC',
       subLabel: '+20 MAX HP & +35 HP',
-      cost: 56,
+      cost: 95,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -3033,7 +3033,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'shield',
       label: 'AEGIS SHIELD CORE',
       subLabel: 'REACTIVE ENERGY SHIELD',
-      cost: 42,
+      cost: 75,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -3049,7 +3049,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'skill_scroll',
       label: `${defA.shortTag} [${skA.keyLabel}] SCROLL`,
       subLabel: `LEARN: ${skA.name.toUpperCase()}`,
-      cost: 80,
+      cost: 145,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -3067,7 +3067,7 @@ function spawnShopItems(rt: GameRuntime) {
       kind: 'weapon_crate',
       label: `ARMORY: ${WEAPONS_CATALOG.find((w) => w.id === crateWeapon)?.shortTag || 'WEAPON'}`,
       subLabel: 'DROPS WEAPON FOR PARTY',
-      cost: 85,
+      cost: 135,
       x: npc.x,
       y: npc.y,
       size: 36,
@@ -8425,7 +8425,7 @@ function damageEnemy(
 
   if (e.isElite && rt.isOnlineCampaign && !rt.isTutorial) {
     const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
-    const perPlayer = Math.max(10, Math.round(28 / Math.max(1, activeParty.length)));
+    const perPlayer = Math.max(5, Math.round(14 / Math.max(1, activeParty.length)));
     activeParty.forEach((pl) => {
       pl.coins += perPlayer;
     });
@@ -9579,7 +9579,7 @@ export function stepGame(
         soundEngine.playBoonSelect();
         rt.energyWaves.push({ x: ch.x, y: ch.y, radius: 10, maxRadius: 150, alpha: 0.9, speed: 340, color: '#fbbf24' });
         const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
-        const perPlayer = Math.max(8, Math.round((ch.coinsTotal || 36) / Math.max(1, activeParty.length)));
+        const perPlayer = Math.max(4, Math.round((ch.coinsTotal || 14) / Math.max(1, activeParty.length)));
         activeParty.forEach((pl) => {
           pl.coins += perPlayer;
         });
@@ -9860,7 +9860,7 @@ export function stepGame(
             pl.invulnerable = false;
             pl.invulnFrames = 1.5;
             pl.hp = Math.min(pl.maxHp, pl.hp + 30);
-            pl.coins += 35 + Math.max(0, rt.loopLevel - 1) * 15;
+            pl.coins += 18 + Math.max(0, rt.loopLevel - 1) * 8;
           }
         });
         spawnRoomChest(rt, cx - 55, cy, 'weapon');

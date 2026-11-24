@@ -46,6 +46,7 @@ import {
   usePlayerPotion,
 } from './game/engine';
 import {
+  advanceGuestDisplayRuntime,
   applySyncedSnapshotToGuest,
   buildFloorMapSnapshot,
   CoopMode,
@@ -239,6 +240,8 @@ export default function App() {
   const guestFloorCacheRef = useRef<GuestFloorMapCache | null>(null);
   const hostSentFloorRevRef = useRef<number>(-1);
   const latestGuestSnapRef = useRef<SyncedRuntimeSnapshot | null>(null);
+  const guestSnapSeqRef = useRef<number>(0);
+  const guestAppliedSeqRef = useRef<number>(0);
   const remoteInputsRef = useRef<Record<number, TouchInputState>>({});
   const pendingSfxRef = useRef<SfxSyncEvent[]>([]);
 
@@ -469,6 +472,8 @@ export default function App() {
     pendingSfxRef.current = [];
     remoteInputsRef.current = {};
     latestGuestSnapRef.current = null;
+    guestSnapSeqRef.current = 0;
+    guestAppliedSeqRef.current = 0;
     guestDisplayRtRef.current = null;
     guestFloorCacheRef.current = null;
     hostSentFloorRevRef.current = -1;
@@ -973,6 +978,7 @@ export default function App() {
         };
       } else if (msg.type === 'sync') {
         latestGuestSnapRef.current = msg.snap;
+        guestSnapSeqRef.current += 1;
         if (msg.snap.floorMap) {
           guestFloorCacheRef.current = {
             rev: msg.snap.floorMapRev,
@@ -1005,6 +1011,7 @@ export default function App() {
           setPausedBy(undefined);
           if (screenRef.current === 'HERO_SETUP') {
             guestDisplayRtRef.current = null;
+            guestAppliedSeqRef.current = 0;
           }
           setScreen('PLAYING');
         } else if (msg.screen === 'PAUSED') {
@@ -1377,12 +1384,14 @@ export default function App() {
       const role = activeOnlineRoleRef.current;
 
       if (role === 'guest') {
-        // Guest thin-client: stream inputs & render 60fps interpolated Host snapshots
+        // Guest thin-client: stream inputs immediately & run 60/120fps client prediction + interpolation
         const uiModalOpen = showControlsModal || showCheatsModal || showInventoryModalRef.current || showShopModalRef.current;
-        if (screenRef.current === 'PLAYING') {
-          const curInput: TouchInputState = uiModalOpen
+        const curInput: TouchInputState =
+          screenRef.current !== 'PLAYING' || uiModalOpen
             ? { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false, usePotion: false }
             : readLocalGuestInput(keysRef.current, controlsRef.current, touchInputRef.current);
+
+        if (screenRef.current === 'PLAYING') {
           const changed =
             Math.abs(curInput.x - lastSentGuestInput.x) > 0.02 ||
             Math.abs(curInput.y - lastSentGuestInput.y) > 0.02 ||
@@ -1393,7 +1402,7 @@ export default function App() {
             Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4) ||
             Boolean(curInput.usePotion) !== Boolean(lastSentGuestInput.usePotion);
           guestInputHeartbeatAccum += dt;
-          if (changed || guestInputHeartbeatAccum >= 0.035) {
+          if (changed || guestInputHeartbeatAccum >= 0.15) {
             guestInputHeartbeatAccum = 0;
             lastSentGuestInput = curInput;
             onlineSessionRef.current?.send({ type: 'input', input: curInput });
@@ -1402,22 +1411,34 @@ export default function App() {
 
         const latestSnap = latestGuestSnapRef.current;
         if (latestSnap) {
-          const myPing = pingByPlayerRef.current[localPlayerIdRef.current] ?? null;
-          const displayRt = applySyncedSnapshotToGuest(
-            guestDisplayRtRef.current,
-            latestSnap,
-            dt,
-            guestFloorCacheRef.current,
-            myPing
-          );
-          guestDisplayRtRef.current = displayRt;
-          if (ctx) {
-            renderGame(ctx, displayRt);
+          const hasNewSnap = guestAppliedSeqRef.current !== guestSnapSeqRef.current || !guestDisplayRtRef.current;
+          let displayRt = guestDisplayRtRef.current;
+          if (hasNewSnap) {
+            guestAppliedSeqRef.current = guestSnapSeqRef.current;
+            const myPing = pingByPlayerRef.current[localPlayerIdRef.current] ?? null;
+            displayRt = applySyncedSnapshotToGuest(
+              displayRt,
+              latestSnap,
+              dt,
+              guestFloorCacheRef.current,
+              myPing,
+              localPlayerIdRef.current,
+              curInput
+            );
+            guestDisplayRtRef.current = displayRt;
+          } else if (displayRt) {
+            advanceGuestDisplayRuntime(displayRt, dt, localPlayerIdRef.current, curInput);
           }
-          hudSyncAccum += dt;
-          if (hudSyncAccum >= 0.09) {
-            hudSyncAccum = 0;
-            setHud(extractHudSnapshot(displayRt));
+
+          if (displayRt) {
+            if (ctx) {
+              renderGame(ctx, displayRt);
+            }
+            hudSyncAccum += dt;
+            if (hudSyncAccum >= 0.12) {
+              hudSyncAccum = 0;
+              setHud(extractHudSnapshot(displayRt));
+            }
           }
         }
       } else {
@@ -1474,7 +1495,7 @@ export default function App() {
               }
             } else {
               hudSyncAccum += dt;
-              if (hudSyncAccum >= 0.09) {
+              if (hudSyncAccum >= 0.11) {
                 hudSyncAccum = 0;
                 setHud(extractHudSnapshot(rt));
               }
@@ -1492,15 +1513,22 @@ export default function App() {
                     });
                   }
                 }
+                const entityLoad = rt.bossProjectiles.length + rt.enemies.length + rt.playerProjectiles.length;
+                const syncInterval = entityLoad > 45 ? 0.045 : 0.033;
                 netSyncAccum += dt;
-                if (netSyncAccum >= 0.033) {
+                if (netSyncAccum >= syncInterval) {
                   netSyncAccum = 0;
-                  const sfx = pendingSfxRef.current.splice(0);
-                  onlineSessionRef.current.send({
+                  const sfx = pendingSfxRef.current.slice(0);
+                  const sent = onlineSessionRef.current.send({
                     type: 'sync',
                     snap: serializeRuntimeForSync(rt),
                     sfx,
                   });
+                  if (sent) {
+                    pendingSfxRef.current.splice(0, sfx.length);
+                  } else if (pendingSfxRef.current.length > 24) {
+                    pendingSfxRef.current.splice(0, pendingSfxRef.current.length - 12);
+                  }
                 }
               }
             }

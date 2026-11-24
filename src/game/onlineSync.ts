@@ -332,6 +332,10 @@ export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | nu
   };
 }
 
+function r0(n: number): number {
+  return Math.round(n);
+}
+
 function r1(n: number): number {
   return Math.round(n * 10) / 10;
 }
@@ -344,8 +348,13 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
   const playerCombos: Record<number, { count: number; timer: number }> = {};
   for (const k of Object.keys(rt.playerCombos)) {
     const id = Number(k);
-    playerCombos[id] = { ...rt.playerCombos[id] };
+    const c = rt.playerCombos[id];
+    if (c && (c.count > 0 || c.timer > 0)) {
+      playerCombos[id] = { count: c.count, timer: r1(c.timer) };
+    }
   }
+
+  const b = rt.boss;
 
   return {
     difficulty: rt.difficulty,
@@ -362,10 +371,34 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     currentRoomKey: rt.currentRoomKey,
     floorMapRev: rt.floorMapRev,
     bossesDefeatedCount: rt.bossesDefeatedCount,
-    chests: rt.chests.map((c) => ({ ...c })),
-    weaponDrops: rt.weaponDrops.map((w) => ({ ...w, bob: r2(w.bob), swapLockTimer: r2(w.swapLockTimer) })),
-    scrollDrops: rt.scrollDrops.map((sd) => ({ ...sd, bob: r2(sd.bob), lockTimer: r2(sd.lockTimer) })),
-    skillZones: rt.skillZones.map((sz) => ({ ...sz, timer: r2(sz.timer), tickTimer: r2(sz.tickTimer) })),
+    chests: rt.chests.map((c) => ({
+      ...c,
+      x: r0(c.x),
+      y: r0(c.y),
+      openAnim: r2(c.openAnim),
+    })),
+    weaponDrops: rt.weaponDrops.map((w) => ({
+      ...w,
+      x: r0(w.x),
+      y: r0(w.y),
+      bob: r2(w.bob),
+      swapLockTimer: r2(w.swapLockTimer),
+    })),
+    scrollDrops: rt.scrollDrops.map((sd) => ({
+      ...sd,
+      x: r0(sd.x),
+      y: r0(sd.y),
+      bob: r2(sd.bob),
+      lockTimer: r2(sd.lockTimer),
+    })),
+    skillZones: rt.skillZones.map((sz) => ({
+      ...sz,
+      x: r0(sz.x),
+      y: r0(sz.y),
+      radius: r0(sz.radius),
+      timer: r2(sz.timer),
+      tickTimer: r2(sz.tickTimer),
+    })),
     gates: rt.gates.map((g) => ({
       ...g,
       playersInside: [...g.playersInside],
@@ -413,7 +446,7 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       vy: r1(p.vy),
       facingAngle: r2(p.facingAngle),
       size: p.size,
-      speed: p.speed,
+      speed: r2(p.speed),
       color: p.color,
       hasKnife: p.hasKnife,
       state: p.state,
@@ -425,9 +458,9 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       dashTime: p.dashTime,
       dashCooldown: p.dashCooldown,
       dashImmune: p.dashImmune,
-      dashTrail: p.dashTrail.map((t) => ({
-        x: r1(t.x),
-        y: r1(t.y),
+      dashTrail: p.dashTrail.slice(-3).map((t) => ({
+        x: r0(t.x),
+        y: r0(t.y),
         alpha: r2(t.alpha),
         color: t.color,
         angle: r2(t.angle),
@@ -484,21 +517,23 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       ...pp,
       x: r1(pp.x),
       y: r1(pp.y),
+      dx: r2(pp.dx),
+      dy: r2(pp.dy),
       angle: r2(pp.angle),
       lifetime: r2(pp.lifetime),
     })),
     voidDecoys: rt.voidDecoys.map((v) => ({
       ...v,
-      x: r1(v.x),
-      y: r1(v.y),
+      x: r0(v.x),
+      y: r0(v.y),
       timer: r2(v.timer),
     })),
     telegraphLines: rt.telegraphLines.map((t) => ({
       ...t,
-      x1: r1(t.x1),
-      y1: r1(t.y1),
-      x2: r1(t.x2),
-      y2: r1(t.y2),
+      x1: r0(t.x1),
+      y1: r0(t.y1),
+      x2: r0(t.x2),
+      y2: r0(t.y2),
       timer: r2(t.timer),
     })),
     knives: rt.knives.map((k) => ({
@@ -511,29 +546,42 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       ...e,
       x: r1(e.x),
       y: r1(e.y),
+      dx: r2(e.dx),
+      dy: r2(e.dy),
+      speed: r2(e.speed),
       rotation: r2(e.rotation),
+      hp: e.hp !== undefined ? r0(e.hp) : undefined,
       hitFlashTimer: e.hitFlashTimer ? r2(e.hitFlashTimer) : 0,
     })),
     boss: {
-      ...rt.boss,
-      x: r1(rt.boss.x),
-      y: r1(rt.boss.y),
-      targetX: r1(rt.boss.targetX),
-      targetY: r1(rt.boss.targetY),
-      animationTimer: r2(rt.boss.animationTimer),
-      rotationAngle: r2(rt.boss.rotationAngle),
-      flashIntensity: r2(rt.boss.flashIntensity),
-      stateTimer: r2(rt.boss.stateTimer),
-      attackTimer: r2(rt.boss.attackTimer),
-      pulseSize: r1(rt.boss.pulseSize),
-      channelTimer: rt.boss.channelTimer ? r2(rt.boss.channelTimer) : 0,
-      channelTetherPair: rt.boss.channelTetherPair ? [...rt.boss.channelTetherPair] as [PlayerId, PlayerId] : undefined,
-      channelNodes: rt.boss.channelNodes ? rt.boss.channelNodes.map((n) => ({ ...n })) : undefined,
+      ...b,
+      x: r1(b.x),
+      y: r1(b.y),
+      health: r0(b.health),
+      targetX: r1(b.targetX),
+      targetY: r1(b.targetY),
+      animationTimer: r2(b.animationTimer),
+      rotationAngle: r2(b.rotationAngle),
+      flashIntensity: r2(b.flashIntensity),
+      stateTimer: r2(b.stateTimer),
+      attackTimer: r2(b.attackTimer),
+      pulseSize: r1(b.pulseSize),
+      shakeIntensity: r1(b.shakeIntensity),
+      posture: r1(b.posture),
+      channelTimer: b.channelTimer ? r2(b.channelTimer) : 0,
+      channelAngle: b.channelAngle !== undefined ? r2(b.channelAngle) : undefined,
+      channelSafeX: b.channelSafeX !== undefined ? r0(b.channelSafeX) : undefined,
+      channelSafeY: b.channelSafeY !== undefined ? r0(b.channelSafeY) : undefined,
+      channelTetherPair: b.channelTetherPair ? ([...b.channelTetherPair] as [PlayerId, PlayerId]) : undefined,
+      channelNodes: b.channelNodes ? b.channelNodes.map((n) => ({ ...n, x: r0(n.x), y: r0(n.y) })) : undefined,
     },
     bossProjectiles: rt.bossProjectiles.map((bp) => ({
       ...bp,
       x: r1(bp.x),
       y: r1(bp.y),
+      dx: r2(bp.dx),
+      dy: r2(bp.dy),
+      speed: r2(bp.speed),
     })),
     voidTentacles: rt.voidTentacles.map((vt) => ({
       ...vt,
@@ -543,23 +591,23 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     oniShrines: rt.oniShrines.map((s) => ({ ...s })),
     oniCursedZones: rt.oniCursedZones.map((z) => ({
       ...z,
-      x: r1(z.x),
-      y: r1(z.y),
+      x: r0(z.x),
+      y: r0(z.y),
       radius: r1(z.radius),
       alpha: r2(z.alpha),
     })),
-    oniSpiritBombs: rt.oniSpiritBombs.map((b) => ({
-      ...b,
-      x: r1(b.x),
-      y: r1(b.y),
+    oniSpiritBombs: rt.oniSpiritBombs.map((bm) => ({
+      ...bm,
+      x: r1(bm.x),
+      y: r1(bm.y),
     })),
-    eclipseBeacons: rt.eclipseBeacons.map((b) => ({ ...b })),
+    eclipseBeacons: rt.eclipseBeacons.map((eb) => ({ ...eb })),
     eclipsePylons: rt.eclipsePylons.map((p) => ({ ...p })),
     eclipsePrison: rt.eclipsePrison ? { ...rt.eclipsePrison } : null,
     eclipseMirrors: rt.eclipseMirrors.map((m) => ({
       ...m,
-      x: r1(m.x),
-      y: r1(m.y),
+      x: r0(m.x),
+      y: r0(m.y),
       charge: r2(m.charge),
     })),
     eclipseMarkedBy: rt.eclipseMarkedBy,
@@ -568,44 +616,44 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     eclipseSyncTimer: r2(rt.eclipseSyncTimer),
     eclipseTetherTimer: r1(rt.eclipseTetherTimer),
     eclipseSanctuaryActive: rt.eclipseSanctuaryActive,
-    medkits: rt.medkits.map((m) => ({ ...m, bob: r2(m.bob) })),
-    relics: rt.relics.map((r) => ({ ...r, bob: r2(r.bob) })),
-    dustParticles: rt.dustParticles.slice(-12).map((d) => ({
+    medkits: rt.medkits.map((m) => ({ ...m, x: r0(m.x), y: r0(m.y), bob: r2(m.bob) })),
+    relics: rt.relics.map((r) => ({ ...r, x: r0(r.x), y: r0(r.y), bob: r2(r.bob) })),
+    dustParticles: rt.dustParticles.slice(-4).map((d) => ({
       ...d,
-      x: r1(d.x),
-      y: r1(d.y),
+      x: r0(d.x),
+      y: r0(d.y),
       alpha: r2(d.alpha),
     })),
-    deathEffects: rt.deathEffects.slice(-16).map((de) => ({
+    deathEffects: rt.deathEffects.slice(-8).map((de) => ({
       ...de,
-      x: r1(de.x),
-      y: r1(de.y),
-      radius: de.radius !== undefined ? r1(de.radius) : undefined,
+      x: r0(de.x),
+      y: r0(de.y),
+      radius: de.radius !== undefined ? r0(de.radius) : undefined,
       alpha: r2(de.alpha),
     })),
-    slashArcs: rt.slashArcs.slice(-16).map((sa) => ({
+    slashArcs: rt.slashArcs.slice(-8).map((sa) => ({
       ...sa,
-      x: r1(sa.x),
-      y: r1(sa.y),
+      x: r0(sa.x),
+      y: r0(sa.y),
       alpha: r2(sa.alpha),
     })),
-    floatingTexts: rt.floatingTexts.slice(-18).map((ft) => ({
+    floatingTexts: rt.floatingTexts.slice(-10).map((ft) => ({
       ...ft,
-      x: r1(ft.x),
-      y: r1(ft.y),
+      x: r0(ft.x),
+      y: r0(ft.y),
       alpha: r2(ft.alpha),
     })),
-    comicSlashes: rt.comicSlashes.map((cs) => ({
+    comicSlashes: rt.comicSlashes.slice(-6).map((cs) => ({
       ...cs,
       alpha: r2(cs.alpha),
     })),
-    voidRifts: rt.voidRifts.map((vr) => ({
+    voidRifts: rt.voidRifts.slice(-6).map((vr) => ({
       ...vr,
       size: r1(vr.size),
       alpha: r2(vr.alpha),
       rotation: r2(vr.rotation),
     })),
-    energyWaves: rt.energyWaves.map((ew) => ({
+    energyWaves: rt.energyWaves.slice(-6).map((ew) => ({
       ...ew,
       radius: r1(ew.radius),
       alpha: r2(ew.alpha),
@@ -745,16 +793,122 @@ export interface GuestFloorMapCache {
   floorMap: FloorMapHudSnapshot;
 }
 
+function stepLocalPredictedMovement(
+  p: Player,
+  rt: GameRuntime,
+  dt: number,
+  input?: TouchInputState
+) {
+  if (!input || p.state !== 'alive' || p.sealed || rt.introPlaying) return;
+  if (p.dashTimeLeft > 0 || p.usingDash2 || p.chargeTimer > 0) return;
+
+  let dirX = input.x;
+  let dirY = input.y;
+  const mag = Math.hypot(dirX, dirY);
+  if (mag > 1) {
+    dirX /= mag;
+    dirY /= mag;
+  }
+
+  const speedMult =
+    (p.overdriveTimer > 0 ? 1.32 : 1.0) *
+    (p.cloakTimer > 0 ? 1.26 : 1.0) *
+    (p.bloodlustTimer > 0 ? 1.3 : 1.0) *
+    (p.fortifyTimer > 0 ? 0.88 : 1.0);
+
+  const stepScale = dt * 60;
+  const vx = dirX * p.speed * speedMult * stepScale;
+  const vy = dirY * p.speed * speedMult * stepScale;
+  p.vx = vx;
+  p.vy = vy;
+  p.x = Math.max(0, Math.min(rt.arenaWidth - p.size, p.x + vx));
+  p.y = Math.max(0, Math.min(rt.arenaHeight - p.size, p.y + vy));
+  if (Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04) {
+    p.facingAngle = Math.atan2(dirY, dirX);
+    p.animTime += dt * 1.4;
+  }
+}
+
+export function advanceGuestDisplayRuntime(
+  rt: GameRuntime,
+  dt: number,
+  localPlayerId?: PlayerId,
+  localInput?: TouchInputState
+) {
+  const clampedDt = Math.max(0.002, Math.min(dt, 0.05));
+  const frameMult = clampedDt * 60;
+
+  rt.players.forEach((p) => {
+    if (p.state !== 'alive') return;
+    if (localPlayerId !== undefined && p.id === localPlayerId) {
+      stepLocalPredictedMovement(p, rt, clampedDt, localInput);
+    } else if (!rt.introPlaying) {
+      p.x = Math.max(0, Math.min(rt.arenaWidth - p.size, p.x + p.vx * frameMult * 0.72));
+      p.y = Math.max(0, Math.min(rt.arenaHeight - p.size, p.y + p.vy * frameMult * 0.72));
+      p.animTime += clampedDt;
+    }
+  });
+
+  if (!rt.introPlaying) {
+    rt.enemies.forEach((e) => {
+      if ((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph') return;
+      e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + e.dx * e.speed * frameMult * 0.85));
+      e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + e.dy * e.speed * frameMult * 0.85));
+    });
+
+    rt.bossProjectiles.forEach((bp) => {
+      if (bp.type === 'mine' || bp.type === 'phantom_clone') return;
+      bp.x += bp.dx * bp.speed * frameMult;
+      bp.y += bp.dy * bp.speed * frameMult;
+    });
+
+    rt.playerProjectiles.forEach((pp) => {
+      pp.x += pp.dx * frameMult;
+      pp.y += pp.dy * frameMult;
+    });
+  }
+
+  rt.energyWaves.forEach((ew) => {
+    ew.radius = Math.min(ew.maxRadius, ew.radius + ew.speed * clampedDt);
+    ew.alpha = Math.max(0, ew.alpha - clampedDt * 1.4);
+  });
+
+  rt.floatingTexts.forEach((ft) => {
+    ft.y -= 26 * clampedDt;
+    ft.alpha = Math.max(0, ft.alpha - clampedDt * 0.9);
+  });
+
+  rt.deathEffects.forEach((de) => {
+    de.alpha = Math.max(0, de.alpha - clampedDt * 1.4);
+  });
+
+  rt.slashArcs.forEach((sa) => {
+    sa.alpha = Math.max(0, sa.alpha - clampedDt * 2.2);
+  });
+
+  rt.ambientMotes.forEach((m) => {
+    m.x += m.vx * clampedDt;
+    m.y += m.vy * clampedDt;
+    m.phase += clampedDt * 2;
+    if (m.y < -10) {
+      m.y = rt.arenaHeight + 10;
+      m.x = Math.random() * rt.arenaWidth;
+    }
+  });
+}
+
 export function applySyncedSnapshotToGuest(
   displayRt: GameRuntime | null,
   snap: SyncedRuntimeSnapshot,
   dt: number,
   guestFloorCache?: GuestFloorMapCache | null,
-  localPingMs?: number | null
+  localPingMs?: number | null,
+  localPlayerId?: PlayerId,
+  localInput?: TouchInputState
 ): GameRuntime {
   const clampedDt = Math.max(0.004, Math.min(dt, 0.05));
-  const lerpAlpha = 1 - Math.exp(-32 * clampedDt);
-  const leadSec = Math.min(0.045, Math.max(0, (localPingMs || 0) / 2000));
+  const lerpAlpha = 0.56;
+  const leadSec = Math.min(0.055, Math.max(0, (localPingMs || 0) / 2000)) * 60;
 
   if (
     !displayRt ||
@@ -947,8 +1101,8 @@ export function applySyncedSnapshotToGuest(
   displayRt.arenaWidth = snap.arenaWidth;
   displayRt.arenaHeight = snap.arenaHeight;
 
-  displayRt.camera.x = lerpNum(displayRt.camera.x, snap.camera.x, lerpAlpha, 120);
-  displayRt.camera.y = lerpNum(displayRt.camera.y, snap.camera.y, lerpAlpha, 120);
+  displayRt.camera.x = lerpNum(displayRt.camera.x, snap.camera.x, lerpAlpha, 140);
+  displayRt.camera.y = lerpNum(displayRt.camera.y, snap.camera.y, lerpAlpha, 140);
   displayRt.camera.zoom = lerpNum(displayRt.camera.zoom, snap.camera.zoom, lerpAlpha, 0.4);
 
   displayRt.bossVoiceLine = snap.bossVoiceLine;
@@ -957,12 +1111,29 @@ export function applySyncedSnapshotToGuest(
   displayRt.players = snap.players.map((sp, idx) => {
     const prev = displayRt.players[idx];
     const next = hydratePlayer(sp, prev);
+    const isLocalGuest = localPlayerId !== undefined && sp.id === localPlayerId;
     if (prev && prev.state === next.state) {
       const leadMult = next.state === 'alive' && !snap.introPlaying ? leadSec : 0;
       const targetX = sp.x + sp.vx * leadMult;
       const targetY = sp.y + sp.vy * leadMult;
-      next.x = lerpNum(prev.x, targetX, lerpAlpha, 110);
-      next.y = lerpNum(prev.y, targetY, lerpAlpha, 110);
+      if (isLocalGuest && next.state === 'alive' && !next.sealed && !snap.introPlaying && sp.dashTimeLeft <= 0 && !sp.usingDash2 && sp.chargeTimer <= 0) {
+        const err = Math.hypot(targetX - prev.x, targetY - prev.y);
+        if (err > 125) {
+          next.x = targetX;
+          next.y = targetY;
+        } else if (err > 10) {
+          const pull = err > 55 ? 0.34 : 0.14;
+          next.x = prev.x + (targetX - prev.x) * pull;
+          next.y = prev.y + (targetY - prev.y) * pull;
+        } else {
+          next.x = prev.x;
+          next.y = prev.y;
+        }
+        stepLocalPredictedMovement(next, displayRt, clampedDt, localInput);
+      } else {
+        next.x = lerpNum(prev.x, targetX, lerpAlpha, 115);
+        next.y = lerpNum(prev.y, targetY, lerpAlpha, 115);
+      }
     }
     return next;
   });
@@ -988,26 +1159,26 @@ export function applySyncedSnapshotToGuest(
 
   displayRt.bossProjectiles = snap.bossProjectiles.map((bp) => {
     const prev = prevBossProjsByUid.get(bp.uid);
-    const moveLead = bp.type !== 'mine' && bp.type !== 'phantom_clone' ? leadSec * 60 : 0;
+    const moveLead = bp.type !== 'mine' && bp.type !== 'phantom_clone' ? leadSec : 0;
     const targetX = bp.x + bp.dx * bp.speed * moveLead;
     const targetY = bp.y + bp.dy * bp.speed * moveLead;
     if (!prev) return { ...bp, x: targetX, y: targetY };
     return {
       ...bp,
-      x: lerpNum(prev.x, targetX, lerpAlpha, 100),
-      y: lerpNum(prev.y, targetY, lerpAlpha, 100),
+      x: lerpNum(prev.x, targetX, 0.65, 105),
+      y: lerpNum(prev.y, targetY, 0.65, 105),
     };
   });
 
   displayRt.playerProjectiles = snap.playerProjectiles.map((pp) => {
     const prev = prevPlayerProjsByUid.get(pp.uid);
-    const targetX = pp.x + pp.dx * (leadSec * 60);
-    const targetY = pp.y + pp.dy * (leadSec * 60);
+    const targetX = pp.x + pp.dx * leadSec;
+    const targetY = pp.y + pp.dy * leadSec;
     if (!prev) return { ...pp, x: targetX, y: targetY };
     return {
       ...pp,
-      x: lerpNum(prev.x, targetX, lerpAlpha, 100),
-      y: lerpNum(prev.y, targetY, lerpAlpha, 100),
+      x: lerpNum(prev.x, targetX, 0.65, 105),
+      y: lerpNum(prev.y, targetY, 0.65, 105),
     };
   });
 
@@ -1202,8 +1373,8 @@ export class OnlineSession {
     return Boolean(this.hostConn && this.hostConn.open);
   }
 
-  send(msg: OnlineMessage, targetPlayerId?: PlayerId) {
-    if (this.destroyed) return;
+  send(msg: OnlineMessage, targetPlayerId?: PlayerId): boolean {
+    if (this.destroyed) return false;
     const isStreamMsg = msg.type === 'sync' || msg.type === 'input';
 
     if (this.role === 'host') {
@@ -1211,36 +1382,40 @@ export class OnlineSession {
         const slot = this.guests.get(targetPlayerId);
         if (slot && slot.conn.open) {
           const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 65536) return;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 24576) return false;
           try {
             targetConn.send(msg);
+            return true;
           } catch {
-            // ignore
+            return false;
           }
         }
-        return;
+        return false;
       }
+      let sentAny = false;
       for (const slot of this.guests.values()) {
         if (slot.conn.open) {
           const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 65536) continue;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 24576) continue;
           try {
             targetConn.send(msg);
+            sentAny = true;
           } catch {
             // ignore
           }
         }
       }
-      return;
+      return sentAny;
     }
 
     const targetConn = isStreamMsg && this.hostStreamConn?.open ? this.hostStreamConn : this.hostConn;
-    if (!targetConn || !targetConn.open) return;
-    if (msg.type === 'input' && getBufferedAmount(targetConn) > 32768) return;
+    if (!targetConn || !targetConn.open) return false;
+    if (msg.type === 'input' && getBufferedAmount(targetConn) > 16384) return false;
     try {
       targetConn.send(msg);
+      return true;
     } catch {
-      // ignore transient channel send error
+      return false;
     }
   }
 
@@ -1269,7 +1444,7 @@ export class OnlineSession {
           }
         }
       }
-    }, 1200);
+    }, 1500);
   }
 
   private start() {
@@ -1303,6 +1478,7 @@ export class OnlineSession {
         const ctrlConn = peer.connect(targetId, {
           label: 'ctrl',
           reliable: true,
+          serialization: 'json',
           metadata: { channel: 'ctrl', clientUid: this.guestClientUid },
         });
         this.attachGuestToHostConnection(ctrlConn, false);
@@ -1310,6 +1486,7 @@ export class OnlineSession {
         const streamConn = peer.connect(targetId, {
           label: 'stream',
           reliable: false,
+          serialization: 'json',
           metadata: { channel: 'stream', clientUid: this.guestClientUid },
         });
         this.attachGuestToHostConnection(streamConn, true);

@@ -455,7 +455,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         <footer className="flex items-center justify-between gap-4 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
           <span>DUNGEON BOUNCER · BY SPROKOZ</span>
           <span className="text-amber-400/80 font-semibold tracking-wider uppercase">
-            beta test 0.0.8
+            beta test 0.0.9
           </span>
         </footer>
       </div>

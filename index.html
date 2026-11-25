@@ -16,7 +16,7 @@
   <body class="bg-[#050406] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-white" style="background-color:#050406;color:#e7e5e4;margin:0;min-height:100vh;">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx" onerror="window.__VITE_ENTRY_ERR__=true"></script>
-    <script>
+    <script data-root-fallback>
       (function () {
         var attempted = false;
         function checkBootAndFallback() {
@@ -45,16 +45,18 @@
           }
         }
 
-        if (document.readyState === 'complete') {
-          setTimeout(checkBootAndFallback, 180);
+        if (window.location.hostname && /\.github\.io$/i.test(window.location.hostname)) {
+          checkBootAndFallback();
+        } else if (document.readyState === 'complete') {
+          setTimeout(checkBootAndFallback, 1200);
         } else {
           window.addEventListener('load', function () {
-            setTimeout(checkBootAndFallback, 180);
+            setTimeout(checkBootAndFallback, 1200);
           });
         }
         setTimeout(function () {
           if (window.__VITE_ENTRY_ERR__) checkBootAndFallback();
-        }, 250);
+        }, 100);
       })();
     </script>
   </body>

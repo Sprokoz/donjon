@@ -671,6 +671,7 @@ export interface DungeonGate {
   y: number;
   width: number;
   height: number;
+  corridorDepth?: number;
   roomType: RoomKind;
   targetStage: StageKey;
   targetRoomKey?: string;
@@ -683,6 +684,136 @@ export interface DungeonGate {
   accent: string;
   playersInside: number[];
   holdProgress: number;
+}
+
+export interface GateHallwayBounds {
+  corridorX: number;
+  corridorY: number;
+  corridorW: number;
+  corridorH: number;
+  thresholdX: number;
+  thresholdY: number;
+  thresholdW: number;
+  thresholdH: number;
+  depth: number;
+}
+
+export function getGateHallwayBounds(
+  gate: DungeonGate,
+  arenaWidth: number,
+  arenaHeight: number
+): GateHallwayBounds | null {
+  if (gate.isNextFloorPortal) return null;
+  const depth = gate.corridorDepth ?? (gate.isStairsDown ? 132 : 162);
+  const threshDepth = 56;
+
+  if (gate.dir === 'top') {
+    return {
+      corridorX: gate.x,
+      corridorY: -depth,
+      corridorW: gate.width,
+      corridorH: depth + 18,
+      thresholdX: gate.x,
+      thresholdY: -depth,
+      thresholdW: gate.width,
+      thresholdH: threshDepth,
+      depth,
+    };
+  }
+  if (gate.dir === 'bottom') {
+    return {
+      corridorX: gate.x,
+      corridorY: arenaHeight - 18,
+      corridorW: gate.width,
+      corridorH: depth + 18,
+      thresholdX: gate.x,
+      thresholdY: arenaHeight + depth - threshDepth,
+      thresholdW: gate.width,
+      thresholdH: threshDepth,
+      depth,
+    };
+  }
+  if (gate.dir === 'left') {
+    return {
+      corridorX: -depth,
+      corridorY: gate.y,
+      corridorW: depth + 18,
+      corridorH: gate.height,
+      thresholdX: -depth,
+      thresholdY: gate.y,
+      thresholdW: threshDepth,
+      thresholdH: gate.height,
+      depth,
+    };
+  }
+  return {
+    corridorX: arenaWidth - 18,
+    corridorY: gate.y,
+    corridorW: depth + 18,
+    corridorH: gate.height,
+    thresholdX: arenaWidth + depth - threshDepth,
+    thresholdY: gate.y,
+    thresholdW: threshDepth,
+    thresholdH: gate.height,
+    depth,
+  };
+}
+
+export function clampPlayerToArenaAndHallways(
+  p: { x: number; y: number; size: number },
+  arenaWidth: number,
+  arenaHeight: number,
+  gates?: DungeonGate[]
+) {
+  const s = p.size;
+  if (!gates || gates.length === 0) {
+    p.x = Math.max(0, Math.min(arenaWidth - s, p.x));
+    p.y = Math.max(0, Math.min(arenaHeight - s, p.y));
+    return;
+  }
+
+  const wallPad = 8;
+  const pcx = p.x + s / 2;
+  const pcy = p.y + s / 2;
+
+  for (let i = 0; i < gates.length; i++) {
+    const g = gates[i];
+    const hb = getGateHallwayBounds(g, arenaWidth, arenaHeight);
+    if (!hb) continue;
+
+    if (g.dir === 'top') {
+      const inMouth = pcx >= g.x + wallPad && pcx <= g.x + g.width - wallPad;
+      if (inMouth && p.y < 14) {
+        p.x = Math.max(g.x + wallPad, Math.min(g.x + g.width - s - wallPad, p.x));
+        p.y = Math.max(-hb.depth + 4, Math.min(arenaHeight - s, p.y));
+        return;
+      }
+    } else if (g.dir === 'bottom') {
+      const inMouth = pcx >= g.x + wallPad && pcx <= g.x + g.width - wallPad;
+      if (inMouth && p.y + s > arenaHeight - 14) {
+        p.x = Math.max(g.x + wallPad, Math.min(g.x + g.width - s - wallPad, p.x));
+        p.y = Math.max(0, Math.min(arenaHeight + hb.depth - s - 4, p.y));
+        return;
+      }
+    } else if (g.dir === 'left') {
+      const inMouth = pcy >= g.y + wallPad && pcy <= g.y + g.height - wallPad;
+      if (inMouth && p.x < 14) {
+        p.y = Math.max(g.y + wallPad, Math.min(g.y + g.height - s - wallPad, p.y));
+        p.x = Math.max(-hb.depth + 4, Math.min(arenaWidth - s, p.x));
+        return;
+      }
+    } else if (g.dir === 'right') {
+      const inMouth = pcy >= g.y + wallPad && pcy <= g.y + g.height - wallPad;
+      if (inMouth && p.x + s > arenaWidth - 14) {
+        p.y = Math.max(g.y + wallPad, Math.min(g.y + g.height - s - wallPad, p.y));
+        p.x = Math.max(0, Math.min(arenaWidth + hb.depth - s - 4, p.x));
+        return;
+      }
+    }
+  }
+
+  p.x = Math.max(0, Math.min(arenaWidth - s, p.x));
+  p.y = Math.max(0, Math.min(arenaHeight - s, p.y));
 }
 
 export interface ShopNpc {
@@ -1487,6 +1618,34 @@ export const WEAPONS_CATALOG: WeaponDef[] = [
     ],
   },
 ];
+
+export interface HudSettings {
+  scale: number;
+  opacity: number;
+  showExtraUi: boolean;
+  showMap: boolean;
+  mapOpacity: number;
+  mapPosition: 'top-right' | 'bottom-right' | 'top-left';
+  showPartyHealth: boolean;
+  showPing: boolean;
+  showGoldCounter: boolean;
+  showBossBar: boolean;
+  compactSkills: boolean;
+}
+
+export const DEFAULT_HUD_SETTINGS: HudSettings = {
+  scale: 1,
+  opacity: 0.92,
+  showExtraUi: false,
+  showMap: true,
+  mapOpacity: 0.88,
+  mapPosition: 'top-right',
+  showPartyHealth: true,
+  showPing: true,
+  showGoldCounter: true,
+  showBossBar: true,
+  compactSkills: false,
+};
 
 export const DEFAULT_CONTROLS: ControlsConfig = {
   p1: { up: 'w', down: 's', left: 'a', right: 'd', dash: ' ', ability: 'e' },

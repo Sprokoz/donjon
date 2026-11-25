@@ -8,6 +8,7 @@ import {
   FinalBossVoteModal,
   InventoryModal,
   OnlineDisconnectModal,
+  OptimizeLoadingModal,
   PauseModal,
   ShopNpcModal,
   StageTransitionModal,
@@ -83,9 +84,11 @@ import {
   ControlsConfig,
   DEFAULT_CHEATS,
   DEFAULT_CONTROLS,
+  DEFAULT_HUD_SETTINGS,
   DifficultyKey,
   GameMode,
   HeroClassId,
+  HudSettings,
   HudSnapshot,
   LeaderboardEntry,
   LobbyPlayerInfo,
@@ -99,6 +102,7 @@ const CONTROLS_STORAGE_KEY = 'dungeon_bouncer_controls_v3';
 const PLAYER_NAME_STORAGE_KEY = 'dungeon_bouncer_player_name_v1';
 const P2_NAME_STORAGE_KEY = 'dungeon_bouncer_p2_name_v1';
 const NET_OPT_STORAGE_KEY = 'dungeon_bouncer_net_opt_v1';
+const HUD_SETTINGS_STORAGE_KEY = 'dungeon_bouncer_hud_settings_v1';
 
 function loadSavedName(key: string, fallback: string): string {
   try {
@@ -106,6 +110,16 @@ function loadSavedName(key: string, fallback: string): string {
     return raw && raw.trim() ? raw.trim().slice(0, 14) : fallback;
   } catch {
     return fallback;
+  }
+}
+
+function loadSavedHudSettings(): HudSettings {
+  try {
+    const raw = localStorage.getItem(HUD_SETTINGS_STORAGE_KEY);
+    if (!raw) return DEFAULT_HUD_SETTINGS;
+    return { ...DEFAULT_HUD_SETTINGS, ...(JSON.parse(raw) || {}) };
+  } catch {
+    return DEFAULT_HUD_SETTINGS;
   }
 }
 
@@ -216,6 +230,13 @@ export default function App() {
   });
 
   const [controls, setControls] = useState<ControlsConfig>(loadSavedControls);
+  const [hudSettings, setHudSettings] = useState<HudSettings>(loadSavedHudSettings);
+  const [partyResetSignal, setPartyResetSignal] = useState(0);
+  const [optimizingState, setOptimizingState] = useState<{
+    active: boolean;
+    step: string;
+    progress: number;
+  } | null>(null);
   const [cheats, setCheats] = useState<CheatsConfig>(DEFAULT_CHEATS);
   const [showControlsModal, setShowControlsModal] = useState(false);
   const [showCheatsModal, setShowCheatsModal] = useState(false);
@@ -327,6 +348,8 @@ export default function App() {
   const onlineSessionRef = useRef<OnlineSession | null>(null);
   const stageTransitionTimerRef = useRef<number | null>(null);
   const fullscreenNoteTimerRef = useRef<number | null>(null);
+  const optimizeTimersRef = useRef<number[]>([]);
+  const runHostOptimizeRef = useRef<(initiatorId?: PlayerId) => void>(() => {});
   const hostMessageHandlerRef = useRef<(msg: OnlineMessage, fromPlayerId: PlayerId) => void>(() => {});
   const guestMessageHandlerRef = useRef<(msg: OnlineMessage, fromPlayerId: PlayerId) => void>(() => {});
 
@@ -517,7 +540,27 @@ export default function App() {
     }
   }, []);
 
+  const handleChangeHudSettings = useCallback((next: HudSettings) => {
+    setHudSettings(next);
+    try {
+      localStorage.setItem(HUD_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const handleResetPartyPos = useCallback(() => {
+    setPartyResetSignal((n) => n + 1);
+  }, []);
+
+  const clearOptimizeTimers = useCallback(() => {
+    optimizeTimersRef.current.forEach((id) => window.clearTimeout(id));
+    optimizeTimersRef.current = [];
+  }, []);
+
   const destroyOnlineSession = useCallback((preserveMidRun = false) => {
+    clearOptimizeTimers();
+    setOptimizingState(null);
     if (onlineSessionRef.current) {
       onlineSessionRef.current.destroy();
       onlineSessionRef.current = null;
@@ -543,7 +586,7 @@ export default function App() {
       setPausedBy(undefined);
       setDisconnectModal(null);
     }
-  }, []);
+  }, [clearOptimizeTimers]);
 
   const handleOptimizeConnection = useCallback(() => {
     const next = !optimizeConnectionRef.current;
@@ -581,11 +624,12 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      clearOptimizeTimers();
       if (stageTransitionTimerRef.current) window.clearTimeout(stageTransitionTimerRef.current);
       if (onlineSessionRef.current) onlineSessionRef.current.destroy();
       soundEngine.setSfxBroadcastHook(null);
     };
-  }, []);
+  }, [clearOptimizeTimers]);
 
   const broadcastScreenMessage = useCallback(
     (msg: Extract<OnlineMessage, { type: 'screen' }>) => {
@@ -595,6 +639,139 @@ export default function App() {
     },
     []
   );
+
+  const runHostOptimizeSequence = useCallback(
+    (initiatorId: PlayerId = 1) => {
+      clearOptimizeTimers();
+      optimizeConnectionRef.current = true;
+      setOptimizeConnection(true);
+      try {
+        localStorage.setItem(NET_OPT_STORAGE_KEY, '1');
+      } catch {
+        // ignore
+      }
+
+      setShowControlsModal(false);
+      setPausedBy(initiatorId);
+      setScreen('PAUSED');
+      const session = onlineSessionRef.current;
+      if (session?.isConnected()) {
+        session.send({ type: 'screen', screen: 'PAUSED', pausedBy: initiatorId });
+      }
+
+      const pushProgress = (active: boolean, step: string, progress: number) => {
+        setOptimizingState(active ? { active: true, step, progress } : null);
+        if (session?.isConnected()) {
+          session.send({ type: 'optimize_progress', active, step, progress, initiatorId });
+        }
+      };
+
+      pendingSfxRef.current = [];
+      remoteInputsRef.current = {};
+      if (session) {
+        session.setLowBandwidth(true);
+      }
+      pushProgress(true, 'Pausing match & flushing WebRTC buffers...', 22);
+
+      const t1 = window.setTimeout(() => {
+        if (onlineSessionRef.current) {
+          onlineSessionRef.current.reopenStream();
+        }
+        pushProgress(true, 'Rebuilding peer stream channels...', 54);
+      }, 460);
+
+      const t2 = window.setTimeout(() => {
+        if (onlineSessionRef.current) {
+          onlineSessionRef.current.burstPing();
+        }
+        pushProgress(true, 'Measuring party latency & calibrating ping...', 80);
+      }, 1020);
+
+      const t3 = window.setTimeout(() => {
+        const rt = runtimeRef.current;
+        const activeSess = onlineSessionRef.current;
+        if (rt && activeSess?.isConnected()) {
+          rt.pingByPlayer = activeSess.getPingByPlayer();
+          if (rt.isOnlineCampaign) {
+            const fm = buildFloorMapSnapshot(rt);
+            if (fm) {
+              hostSentFloorRevRef.current = rt.floorMapRev;
+              activeSess.send({ type: 'floor_sync', rev: rt.floorMapRev, stage: rt.stage, floorMap: fm });
+            }
+          }
+          activeSess.send({
+            type: 'sync',
+            snap: serializeRuntimeForSync(rt, true),
+            sfx: [],
+          });
+        }
+        pushProgress(true, 'Clean authoritative snapshot synchronized!', 100);
+      }, 1620);
+
+      const t4 = window.setTimeout(() => {
+        pushProgress(false, 'Complete', 100);
+      }, 2120);
+
+      optimizeTimersRef.current = [t1, t2, t3, t4];
+    },
+    [clearOptimizeTimers]
+  );
+
+  useEffect(() => {
+    runHostOptimizeRef.current = runHostOptimizeSequence;
+  }, [runHostOptimizeSequence]);
+
+  const handleOptimizeAllConnections = useCallback(() => {
+    const role = activeOnlineRoleRef.current;
+    if (role === 'guest') {
+      clearOptimizeTimers();
+      optimizeConnectionRef.current = true;
+      setOptimizeConnection(true);
+      try {
+        localStorage.setItem(NET_OPT_STORAGE_KEY, '1');
+      } catch {
+        // ignore
+      }
+      setShowControlsModal(false);
+      const sess = onlineSessionRef.current;
+      if (sess) {
+        sess.setLowBandwidth(true);
+        sess.reopenStream();
+        sess.send({ type: 'cmd', action: 'optimize_all' });
+      }
+      setOptimizingState({ active: true, step: 'Requesting party connection optimization...', progress: 18 });
+      const fallbackDone = window.setTimeout(() => {
+        setOptimizingState(null);
+      }, 3600);
+      optimizeTimersRef.current = [fallbackDone];
+      return;
+    }
+
+    if (role === 'host') {
+      runHostOptimizeSequence(1);
+      return;
+    }
+
+    // Offline solo / local: flush transient VFX and refresh runtime
+    clearOptimizeTimers();
+    setShowControlsModal(false);
+    setPausedBy(undefined);
+    setScreen('PAUSED');
+    setOptimizingState({ active: true, step: 'Flushing FX & frame buffers...', progress: 48 });
+    const rt = runtimeRef.current;
+    if (rt) {
+      rt.dustParticles = [];
+      rt.slashArcs = [];
+      rt.floatingTexts = [];
+    }
+    const t1 = window.setTimeout(() => {
+      setOptimizingState({ active: true, step: 'Simulation state optimized!', progress: 100 });
+    }, 620);
+    const t2 = window.setTimeout(() => {
+      setOptimizingState(null);
+    }, 1050);
+    optimizeTimersRef.current = [t1, t2];
+  }, [clearOptimizeTimers, runHostOptimizeSequence]);
 
   const finalizeRun = useCallback(
     (rt: GameRuntime, victory: boolean) => {
@@ -1076,6 +1253,8 @@ export default function App() {
               fromPlayerId
             );
           }
+        } else if (msg.action === 'optimize_all') {
+          runHostOptimizeRef.current(fromPlayerId);
         } else if (msg.action === 'leave') {
           if (screenRef.current !== 'HERO_SETUP' && screenRef.current !== 'TITLE_MENU') {
             const rt = runtimeRef.current;
@@ -1183,6 +1362,24 @@ export default function App() {
         } else if ((msg.screen === 'GAME_OVER' || msg.screen === 'VICTORY') && msg.summary) {
           setRunSummary(msg.summary);
           setScreen(msg.screen);
+        }
+      } else if (msg.type === 'optimize_progress') {
+        clearOptimizeTimers();
+        if (msg.active) {
+          if (msg.progress <= 45) {
+            optimizeConnectionRef.current = true;
+            setOptimizeConnection(true);
+            try {
+              localStorage.setItem(NET_OPT_STORAGE_KEY, '1');
+            } catch {
+              // ignore
+            }
+            onlineSessionRef.current?.setLowBandwidth(true);
+            onlineSessionRef.current?.reopenStream();
+          }
+          setOptimizingState({ active: true, step: msg.step, progress: msg.progress });
+        } else {
+          setOptimizingState(null);
         }
       }
     };
@@ -1620,6 +1817,31 @@ export default function App() {
     };
   }, [showControlsModal, showCheatsModal, broadcastScreenMessage]);
 
+  // Keep arena canvas backing resolution matched 1:1 with the edge-to-edge viewport
+  const hasHudMounted = Boolean(hud);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasHudMounted) return;
+    const syncCanvasResolution = () => {
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      if (w <= 0 || h <= 0) return;
+      const baseShort = 620;
+      const cw = w >= h ? Math.max(baseShort, Math.round(baseShort * (w / h))) : baseShort;
+      const ch = w >= h ? baseShort : Math.max(baseShort, Math.round(baseShort * (h / w)));
+      if (canvas.width !== cw) canvas.width = cw;
+      if (canvas.height !== ch) canvas.height = ch;
+    };
+    syncCanvasResolution();
+    const ro = new ResizeObserver(syncCanvasResolution);
+    ro.observe(canvas);
+    window.addEventListener('resize', syncCanvasResolution);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', syncCanvasResolution);
+    };
+  }, [hasHudMounted]);
+
   // 60FPS Game & Network Sync Loop
   useEffect(() => {
     if (screen !== 'PLAYING' && screen !== 'PAUSED' && screen !== 'BOON_DRAFT' && screen !== 'STAGE_TRANSITION') {
@@ -1789,12 +2011,12 @@ export default function App() {
                 }
                 const entityLoad = rt.bossProjectiles.length + rt.enemies.length + rt.playerProjectiles.length;
                 const syncInterval = optimizeConnectionRef.current
-                  ? entityLoad > 40
-                    ? 0.06
-                    : 0.048
-                  : entityLoad > 45
-                  ? 0.045
-                  : 0.033;
+                  ? entityLoad > 35
+                    ? 0.068
+                    : 0.056
+                  : entityLoad > 40
+                  ? 0.052
+                  : 0.044;
                 netSyncAccum += dt;
                 if (netSyncAccum >= syncInterval) {
                   netSyncAccum = 0;
@@ -2069,6 +2291,9 @@ export default function App() {
           <ControlsModal
             controls={controls}
             numPlayers={numPlayers}
+            hudSettings={hudSettings}
+            onChangeHudSettings={handleChangeHudSettings}
+            onResetPartyPos={handleResetPartyPos}
             optimizeConnection={optimizeConnection}
             onOptimizeConnection={handleOptimizeConnection}
             onChange={handleSaveControls}
@@ -2183,6 +2408,9 @@ export default function App() {
           isMuted={isMuted}
           isFullscreen={isFullscreen}
           showTouchControls={showTouchControls}
+          hudSettings={hudSettings}
+          onChangeHudSettings={handleChangeHudSettings}
+          resetPartyPosSignal={partyResetSignal}
           onToggleFullscreen={handleToggleFullscreen}
           onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
           onToggleMute={handleToggleMute}
@@ -2292,7 +2520,7 @@ export default function App() {
         </GameHud>
       )}
 
-      {screen === 'PAUSED' && !showControlsModal && !showCheatsModal && (
+      {screen === 'PAUSED' && !showControlsModal && !showCheatsModal && !optimizingState?.active && (
         <PauseModal
           musicVol={musicVol}
           sfxVol={sfxVol}
@@ -2303,6 +2531,7 @@ export default function App() {
           roomCode={activeOnlineRole === 'host' ? roomCode : lastRoomCodeRef.current || joinInput}
           optimizeConnection={optimizeConnection}
           onOptimizeConnection={handleOptimizeConnection}
+          onOptimizeAllConnections={handleOptimizeAllConnections}
           pausedBy={pausedBy}
           pausedByName={pausedByName}
           onMusicChange={(v) => {
@@ -2336,8 +2565,12 @@ export default function App() {
         <ControlsModal
           controls={controls}
           numPlayers={activeOnlineRole !== 'none' ? 1 : numPlayers}
+          hudSettings={hudSettings}
+          onChangeHudSettings={handleChangeHudSettings}
+          onResetPartyPos={handleResetPartyPos}
           optimizeConnection={optimizeConnection}
           onOptimizeConnection={handleOptimizeConnection}
+          onOptimizeAllConnections={handleOptimizeAllConnections}
           onChange={handleSaveControls}
           onClose={() => setShowControlsModal(false)}
         />
@@ -2463,6 +2696,15 @@ export default function App() {
           onReconnect={!disconnectModal.isHost ? handleGuestReconnect : undefined}
           onContinueSolo={disconnectModal.isHost ? handleContinueSolo : undefined}
           onReturnToMenu={handleReturnToMenu}
+        />
+      )}
+
+      {optimizingState?.active && (
+        <OptimizeLoadingModal
+          step={optimizingState.step}
+          progress={optimizingState.progress}
+          players={hud?.players}
+          pingByPlayer={pingByPlayer}
         />
       )}
 

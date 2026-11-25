@@ -15,6 +15,7 @@ import {
   CANVAS_WIDTH,
   CheatsConfig,
   ChestDrop,
+  clampPlayerToArenaAndHallways,
   ClassSkillDef,
   CoinBurstEvent,
   ComicSlash,
@@ -39,6 +40,7 @@ import {
   FloorMapHudSnapshot,
   GameMode,
   GateDir,
+  getGateHallwayBounds,
   HERO_CLASSES,
   HeroClassId,
   HudSnapshot,
@@ -2905,10 +2907,10 @@ function spawnConnectedGates(rt: GameRuntime, room: PersistedRoomState) {
   const w = rt.arenaWidth;
   const h = rt.arenaHeight;
   const dirGeom: Record<GateDir, { x: number; y: number; width: number; height: number }> = {
-    top: { x: Math.round(w / 2 - 76), y: 12, width: 152, height: 52 },
-    bottom: { x: Math.round(w / 2 - 76), y: h - 64, width: 152, height: 52 },
-    left: { x: 12, y: Math.round(h / 2 - 76), width: 52, height: 152 },
-    right: { x: w - 64, y: Math.round(h / 2 - 76), width: 52, height: 152 },
+    top: { x: Math.round(w / 2 - 74), y: 0, width: 148, height: 34 },
+    bottom: { x: Math.round(w / 2 - 74), y: h - 34, width: 148, height: 34 },
+    left: { x: 0, y: Math.round(h / 2 - 74), width: 34, height: 148 },
+    right: { x: w - 34, y: Math.round(h / 2 - 74), width: 34, height: 148 },
   };
 
   let hasUnvisitedDungeonNeighbor = false;
@@ -2934,6 +2936,7 @@ function spawnConnectedGates(rt: GameRuntime, room: PersistedRoomState) {
       y: geom.y,
       width: geom.width,
       height: geom.height,
+      corridorDepth: 162,
       roomType: target.kind,
       targetStage: target.stage,
       label: meta.label,
@@ -2958,6 +2961,7 @@ function spawnConnectedGates(rt: GameRuntime, room: PersistedRoomState) {
         y: geom.y,
         width: geom.width,
         height: geom.height,
+        corridorDepth: 132,
         roomType: 'combat',
         targetStage: getCampaignDungeonStage(rt.bossesDefeatedCount),
         label: 'STAIRS DOWN',
@@ -3323,16 +3327,16 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
 
   const spawnXCenter =
     gate.dir === 'left'
-      ? rt.arenaWidth - 190
+      ? rt.arenaWidth - 88
       : gate.dir === 'right'
-      ? 160
-      : Math.round(rt.arenaWidth / 2);
+      ? 52
+      : Math.round(rt.arenaWidth / 2 - 18);
   const spawnYBase =
     gate.dir === 'top'
-      ? rt.arenaHeight - 165
+      ? rt.arenaHeight - 88
       : gate.dir === 'bottom'
-      ? 135
-      : Math.round(rt.arenaHeight / 2);
+      ? 52
+      : Math.round(rt.arenaHeight / 2 - 18);
 
   rt.players.forEach((p, idx) => {
     if (p.state === 'spectator') return;
@@ -3343,12 +3347,12 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
     p.dashTimeLeft = 0;
     p.cloakTimer = 0;
     p.postDashInvulnerability = 0;
-    const spread = (idx - (rt.numPlayers - 1) / 2) * 58;
+    const spread = (idx - (rt.numPlayers - 1) / 2) * 34;
     if (gate.dir === 'left' || gate.dir === 'right') {
       p.x = spawnXCenter;
-      p.y = Math.max(95, Math.min(rt.arenaHeight - 135, spawnYBase + spread));
+      p.y = Math.max(85, Math.min(rt.arenaHeight - 125, spawnYBase + spread));
     } else {
-      p.x = Math.max(95, Math.min(rt.arenaWidth - 135, spawnXCenter + spread));
+      p.x = Math.max(85, Math.min(rt.arenaWidth - 125, spawnXCenter + spread));
       p.y = spawnYBase;
     }
     p.safeZoneClosed = true;
@@ -5400,8 +5404,7 @@ function updatePlayer(
     p.y += p.vy;
   }
 
-  p.x = Math.max(0, Math.min(rt.arenaWidth - p.size, p.x));
-  p.y = Math.max(0, Math.min(rt.arenaHeight - p.size, p.y));
+  clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
 
   if (rt.eclipsePrison && rt.eclipsePrison.targetPlayerId === p.id) {
     const px = p.x + p.size / 2;
@@ -8379,15 +8382,18 @@ function updateCamera(rt: GameRuntime, dt: number) {
 
   const halfW = CANVAS_WIDTH / (2 * targetZoom);
   const halfH = CANVAS_HEIGHT / (2 * targetZoom);
-  if (halfW * 2 >= rt.arenaWidth) {
+  const hasHallways = !rt.isBossLevel && rt.gates.some((g) => !g.isNextFloorPortal);
+  const edgeExtraX = hasHallways ? 175 : 24;
+  const edgeExtraY = hasHallways ? 175 : 24;
+  if (halfW * 2 >= rt.arenaWidth + (hasHallways ? 160 : 0)) {
     tx = rt.arenaWidth / 2;
   } else {
-    tx = Math.max(halfW - 24, Math.min(rt.arenaWidth - halfW + 24, tx));
+    tx = Math.max(halfW - edgeExtraX, Math.min(rt.arenaWidth - halfW + edgeExtraX, tx));
   }
-  if (halfH * 2 >= rt.arenaHeight) {
+  if (halfH * 2 >= rt.arenaHeight + (hasHallways ? 160 : 0)) {
     ty = rt.arenaHeight / 2;
   } else {
-    ty = Math.max(halfH - 24, Math.min(rt.arenaHeight - halfH + 24, ty));
+    ty = Math.max(halfH - edgeExtraY, Math.min(rt.arenaHeight - halfH + edgeExtraY, ty));
   }
 
   const zoomRate = targetZoom < rt.camera.zoom ? 6.5 : 4.5;
@@ -9729,25 +9735,56 @@ export function stepGame(
       }
     });
 
-    // 3. Connected Floor Gates (stand all alive party members inside chosen gate)
+    // 3. Connected Floor Hallways (walk down the stone corridor through the far threshold)
     if (rt.gates.length > 0 && alivePlayers.length > 0) {
       let enteredGate: DungeonGate | null = null;
       rt.gates.forEach((g) => {
         g.playersInside = [];
+        let thresholdHits = 0;
+        const hb = getGateHallwayBounds(g, rt.arenaWidth, rt.arenaHeight);
+
         alivePlayers.forEach((pl) => {
           const pcx = pl.x + pl.size / 2;
           const pcy = pl.y + pl.size / 2;
-          if (pcx >= g.x - 10 && pcx <= g.x + g.width + 10 && pcy >= g.y - 10 && pcy <= g.y + g.height + 10) {
-            g.playersInside.push(pl.id);
+          if (!hb) {
+            if (pcx >= g.x - 10 && pcx <= g.x + g.width + 10 && pcy >= g.y - 10 && pcy <= g.y + g.height + 10) {
+              g.playersInside.push(pl.id);
+              thresholdHits++;
+            }
+          } else {
+            const inCorridor =
+              pcx >= hb.corridorX - 6 &&
+              pcx <= hb.corridorX + hb.corridorW + 6 &&
+              pcy >= hb.corridorY - 6 &&
+              pcy <= hb.corridorY + hb.corridorH + 6;
+            if (inCorridor) {
+              g.playersInside.push(pl.id);
+              const atThreshold =
+                pcx >= hb.thresholdX - 8 &&
+                pcx <= hb.thresholdX + hb.thresholdW + 8 &&
+                pcy >= hb.thresholdY - 8 &&
+                pcy <= hb.thresholdY + hb.thresholdH + 8;
+              if (atThreshold) {
+                thresholdHits++;
+              }
+            }
           }
         });
-        if (g.playersInside.length === alivePlayers.length) {
-          g.holdProgress = Math.min(1, g.holdProgress + dt / 0.85);
+
+        const allInHallway = g.playersInside.length === alivePlayers.length;
+        const readyToCross =
+          alivePlayers.length === 1
+            ? thresholdHits >= 1
+            : allInHallway && thresholdHits >= 1;
+
+        if (readyToCross) {
+          const fillTime = !hb ? 0.65 : alivePlayers.length === 1 ? 0.14 : 0.38;
+          g.holdProgress = Math.min(1, g.holdProgress + dt / fillTime);
           if (g.holdProgress >= 1 && !enteredGate) {
             enteredGate = g;
           }
         } else {
-          g.holdProgress = Math.max(0, g.holdProgress - dt * 1.4);
+          g.holdProgress = Math.max(0, g.holdProgress - dt * 1.6);
         }
       });
       if (enteredGate) {

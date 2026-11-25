@@ -13,6 +13,7 @@ import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
   ChestDrop,
+  clampPlayerToArenaAndHallways,
   CoinBurstEvent,
   ComicSlash,
   DeathEffect,
@@ -307,12 +308,13 @@ export type OnlineMessage =
       summary?: RunSummary | null;
       pausedBy?: PlayerId;
     }
-  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'drop_weapon' | 'resync_me' }
+  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'drop_weapon' | 'resync_me' | 'optimize_all' }
   | { type: 'cmd'; action: 'use_scroll' | 'drop_scroll'; scrollId: number }
   | { type: 'cmd'; action: 'buy_shop_item'; itemId: number }
   | { type: 'cmd'; action: 'switch_practice_weapon'; weaponId: WeaponId }
   | { type: 'cmd'; action: 'trigger_practice_attack'; kind?: BossChannelKind }
   | { type: 'cmd'; action: 'switch_practice_boss'; stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss' }
+  | { type: 'optimize_progress'; active: boolean; step: string; progress: number; initiatorId?: PlayerId }
   | { type: 'cast_vote'; choice: 'end' | 'deeper' };
 
 export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | null {
@@ -632,7 +634,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
     relics: rt.relics.map((r) => ({ ...r, x: r0(r.x), y: r0(r.y), bob: r2(r.bob) })),
     dustParticles: optimizeConnection
       ? []
-      : rt.dustParticles.slice(-4).map((d) => ({
+      : rt.dustParticles.slice(-2).map((d) => ({
           ...d,
           x: r0(d.x),
           y: r0(d.y),
@@ -640,7 +642,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
         })),
     deathEffects: optimizeConnection
       ? []
-      : rt.deathEffects.slice(-8).map((de) => ({
+      : rt.deathEffects.slice(-5).map((de) => ({
           ...de,
           x: r0(de.x),
           y: r0(de.y),
@@ -649,13 +651,13 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
         })),
     slashArcs: optimizeConnection
       ? []
-      : rt.slashArcs.slice(-8).map((sa) => ({
+      : rt.slashArcs.slice(-5).map((sa) => ({
           ...sa,
           x: r0(sa.x),
           y: r0(sa.y),
           alpha: r2(sa.alpha),
         })),
-    floatingTexts: rt.floatingTexts.slice(optimizeConnection ? -4 : -10).map((ft) => ({
+    floatingTexts: rt.floatingTexts.slice(optimizeConnection ? -3 : -7).map((ft) => ({
       ...ft,
       x: r0(ft.x),
       y: r0(ft.y),
@@ -663,19 +665,19 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
     })),
     comicSlashes: optimizeConnection
       ? []
-      : rt.comicSlashes.slice(-6).map((cs) => ({
+      : rt.comicSlashes.slice(-4).map((cs) => ({
           ...cs,
           alpha: r2(cs.alpha),
         })),
     voidRifts: optimizeConnection
       ? []
-      : rt.voidRifts.slice(-6).map((vr) => ({
+      : rt.voidRifts.slice(-4).map((vr) => ({
           ...vr,
           size: r1(vr.size),
           alpha: r2(vr.alpha),
           rotation: r2(vr.rotation),
         })),
-    energyWaves: rt.energyWaves.slice(optimizeConnection ? -3 : -6).map((ew) => ({
+    energyWaves: rt.energyWaves.slice(optimizeConnection ? -2 : -4).map((ew) => ({
       ...ew,
       radius: r1(ew.radius),
       alpha: r2(ew.alpha),
@@ -843,8 +845,9 @@ function stepLocalPredictedMovement(
   const vy = dirY * p.speed * speedMult * stepScale;
   p.vx = vx;
   p.vy = vy;
-  p.x = Math.max(0, Math.min(rt.arenaWidth - p.size, p.x + vx));
-  p.y = Math.max(0, Math.min(rt.arenaHeight - p.size, p.y + vy));
+  p.x += vx;
+  p.y += vy;
+  clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
   if (Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04) {
     p.facingAngle = Math.atan2(dirY, dirX);
     p.animTime += dt * 1.4;
@@ -865,8 +868,9 @@ export function advanceGuestDisplayRuntime(
     if (localPlayerId !== undefined && p.id === localPlayerId) {
       stepLocalPredictedMovement(p, rt, clampedDt, localInput);
     } else if (!rt.introPlaying) {
-      p.x = Math.max(0, Math.min(rt.arenaWidth - p.size, p.x + p.vx * frameMult * 0.72));
-      p.y = Math.max(0, Math.min(rt.arenaHeight - p.size, p.y + p.vy * frameMult * 0.72));
+      p.x += p.vx * frameMult * 0.72;
+      p.y += p.vy * frameMult * 0.72;
+      clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
       p.animTime += clampedDt;
     }
   });
@@ -929,8 +933,8 @@ export function applySyncedSnapshotToGuest(
   localInput?: TouchInputState
 ): GameRuntime {
   const clampedDt = Math.max(0.004, Math.min(dt, 0.05));
-  const lerpAlpha = 0.56;
-  const leadSec = Math.min(0.055, Math.max(0, (localPingMs || 0) / 2000)) * 60;
+  const lerpAlpha = 0.62;
+  const leadSec = Math.min(0.035, Math.max(0, (localPingMs || 0) / 2500)) * 60;
 
   if (
     !displayRt ||
@@ -1137,26 +1141,26 @@ export function applySyncedSnapshotToGuest(
     const next = hydratePlayer(sp, prev);
     const isLocalGuest = localPlayerId !== undefined && sp.id === localPlayerId;
     if (prev && prev.state === next.state) {
-      const leadMult = next.state === 'alive' && !snap.introPlaying ? leadSec : 0;
-      const targetX = sp.x + sp.vx * leadMult;
-      const targetY = sp.y + sp.vy * leadMult;
       if (isLocalGuest && next.state === 'alive' && !next.sealed && !snap.introPlaying && sp.dashTimeLeft <= 0 && !sp.usingDash2 && sp.chargeTimer <= 0) {
-        const err = Math.hypot(targetX - prev.x, targetY - prev.y);
-        if (err > 125) {
-          next.x = targetX;
-          next.y = targetY;
-        } else if (err > 10) {
-          const pull = err > 55 ? 0.34 : 0.14;
-          next.x = prev.x + (targetX - prev.x) * pull;
-          next.y = prev.y + (targetY - prev.y) * pull;
+        const err = Math.hypot(sp.x - prev.x, sp.y - prev.y);
+        if (err > 140) {
+          next.x = sp.x;
+          next.y = sp.y;
+        } else if (err > 26) {
+          const pull = err > 72 ? 0.34 : 0.16;
+          next.x = prev.x + (sp.x - prev.x) * pull;
+          next.y = prev.y + (sp.y - prev.y) * pull;
         } else {
           next.x = prev.x;
           next.y = prev.y;
         }
         stepLocalPredictedMovement(next, displayRt, clampedDt, localInput);
       } else {
-        next.x = lerpNum(prev.x, targetX, lerpAlpha, 115);
-        next.y = lerpNum(prev.y, targetY, lerpAlpha, 115);
+        const leadMult = next.state === 'alive' && !snap.introPlaying ? leadSec : 0;
+        const targetX = sp.x + sp.vx * leadMult;
+        const targetY = sp.y + sp.vy * leadMult;
+        next.x = lerpNum(prev.x, targetX, lerpAlpha, 120);
+        next.y = lerpNum(prev.y, targetY, lerpAlpha, 120);
       }
     }
     return next;
@@ -1486,6 +1490,20 @@ export class OnlineSession {
     return true;
   }
 
+  burstPing() {
+    if (this.destroyed || this.role !== 'host') return;
+    const now = performance.now();
+    for (const slot of this.guests.values()) {
+      if (slot.conn.open) {
+        try {
+          slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   reopenStream() {
     if (this.destroyed) return;
     if (this.role === 'guest') {
@@ -1512,31 +1530,25 @@ export class OnlineSession {
         this.send({ type: 'cmd', action: 'resync_me' });
       }
     } else {
-      const now = performance.now();
-      for (const slot of this.guests.values()) {
-        if (slot.conn.open) {
-          try {
-            slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
-          } catch {
-            // ignore
-          }
-        }
-      }
+      this.burstPing();
     }
   }
 
   send(msg: OnlineMessage, targetPlayerId?: PlayerId): boolean {
     if (this.destroyed) return false;
     const isStreamMsg = msg.type === 'sync' || msg.type === 'input';
-    const syncLimit = this.lowBandwidth ? 14336 : 24576;
-    const inputLimit = this.lowBandwidth ? 8192 : 16384;
+    const syncLimit = this.lowBandwidth ? 6144 : 14336;
+    const inputLimit = this.lowBandwidth ? 4096 : 8192;
+    const ctrlFallbackLimit = 2048;
 
     if (this.role === 'host') {
       if (targetPlayerId !== undefined) {
         const slot = this.guests.get(targetPlayerId);
         if (slot && slot.conn.open) {
-          const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > syncLimit) return false;
+          const hasOpenStream = Boolean(slot.streamConn?.open);
+          const targetConn = isStreamMsg && hasOpenStream ? slot.streamConn! : slot.conn;
+          const cap = !isStreamMsg ? Number.MAX_SAFE_INTEGER : hasOpenStream ? syncLimit : ctrlFallbackLimit;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > cap) return false;
           try {
             targetConn.send(msg);
             return true;
@@ -1549,8 +1561,10 @@ export class OnlineSession {
       let sentAny = false;
       for (const slot of this.guests.values()) {
         if (slot.conn.open) {
-          const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > syncLimit) continue;
+          const hasOpenStream = Boolean(slot.streamConn?.open);
+          const targetConn = isStreamMsg && hasOpenStream ? slot.streamConn! : slot.conn;
+          const cap = !isStreamMsg ? Number.MAX_SAFE_INTEGER : hasOpenStream ? syncLimit : ctrlFallbackLimit;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > cap) continue;
           try {
             targetConn.send(msg);
             sentAny = true;
@@ -1562,9 +1576,11 @@ export class OnlineSession {
       return sentAny;
     }
 
-    const targetConn = isStreamMsg && this.hostStreamConn?.open ? this.hostStreamConn : this.hostConn;
+    const hasOpenStream = Boolean(this.hostStreamConn?.open);
+    const targetConn = isStreamMsg && hasOpenStream ? this.hostStreamConn! : this.hostConn;
     if (!targetConn || !targetConn.open) return false;
-    if (msg.type === 'input' && getBufferedAmount(targetConn) > inputLimit) return false;
+    const cap = hasOpenStream ? inputLimit : ctrlFallbackLimit;
+    if (msg.type === 'input' && getBufferedAmount(targetConn) > cap) return false;
     try {
       targetConn.send(msg);
       return true;
@@ -1915,8 +1931,13 @@ export class OnlineSession {
       slot.lastHeardAt = performance.now();
       const msg = raw as OnlineMessage;
       if (msg.type === 'pong') {
-        const rtt = Math.max(1, Math.round(performance.now() - msg.ts));
-        slot.pingMs = rtt;
+        const rawRtt = Math.max(1, Math.round(performance.now() - msg.ts));
+        slot.pingMs =
+          slot.pingMs === null
+            ? rawRtt
+            : rawRtt > slot.pingMs * 2.2 + 40
+            ? Math.round(slot.pingMs * 0.65 + rawRtt * 0.35)
+            : Math.round(slot.pingMs * 0.4 + rawRtt * 0.6);
         this.callbacks.onPingUpdate?.(this.getPingByPlayer());
         return;
       }

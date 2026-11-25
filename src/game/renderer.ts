@@ -1,5 +1,5 @@
 import { GameRuntime, getTentacleSegments } from './engine';
-import { CANVAS_HEIGHT, CANVAS_WIDTH, Enemy, Player, PlayerId, WEAPONS_CATALOG } from './types';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, Enemy, getGateHallwayBounds, Player, PlayerId, WEAPONS_CATALOG } from './types';
 
 // Offscreen caches to eliminate per-frame shadowBlur and radial gradient allocations
 const bgCache = new Map<string, HTMLCanvasElement>();
@@ -2544,30 +2544,32 @@ function drawEdgeIndicator(
   rt: GameRuntime,
   now: number
 ) {
-  const sx = (wx - rt.camera.x) * rt.camera.zoom + CANVAS_WIDTH / 2;
-  const sy = (wy - rt.camera.y) * rt.camera.zoom + CANVAS_HEIGHT / 2;
+  const viewW = ctx.canvas.width || CANVAS_WIDTH;
+  const viewH = ctx.canvas.height || CANVAS_HEIGHT;
+  const sx = (wx - rt.camera.x) * rt.camera.zoom + viewW / 2;
+  const sy = (wy - rt.camera.y) * rt.camera.zoom + viewH / 2;
 
   // Only render edge indicator if the item is off-screen (or clipped at the viewport edge)
   const padCheck = 16;
   if (
     sx >= padCheck &&
-    sx <= CANVAS_WIDTH - padCheck &&
+    sx <= viewW - padCheck &&
     sy >= padCheck &&
-    sy <= CANVAS_HEIGHT - padCheck
+    sy <= viewH - padCheck
   ) {
     return;
   }
 
-  const cx = CANVAS_WIDTH / 2;
-  const cy = CANVAS_HEIGHT / 2;
+  const cx = viewW / 2;
+  const cy = viewH / 2;
   const dx = sx - cx;
   const dy = sy - cy;
   const ang = Math.atan2(dy, dx);
 
   const marginX = 42;
   const marginY = 36;
-  const maxHalfW = cx - marginX;
-  const maxHalfH = cy - marginY;
+  const maxHalfW = Math.max(40, cx - marginX);
+  const maxHalfH = Math.max(40, cy - marginY);
 
   const scaleX = Math.abs(dx) > 0.001 ? maxHalfW / Math.abs(dx) : 1e9;
   const scaleY = Math.abs(dy) > 0.001 ? maxHalfH / Math.abs(dy) : 1e9;
@@ -2786,6 +2788,8 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
 
 export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewerPlayerId?: PlayerId) {
   const now = performance.now();
+  const viewW = ctx.canvas.width || CANVAS_WIDTH;
+  const viewH = ctx.canvas.height || CANVAS_HEIGHT;
 
   const realm: 'iron' | 'void' | 'oni' | 'eclipse' =
     rt.stage === 'eclipseBoss'
@@ -2798,7 +2802,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
 
   // Clear viewport void outside arena bounds when zoomed out
   ctx.fillStyle = '#020204';
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.fillRect(0, 0, viewW, viewH);
 
   // World-space camera + screen shake transform
   ctx.save();
@@ -2809,7 +2813,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
     );
     rt.screenShake = Math.max(0, rt.screenShake - 0.55);
   }
-  ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+  ctx.translate(viewW / 2, viewH / 2);
   ctx.scale(rt.camera.zoom, rt.camera.zoom);
   ctx.translate(-rt.camera.x, -rt.camera.y);
 
@@ -3359,72 +3363,244 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
     ctx.restore();
   }
 
-  // Online Campaign: Soul Knight Gates, Shop Pedestals, Chests & Ground Weapon/Scroll Drops
+  // Online Campaign: Walkable Stone Dungeon Hallways + Next Floor Portal
   if (rt.isOnlineCampaign) {
-    // 1. Directional Gates (Top, Bottom, Left, Right) + Next Floor Portal
     if (rt.gates.length > 0) {
       const aliveTotal = Math.max(1, rt.players.filter((pl) => pl.state === 'alive').length);
+      const stoneFloor =
+        realm === 'eclipse'
+          ? '#100d24'
+          : realm === 'oni'
+          ? '#1b0705'
+          : realm === 'void'
+          ? '#140624'
+          : '#0a1422';
+      const stoneWall =
+        realm === 'eclipse'
+          ? '#1f1a3d'
+          : realm === 'oni'
+          ? '#320d09'
+          : realm === 'void'
+          ? '#260b44'
+          : '#16283f';
+
       rt.gates.forEach((g) => {
         const gcx = g.x + g.width / 2;
         const gcy = g.y + g.height / 2;
         const pulse = 0.72 + Math.sin(now / 180) * 0.25;
+        const hb = getGateHallwayBounds(g, rt.arenaWidth, rt.arenaHeight);
 
         ctx.save();
-        ctx.fillStyle = `${g.accent}28`;
-        ctx.strokeStyle = g.accent;
-        ctx.lineWidth = g.playersInside.length > 0 ? 3.8 : g.isNextFloorPortal ? 3.2 : 2.2;
-        ctx.globalAlpha = pulse;
-        ctx.beginPath();
-        ctx.roundRect(g.x, g.y, g.width, g.height, g.isNextFloorPortal ? 999 : 8);
-        ctx.fill();
-        ctx.stroke();
+        if (hb && !g.isNextFloorPortal) {
+          const isHoriz = g.dir === 'left' || g.dir === 'right';
+          const outSign = g.dir === 'top' || g.dir === 'left' ? -1 : 1;
 
-        // Swirling portal inner core
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 6]);
-        ctx.lineDashOffset = -(now / 35);
-        if (g.isNextFloorPortal) {
+          // 1. Corridor stone floor slab extending outward from the room wall
+          ctx.fillStyle = stoneFloor;
+          ctx.fillRect(hb.corridorX, hb.corridorY, hb.corridorW, hb.corridorH);
+
+          // Flagstone seam lines inside hallway
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          if (isHoriz) {
+            for (let sx = hb.corridorX + 26; sx < hb.corridorX + hb.corridorW; sx += 28) {
+              ctx.moveTo(sx, hb.corridorY + 6);
+              ctx.lineTo(sx, hb.corridorY + hb.corridorH - 6);
+            }
+            ctx.moveTo(hb.corridorX, hb.corridorY + hb.corridorH * 0.5);
+            ctx.lineTo(hb.corridorX + hb.corridorW, hb.corridorY + hb.corridorH * 0.5);
+          } else {
+            for (let sy = hb.corridorY + 26; sy < hb.corridorY + hb.corridorH; sy += 28) {
+              ctx.moveTo(hb.corridorX + 6, sy);
+              ctx.lineTo(hb.corridorX + hb.corridorW - 6, sy);
+            }
+            ctx.moveTo(hb.corridorX + hb.corridorW * 0.5, hb.corridorY);
+            ctx.lineTo(hb.corridorX + hb.corridorW * 0.5, hb.corridorY + hb.corridorH);
+          }
+          ctx.stroke();
+
+          // 2. Masonry hallway side & far back walls (entrance mouth stays open!)
+          const wallThick = 8;
+          ctx.fillStyle = stoneWall;
+          ctx.strokeStyle = g.accent;
+          ctx.lineWidth = g.playersInside.length > 0 ? 2.6 : 1.8;
+
+          if (g.dir === 'top') {
+            ctx.fillRect(hb.corridorX, hb.corridorY, wallThick, hb.corridorH);
+            ctx.fillRect(hb.corridorX + hb.corridorW - wallThick, hb.corridorY, wallThick, hb.corridorH);
+            ctx.fillRect(hb.corridorX, hb.corridorY, hb.corridorW, wallThick);
+            ctx.beginPath();
+            ctx.moveTo(hb.corridorX + wallThick, hb.corridorY + hb.corridorH);
+            ctx.lineTo(hb.corridorX + wallThick, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY + hb.corridorH);
+            ctx.stroke();
+          } else if (g.dir === 'bottom') {
+            ctx.fillRect(hb.corridorX, hb.corridorY, wallThick, hb.corridorH);
+            ctx.fillRect(hb.corridorX + hb.corridorW - wallThick, hb.corridorY, wallThick, hb.corridorH);
+            ctx.fillRect(hb.corridorX, hb.corridorY + hb.corridorH - wallThick, hb.corridorW, wallThick);
+            ctx.beginPath();
+            ctx.moveTo(hb.corridorX + wallThick, hb.corridorY);
+            ctx.lineTo(hb.corridorX + wallThick, hb.corridorY + hb.corridorH - wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY + hb.corridorH - wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY);
+            ctx.stroke();
+          } else if (g.dir === 'left') {
+            ctx.fillRect(hb.corridorX, hb.corridorY, hb.corridorW, wallThick);
+            ctx.fillRect(hb.corridorX, hb.corridorY + hb.corridorH - wallThick, hb.corridorW, wallThick);
+            ctx.fillRect(hb.corridorX, hb.corridorY, wallThick, hb.corridorH);
+            ctx.beginPath();
+            ctx.moveTo(hb.corridorX + hb.corridorW, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + wallThick, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + wallThick, hb.corridorY + hb.corridorH - wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW, hb.corridorY + hb.corridorH - wallThick);
+            ctx.stroke();
+          } else {
+            ctx.fillRect(hb.corridorX, hb.corridorY, hb.corridorW, wallThick);
+            ctx.fillRect(hb.corridorX, hb.corridorY + hb.corridorH - wallThick, hb.corridorW, wallThick);
+            ctx.fillRect(hb.corridorX + hb.corridorW - wallThick, hb.corridorY, wallThick, hb.corridorH);
+            ctx.beginPath();
+            ctx.moveTo(hb.corridorX, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY + wallThick);
+            ctx.lineTo(hb.corridorX + hb.corridorW - wallThick, hb.corridorY + hb.corridorH - wallThick);
+            ctx.lineTo(hb.corridorX, hb.corridorY + hb.corridorH - wallThick);
+            ctx.stroke();
+          }
+
+          // 3. Stone archway pillars & flickering hallway torches
+          const torchGlow = 0.55 + Math.sin(now / 95 + g.x + g.y) * 0.25;
+          const pillars = isHoriz
+            ? [
+                { px: g.dir === 'left' ? 4 : rt.arenaWidth - 10, py: g.y - 4 },
+                { px: g.dir === 'left' ? 4 : rt.arenaWidth - 10, py: g.y + g.height - 6 },
+              ]
+            : [
+                { px: g.x - 4, py: g.dir === 'top' ? 4 : rt.arenaHeight - 10 },
+                { px: g.x + g.width - 6, py: g.dir === 'top' ? 4 : rt.arenaHeight - 10 },
+              ];
+          pillars.forEach(({ px, py }) => {
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(px, py, 10, 10);
+            ctx.fillStyle = `rgba(251, 191, 36, ${torchGlow})`;
+            ctx.beginPath();
+            ctx.arc(px + 5, py + 5, 11, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fef08a';
+            ctx.beginPath();
+            ctx.arc(px + 5, py + 5, 3.2, 0, Math.PI * 2);
+            ctx.fill();
+          });
+
+          // 4. Directional floor chevron runes guiding movement through the corridor
+          ctx.strokeStyle = g.accent;
+          ctx.lineWidth = 2;
+          for (let c = 0; c < 3; c++) {
+            const animShift = ((now / 18 + c * 34) % 96) / 96;
+            ctx.globalAlpha = (1 - animShift) * 0.65;
+            const offset = 24 + c * 32;
+            ctx.beginPath();
+            if (isHoriz) {
+              const cx = (g.dir === 'left' ? 0 : rt.arenaWidth) + outSign * offset;
+              ctx.moveTo(cx - outSign * 8, gcy - 13);
+              ctx.lineTo(cx + outSign * 6, gcy);
+              ctx.lineTo(cx - outSign * 8, gcy + 13);
+            } else {
+              const cy = (g.dir === 'top' ? 0 : rt.arenaHeight) + outSign * offset;
+              ctx.moveTo(gcx - 13, cy - outSign * 8);
+              ctx.lineTo(gcx, cy + outSign * 6);
+              ctx.lineTo(gcx + 13, cy - outSign * 8);
+            }
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+
+          // 5. Far Corridor Threshold Portal or Descending Stairs
+          const thPad = wallThick + 2;
+          const thx = hb.thresholdX + (g.dir === 'left' ? wallThick : isHoriz ? 0 : thPad);
+          const thy = hb.thresholdY + (g.dir === 'top' ? wallThick : isHoriz ? thPad : 0);
+          const thw = Math.max(18, hb.thresholdW - (isHoriz ? wallThick : thPad * 2));
+          const thh = Math.max(18, hb.thresholdH - (isHoriz ? thPad * 2 : wallThick));
+
+          ctx.fillStyle = `${g.accent}3a`;
+          ctx.strokeStyle = g.accent;
+          ctx.lineWidth = 2.4;
+          ctx.globalAlpha = pulse;
+          ctx.beginPath();
+          ctx.roundRect(thx, thy, thw, thh, 6);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.globalAlpha = 0.9;
+          if (g.isStairsDown) {
+            // Descending stone stair steps into purple underworld fog
+            for (let s = 0; s < 5; s++) {
+              const stepY = thy + 6 + s * ((thh - 12) / 5);
+              const inset = 6 + s * 6;
+              ctx.fillStyle = s % 2 === 0 ? 'rgba(192, 132, 252, 0.72)' : 'rgba(126, 34, 206, 0.65)';
+              ctx.fillRect(thx + inset, stepY, Math.max(16, thw - inset * 2), 5);
+            }
+          } else {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.6;
+            ctx.setLineDash([7, 6]);
+            ctx.lineDashOffset = -(now / 30);
+            ctx.strokeRect(thx + 4, thy + 4, thw - 8, thh - 8);
+            ctx.setLineDash([]);
+          }
+
+          // Hold lock-in progress bar across corridor threshold
+          if (g.holdProgress > 0) {
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#34d399';
+            if (isHoriz) {
+              ctx.fillRect(thx + 3, thy + 3, 6, (thh - 6) * g.holdProgress);
+            } else {
+              ctx.fillRect(thx + 3, thy + thh - 8, (thw - 6) * g.holdProgress, 5);
+            }
+          }
+        } else {
+          // Next-Floor Swirling Portal Pad
+          ctx.fillStyle = `${g.accent}28`;
+          ctx.strokeStyle = g.accent;
+          ctx.lineWidth = g.playersInside.length > 0 ? 3.8 : 3.2;
+          ctx.globalAlpha = pulse;
+          ctx.beginPath();
+          ctx.roundRect(g.x, g.y, g.width, g.height, 999);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.globalAlpha = 0.85;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 6]);
+          ctx.lineDashOffset = -(now / 35);
           ctx.beginPath();
           ctx.roundRect(g.x + 8, g.y + 8, g.width - 16, g.height - 16, 999);
           ctx.stroke();
-        } else if (g.isStairsDown) {
           ctx.setLineDash([]);
-          ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
-          // Crisp descending stone stair steps
-          for (let s = 0; s < 4; s++) {
-            const sy = g.y + 10 + s * Math.max(6, (g.height - 20) / 4);
-            const inset = 9 + s * 4;
-            ctx.fillStyle = s % 2 === 0 ? 'rgba(192, 132, 252, 0.55)' : 'rgba(147, 51, 234, 0.45)';
-            ctx.fillRect(g.x + inset, sy, Math.max(10, g.width - inset * 2), 4.5);
+
+          if (g.holdProgress > 0) {
+            ctx.fillStyle = '#34d399';
+            ctx.fillRect(g.x + 12, g.y + g.height - 10, (g.width - 24) * g.holdProgress, 4);
           }
-        } else {
-          ctx.strokeRect(g.x + 5, g.y + 5, g.width - 10, g.height - 10);
-        }
-        ctx.setLineDash([]);
-
-        // Hold lock-in progress bar
-        if (g.holdProgress > 0) {
-          ctx.fillStyle = '#34d399';
-          ctx.fillRect(g.x + 4, g.y + g.height - 8, (g.width - 8) * g.holdProgress, 4);
         }
 
-        // Destination Label & Party Readiness Count
+        // Destination Label & Party Readiness Count (clearly visible at archway mouth)
         const isVert = g.dir === 'left' || g.dir === 'right';
         const tx = g.isNextFloorPortal
           ? gcx
           : g.dir === 'left'
-          ? g.x + g.width + 64
+          ? 74
           : g.dir === 'right'
-          ? g.x - 64
+          ? rt.arenaWidth - 74
           : gcx;
         const ty = g.isNextFloorPortal
           ? g.y - 14
           : g.dir === 'top'
-          ? g.y + g.height + 16
+          ? 34
           : g.dir === 'bottom'
-          ? g.y - 22
+          ? rt.arenaHeight - 28
           : gcy - 4;
 
         ctx.textAlign = 'center';
@@ -4439,8 +4615,8 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
   if (rt.isBossLevel && rt.boss.state === 'dead') {
     const deadBarH = Math.round(Math.min(1, rt.bossDeadTimer / 0.45) * 44);
     ctx.fillStyle = '#020106';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, deadBarH);
-    ctx.fillRect(0, CANVAS_HEIGHT - deadBarH, CANVAS_WIDTH, deadBarH);
+    ctx.fillRect(0, 0, viewW, deadBarH);
+    ctx.fillRect(0, viewH - deadBarH, viewW, deadBarH);
 
     // Reveal triumphant Souls-style banner once core overload peaks (1.2s -> 4.2s)
     if (rt.bossDeadTimer >= 1.2) {
@@ -4464,38 +4640,39 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
 
       ctx.save();
       ctx.globalAlpha = revealAlpha;
-      const bgGrad = ctx.createLinearGradient(0, CANVAS_HEIGHT / 2 - 48, 0, CANVAS_HEIGHT / 2 + 48);
+      const bgGrad = ctx.createLinearGradient(0, viewH / 2 - 48, 0, viewH / 2 + 48);
       bgGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
       bgGrad.addColorStop(0.25, 'rgba(0, 0, 0, 0.82)');
       bgGrad.addColorStop(0.75, 'rgba(0, 0, 0, 0.82)');
       bgGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, CANVAS_HEIGHT / 2 - 48, CANVAS_WIDTH, 96);
+      ctx.fillRect(0, viewH / 2 - 48, viewW, 96);
 
       ctx.strokeStyle = `${bannerCol}99`;
       ctx.lineWidth = 2;
-      const lineSpread = 120 + (1 - revealAlpha) * 140;
+      const lineSpread = Math.min(viewW * 0.25, 120 + (1 - revealAlpha) * 140);
       ctx.beginPath();
-      ctx.moveTo(lineSpread, CANVAS_HEIGHT / 2 - 36);
-      ctx.lineTo(CANVAS_WIDTH - lineSpread, CANVAS_HEIGHT / 2 - 36);
-      ctx.moveTo(lineSpread, CANVAS_HEIGHT / 2 + 36);
-      ctx.lineTo(CANVAS_WIDTH - lineSpread, CANVAS_HEIGHT / 2 + 36);
+      ctx.moveTo(lineSpread, viewH / 2 - 36);
+      ctx.lineTo(viewW - lineSpread, viewH / 2 - 36);
+      ctx.moveTo(lineSpread, viewH / 2 + 36);
+      ctx.lineTo(viewW - lineSpread, viewH / 2 + 36);
       ctx.stroke();
 
-      ctx.font = 'bold 34px "Cinzel", Georgia, serif';
+      const titleFontPx = viewW < 640 ? 22 : 34;
+      ctx.font = `bold ${titleFontPx}px "Cinzel", Georgia, serif`;
       ctx.textAlign = 'center';
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = 5;
-      ctx.strokeText(bannerTitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 10);
+      ctx.strokeText(bannerTitle, viewW / 2, viewH / 2 + 10);
       ctx.fillStyle = bannerCol;
-      ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 10);
+      ctx.fillText(bannerTitle, viewW / 2, viewH / 2 + 10);
       ctx.restore();
     }
   }
 
   if (rt.warningFlash > 0) {
     ctx.fillStyle = `rgba(251, 191, 36, ${Math.min(0.22, rt.warningFlash * 0.55)})`;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, viewW, viewH);
   }
 
   // Distinct Per-Boss 8-Second Anime / Movie Villain Cinematic Entrance Overlays
@@ -4509,12 +4686,12 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
     if (rt.bossType === 'mecha') {
       // MECHA: Cybernetic Military Radar HUD Lockdown & Diagonal Hazard Dossier
       ctx.fillStyle = 'rgba(2, 8, 18, 0.25)';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, viewW, viewH);
 
       // Sweeping sonar scanline
-      const scanY = (elapsed * 290) % CANVAS_HEIGHT;
+      const scanY = (elapsed * 290) % viewH;
       ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
-      ctx.fillRect(0, scanY, CANVAS_WIDTH, 6);
+      ctx.fillRect(0, scanY, viewW, 6);
 
       // Tactical corner brackets
       ctx.strokeStyle = b.entryPhase >= 2 ? 'rgba(239, 68, 68, 0.72)' : 'rgba(56, 189, 248, 0.65)';
@@ -4523,9 +4700,9 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       const bl = 36;
       ctx.beginPath();
       ctx.moveTo(m, m + bl); ctx.lineTo(m, m); ctx.lineTo(m + bl, m);
-      ctx.moveTo(CANVAS_WIDTH - m - bl, m); ctx.lineTo(CANVAS_WIDTH - m, m); ctx.lineTo(CANVAS_WIDTH - m, m + bl);
-      ctx.moveTo(m, CANVAS_HEIGHT - m - bl); ctx.lineTo(m, CANVAS_HEIGHT - m); ctx.lineTo(m + bl, CANVAS_HEIGHT - m);
-      ctx.moveTo(CANVAS_WIDTH - m - bl, CANVAS_HEIGHT - m); ctx.lineTo(CANVAS_WIDTH - m, CANVAS_HEIGHT - m); ctx.lineTo(CANVAS_WIDTH - m, CANVAS_HEIGHT - m - bl);
+      ctx.moveTo(viewW - m - bl, m); ctx.lineTo(viewW - m, m); ctx.lineTo(viewW - m, m + bl);
+      ctx.moveTo(m, viewH - m - bl); ctx.lineTo(m, viewH - m); ctx.lineTo(m + bl, viewH - m);
+      ctx.moveTo(viewW - m - bl, viewH - m); ctx.lineTo(viewW - m, viewH - m); ctx.lineTo(viewW - m, viewH - m - bl);
       ctx.stroke();
 
       if (b.entryPhase < 3) {
@@ -4536,215 +4713,216 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       }
 
       ctx.fillStyle = '#020611';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, barH);
-      ctx.fillRect(0, CANVAS_HEIGHT - barH, CANVAS_WIDTH, barH);
+      ctx.fillRect(0, 0, viewW, barH);
+      ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        // Slanted Tactical Steel Dossier Cut-In
-        const boxTop = CANVAS_HEIGHT - 178;
+        const boxTop = viewH - 178;
+        const padX = Math.min(40, Math.round(viewW * 0.04));
+        const slant = Math.min(46, Math.round(viewW * 0.05));
         ctx.fillStyle = 'rgba(4, 12, 24, 0.92)';
         ctx.beginPath();
-        ctx.moveTo(40, boxTop + 110);
-        ctx.lineTo(86, boxTop);
-        ctx.lineTo(CANVAS_WIDTH - 40, boxTop);
-        ctx.lineTo(CANVAS_WIDTH - 86, boxTop + 110);
+        ctx.moveTo(padX, boxTop + 110);
+        ctx.lineTo(padX + slant, boxTop);
+        ctx.lineTo(viewW - padX, boxTop);
+        ctx.lineTo(viewW - padX - slant, boxTop + 110);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 2.5;
         ctx.stroke();
 
+        const txLeft = padX + slant + 24;
         ctx.textAlign = 'left';
         ctx.fillStyle = '#ef4444';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('UNIT-01 // PROTOCOL OMEGA · IRON DEPTHS', 112, boxTop + 26);
+        ctx.fillText('UNIT-01 // PROTOCOL OMEGA · IRON DEPTHS', txLeft, boxTop + 26);
 
         ctx.fillStyle = '#f8fafc';
-        ctx.font = 'bold 38px "Cinzel", Georgia, serif';
+        ctx.font = `bold ${viewW < 640 ? 26 : 38}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('IRON DESTROYER', 112, boxTop + 68);
-        ctx.fillText('IRON DESTROYER', 112, boxTop + 68);
+        ctx.strokeText('IRON DESTROYER', txLeft, boxTop + 68);
+        ctx.fillText('IRON DESTROYER', txLeft, boxTop + 68);
 
         ctx.fillStyle = '#bae6fd';
         ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“TARGET ACQUIRED. INITIATING ORBITAL ANNIHILATION.”', 112, boxTop + 94);
+        ctx.fillText('“TARGET ACQUIRED. INITIATING ORBITAL ANNIHILATION.”', txLeft, boxTop + 94);
       }
     } else if (rt.bossType === 'void') {
       // VOID: Reality Fracture Vignette -> Sudden Darkness Stare -> Ghostly Echo Cut-In
       const blackoutAlpha = b.entryPhase === 2 ? 0.86 : 0.62;
-      const vig = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.44, b.entryPhase === 2 ? 68 : 130, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.46, CANVAS_WIDTH * 0.72);
+      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.44, b.entryPhase === 2 ? 68 : 130, viewW / 2, viewH * 0.46, Math.max(viewW, viewH) * 0.72);
       vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
       vig.addColorStop(1, `rgba(6, 1, 14, ${blackoutAlpha})`);
       ctx.fillStyle = vig;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, viewW, viewH);
 
-      // Jagged Reality Cracks along viewport edges
       ctx.save();
       ctx.strokeStyle = b.entryPhase >= 3 ? 'rgba(232, 121, 249, 0.55)' : 'rgba(168, 85, 247, 0.45)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, 80); ctx.lineTo(95, 130); ctx.lineTo(65, 195); ctx.lineTo(155, 235);
-      ctx.moveTo(CANVAS_WIDTH, 110); ctx.lineTo(CANVAS_WIDTH - 105, 165); ctx.lineTo(CANVAS_WIDTH - 70, 225);
-      ctx.moveTo(CANVAS_WIDTH - 160, CANVAS_HEIGHT); ctx.lineTo(CANVAS_WIDTH - 120, CANVAS_HEIGHT - 95);
+      ctx.moveTo(viewW, 110); ctx.lineTo(viewW - 105, 165); ctx.lineTo(viewW - 70, 225);
+      ctx.moveTo(viewW - 160, viewH); ctx.lineTo(viewW - 120, viewH - 95);
       ctx.stroke();
       ctx.restore();
 
       ctx.fillStyle = '#040009';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, barH);
-      ctx.fillRect(0, CANVAS_HEIGHT - barH, CANVAS_WIDTH, barH);
+      ctx.fillRect(0, 0, viewW, barH);
+      ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        // Floating Ethereal Sovereign Reveal with Ghost Echo Typography (No flat box!)
-        const ty = CANVAS_HEIGHT - 124;
+        const ty = viewH - 124;
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(244, 63, 94, 0.35)';
-        ctx.font = 'bold 42px "Cinzel", Georgia, serif';
-        ctx.fillText('VOID PHANTOM', CANVAS_WIDTH / 2 - 4, ty - 2);
+        ctx.font = `bold ${viewW < 640 ? 30 : 42}px "Cinzel", Georgia, serif`;
+        ctx.fillText('VOID PHANTOM', viewW / 2 - 4, ty - 2);
 
         ctx.fillStyle = '#f5d0fe';
         ctx.strokeStyle = '#090212';
         ctx.lineWidth = 5;
-        ctx.strokeText('VOID PHANTOM', CANVAS_WIDTH / 2, ty);
-        ctx.fillText('VOID PHANTOM', CANVAS_WIDTH / 2, ty);
+        ctx.strokeText('VOID PHANTOM', viewW / 2, ty);
+        ctx.fillText('VOID PHANTOM', viewW / 2, ty);
 
         ctx.fillStyle = '#c084fc';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('SOVEREIGN OF THE ABYSS · RIFT EMPEROR', CANVAS_WIDTH / 2, ty - 42);
+        ctx.fillText('SOVEREIGN OF THE ABYSS · RIFT EMPEROR', viewW / 2, ty - 42);
 
         ctx.fillStyle = '#e7e5e4';
         ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“STEP INTO THE RIFT... AND BE UNMADE.”', CANVAS_WIDTH / 2, ty + 28);
+        ctx.fillText('“STEP INTO THE RIFT... AND BE UNMADE.”', viewW / 2, ty + 28);
       }
     } else if (rt.bossType === 'oni') {
       // ONI: Blood-Moon Crimson Vignette + Japanese War-Scroll Kanji Crest & Ink Ribbon
-      const vig = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45, 120, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.48, CANVAS_WIDTH * 0.72);
+      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.45, 120, viewW / 2, viewH * 0.48, Math.max(viewW, viewH) * 0.72);
       vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
       vig.addColorStop(1, 'rgba(24, 3, 2, 0.68)');
       ctx.fillStyle = vig;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, viewW, viewH);
 
       if (b.entryPhase >= 3) {
         ctx.save();
         ctx.strokeStyle = 'rgba(249, 115, 22, 0.38)';
         ctx.lineWidth = 2.5;
-        const cxS = CANVAS_WIDTH / 2;
-        const cyS = CANVAS_HEIGHT * 0.42;
+        const cxS = viewW / 2;
+        const cyS = viewH * 0.42;
         for (let s = 0; s < 24; s++) {
           const ang = (s / 24) * Math.PI * 2;
           ctx.beginPath();
           ctx.moveTo(cxS + Math.cos(ang) * 240, cyS + Math.sin(ang) * 240);
-          ctx.lineTo(cxS + Math.cos(ang) * 540, cyS + Math.sin(ang) * 540);
+          ctx.lineTo(cxS + Math.cos(ang) * 680, cyS + Math.sin(ang) * 680);
           ctx.stroke();
         }
         ctx.restore();
       }
 
       ctx.fillStyle = '#090201';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, barH);
-      ctx.fillRect(0, CANVAS_HEIGHT - barH, CANVAS_WIDTH, barH);
+      ctx.fillRect(0, 0, viewW, barH);
+      ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        // Traditional Crimson & Gold War-Scroll Seal on Left + Calligraphy Ribbon
-        const boxTop = CANVAS_HEIGHT - 174;
+        const boxTop = viewH - 174;
         ctx.fillStyle = 'rgba(18, 4, 2, 0.92)';
-        ctx.fillRect(0, boxTop, CANVAS_WIDTH, 108);
+        ctx.fillRect(0, boxTop, viewW, 108);
         ctx.strokeStyle = '#f97316';
         ctx.lineWidth = 2.5;
-        ctx.strokeRect(-4, boxTop, CANVAS_WIDTH + 8, 108);
+        ctx.strokeRect(-4, boxTop, viewW + 8, 108);
 
-        // Vermilion Demon Hanko Seal Stamp on Left
+        const stampX = Math.max(24, Math.round(viewW * 0.06));
         ctx.fillStyle = '#991b1b';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2.5;
-        ctx.fillRect(58, boxTop + 16, 76, 76);
-        ctx.strokeRect(58, boxTop + 16, 76, 76);
+        ctx.fillRect(stampX, boxTop + 16, 76, 76);
+        ctx.strokeRect(stampX, boxTop + 16, 76, 76);
         ctx.fillStyle = '#fef08a';
         ctx.font = 'bold 34px serif';
         ctx.textAlign = 'center';
-        ctx.fillText('鬼', 96, boxTop + 66);
+        ctx.fillText('鬼', stampX + 38, boxTop + 66);
 
+        const txLeft = stampX + 96;
         ctx.textAlign = 'left';
         ctx.fillStyle = '#fb923c';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('EIGHT GATES UNSEALED · DEMON SHOGUN OF THE SANCTUM', 156, boxTop + 26);
+        ctx.fillText('EIGHT GATES UNSEALED · DEMON SHOGUN OF THE SANCTUM', txLeft, boxTop + 26);
 
         ctx.fillStyle = '#fef3c7';
-        ctx.font = 'bold 40px "Cinzel", Georgia, serif';
+        ctx.font = `bold ${viewW < 640 ? 28 : 40}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('YAMATA-ONI', 156, boxTop + 69);
-        ctx.fillText('YAMATA-ONI', 156, boxTop + 69);
+        ctx.strokeText('YAMATA-ONI', txLeft, boxTop + 69);
+        ctx.fillText('YAMATA-ONI', txLeft, boxTop + 69);
 
         ctx.fillStyle = '#fed7aa';
         ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“EIGHT SERPENTS HUNGER. PROVE YOUR BLADE, MORTAL.”', 156, boxTop + 94);
+        ctx.fillText('“EIGHT SERPENTS HUNGER. PROVE YOUR BLADE, MORTAL.”', txLeft, boxTop + 94);
       }
     } else {
       // ECLIPSE: Twin Solar-Gold (Left) & Lunar-Cyan (Right) Aura Convergence + Royal Centerpiece
-      const leftGlow = ctx.createLinearGradient(0, 0, CANVAS_WIDTH * 0.45, 0);
+      const leftGlow = ctx.createLinearGradient(0, 0, viewW * 0.45, 0);
       leftGlow.addColorStop(0, 'rgba(251, 191, 36, 0.22)');
       leftGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = leftGlow;
-      ctx.fillRect(0, 0, CANVAS_WIDTH * 0.45, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, viewW * 0.45, viewH);
 
-      const rightGlow = ctx.createLinearGradient(CANVAS_WIDTH * 0.55, 0, CANVAS_WIDTH, 0);
+      const rightGlow = ctx.createLinearGradient(viewW * 0.55, 0, viewW, 0);
       rightGlow.addColorStop(0, 'rgba(0, 0, 0, 0)');
       rightGlow.addColorStop(1, 'rgba(56, 189, 248, 0.22)');
       ctx.fillStyle = rightGlow;
-      ctx.fillRect(CANVAS_WIDTH * 0.55, 0, CANVAS_WIDTH * 0.45, CANVAS_HEIGHT);
+      ctx.fillRect(viewW * 0.55, 0, viewW * 0.45, viewH);
 
       ctx.fillStyle = '#03020a';
-      ctx.fillRect(0, 0, CANVAS_WIDTH, barH);
-      ctx.fillRect(0, CANVAS_HEIGHT - barH, CANVAS_WIDTH, barH);
+      ctx.fillRect(0, 0, viewW, barH);
+      ctx.fillRect(0, viewH - barH, viewW, barH);
       ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(0, barH); ctx.lineTo(CANVAS_WIDTH / 2, barH);
+      ctx.moveTo(0, barH); ctx.lineTo(viewW / 2, barH);
       ctx.stroke();
       ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
       ctx.beginPath();
-      ctx.moveTo(CANVAS_WIDTH / 2, barH); ctx.lineTo(CANVAS_WIDTH, barH);
+      ctx.moveTo(viewW / 2, barH); ctx.lineTo(viewW, barH);
       ctx.stroke();
 
       if (rt.bossNameReveal) {
-        const boxTop = CANVAS_HEIGHT - 178;
+        const boxTop = viewH - 178;
+        const padX = Math.min(64, Math.round(viewW * 0.06));
         ctx.fillStyle = 'rgba(6, 5, 16, 0.9)';
-        ctx.fillRect(64, boxTop, CANVAS_WIDTH - 128, 114);
+        ctx.fillRect(padX, boxTop, viewW - padX * 2, 114);
 
-        const gradBorder = ctx.createLinearGradient(64, 0, CANVAS_WIDTH - 64, 0);
+        const gradBorder = ctx.createLinearGradient(padX, 0, viewW - padX, 0);
         gradBorder.addColorStop(0, '#fbbf24');
         gradBorder.addColorStop(0.5, '#ffffff');
         gradBorder.addColorStop(1, '#38bdf8');
         ctx.strokeStyle = gradBorder;
         ctx.lineWidth = 2.5;
-        ctx.strokeRect(64, boxTop, CANVAS_WIDTH - 128, 114);
+        ctx.strokeRect(padX, boxTop, viewW - padX * 2, 114);
 
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fde68a';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('ASTRAL CONVERGENCE · TWIN SOVEREIGNS OF THE ECLIPSE', CANVAS_WIDTH / 2, boxTop + 24);
+        ctx.fillText('ASTRAL CONVERGENCE · TWIN SOVEREIGNS OF THE ECLIPSE', viewW / 2, boxTop + 24);
 
-        ctx.font = 'bold 38px "Cinzel", Georgia, serif';
+        ctx.font = `bold ${viewW < 640 ? 26 : 38}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('SOLARIS & LUNARIS', CANVAS_WIDTH / 2, boxTop + 68);
+        ctx.strokeText('SOLARIS & LUNARIS', viewW / 2, boxTop + 68);
         ctx.fillStyle = gradBorder;
-        ctx.fillText('SOLARIS & LUNARIS', CANVAS_WIDTH / 2, boxTop + 68);
+        ctx.fillText('SOLARIS & LUNARIS', viewW / 2, boxTop + 68);
 
         ctx.fillStyle = '#e7e5e4';
         ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“SUN AND MOON CONVERGE. ENDURE OR BE OBLITERATED.”', CANVAS_WIDTH / 2, boxTop + 96);
+        ctx.fillText('“SUN AND MOON CONVERGE. ENDURE OR BE OBLITERATED.”', viewW / 2, boxTop + 96);
       }
     }
   }
 
   if (rt.fadeOpacity > 0) {
     ctx.fillStyle = `rgba(2, 0, 10, ${rt.fadeOpacity})`;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, viewW, viewH);
   }
   if (rt.freezeTime > 0) {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, viewW, viewH);
   }
 }

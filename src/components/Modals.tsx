@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw } from 'lucide-react';
-import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, FinalVoteState, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw, SlidersHorizontal, Keyboard, Map as MapIcon, Users, Eye } from 'lucide-react';
+import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, DEFAULT_HUD_SETTINGS, FinalVoteState, HudSettings, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 
@@ -16,8 +16,12 @@ function formatKeyName(key: string): string {
 interface ControlsModalProps {
   controls: ControlsConfig;
   numPlayers: number;
+  hudSettings?: HudSettings;
+  onChangeHudSettings?: (next: HudSettings) => void;
+  onResetPartyPos?: () => void;
   optimizeConnection?: boolean;
   onOptimizeConnection?: () => void;
+  onOptimizeAllConnections?: () => void;
   onChange: (next: ControlsConfig) => void;
   onClose: () => void;
 }
@@ -25,11 +29,16 @@ interface ControlsModalProps {
 export const ControlsModal: React.FC<ControlsModalProps> = ({
   controls,
   numPlayers,
+  hudSettings = DEFAULT_HUD_SETTINGS,
+  onChangeHudSettings,
+  onResetPartyPos,
   optimizeConnection = false,
   onOptimizeConnection,
+  onOptimizeAllConnections,
   onChange,
   onClose,
 }) => {
+  const [activeTab, setActiveTab] = useState<'controls' | 'hud' | 'network'>('controls');
   const [listening, setListening] = useState<{ player: 1 | 2; action: keyof PlayerControls } | null>(null);
 
   useEffect(() => {
@@ -60,85 +69,340 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
     { key: 'ability', label: 'Hero Skill' },
   ];
 
+  const updateHud = (patch: Partial<HudSettings>) => {
+    if (!onChangeHudSettings) return;
+    onChangeHudSettings({ ...hudSettings, ...patch });
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#09090e] border border-slate-700 rounded-lg p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-arcade text-sm text-white">CUSTOMIZE CONTROLS</h2>
+      <div className="w-full max-w-xl bg-[#09090e] border border-slate-700 rounded-lg p-5 sm:p-6 space-y-4 max-h-[92dvh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
+            <h2 className="font-arcade text-sm text-white">SETTINGS &amp; HUD</h2>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-xs text-slate-400 hover:text-white cursor-pointer"
+            className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 cursor-pointer"
+            aria-label="Close Settings"
           >
-            Close
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {([1, ...(numPlayers === 2 ? [2] : [])] as (1 | 2)[]).map((pid) => {
-            const pCtrl = pid === 1 ? controls.p1 : controls.p2;
-            return (
-              <div key={pid} className="space-y-2.5">
-                <h3 className="font-arcade text-[10px] text-red-400">PLAYER {pid}</h3>
-                {actions.map((act) => {
-                  const isL = listening?.player === pid && listening?.action === act.key;
-                  return (
-                    <div key={act.key} className="flex items-center justify-between text-xs">
-                      <span className="text-slate-300">{act.label}</span>
-                      <button
-                        type="button"
-                        onClick={() => setListening({ player: pid, action: act.key })}
-                        className={`min-w-[74px] py-1.5 px-2.5 rounded border font-mono-num text-xs cursor-pointer ${
-                          isL
-                            ? 'bg-amber-600 border-amber-400 text-white animate-pulse'
-                            : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-red-400'
-                        }`}
-                      >
-                        {isL ? 'KEY...' : formatKeyName(pCtrl[act.key])}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+        {/* Navigation Tabs */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              setActiveTab('controls');
+            }}
+            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+              activeTab === 'controls'
+                ? 'bg-red-950/70 border-red-500 text-white'
+                : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>Controls</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              setActiveTab('hud');
+            }}
+            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+              activeTab === 'hud'
+                ? 'bg-cyan-950/70 border-cyan-500 text-cyan-100'
+                : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>HUD Layout</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              setActiveTab('network');
+            }}
+            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+              activeTab === 'network'
+                ? 'bg-emerald-950/70 border-emerald-500 text-emerald-100'
+                : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Wifi className="w-3.5 h-3.5" />
+            <span>Network</span>
+          </button>
         </div>
 
-        {onOptimizeConnection && (
-          <div className="bg-black/75 border border-emerald-800/60 rounded-md p-3.5 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
-                <Wifi className="w-4 h-4 shrink-0" />
-                <span>CONNECTION OPTIMIZER</span>
+        {activeTab === 'controls' && (
+          <div className={`grid gap-5 pt-1 ${numPlayers === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {([1, ...(numPlayers === 2 ? [2] : [])] as (1 | 2)[]).map((pid) => {
+              const pCtrl = pid === 1 ? controls.p1 : controls.p2;
+              return (
+                <div key={pid} className="space-y-2.5">
+                  <h3 className="font-arcade text-[10px] text-red-400">PLAYER {pid}</h3>
+                  {actions.map((act) => {
+                    const isL = listening?.player === pid && listening?.action === act.key;
+                    return (
+                      <div key={act.key} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-300">{act.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => setListening({ player: pid, action: act.key })}
+                          className={`min-w-[74px] py-1.5 px-2.5 rounded border font-mono-num text-xs cursor-pointer ${
+                            isL
+                              ? 'bg-amber-600 border-amber-400 text-white animate-pulse'
+                              : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-red-400'
+                          }`}
+                        >
+                          {isL ? 'KEY...' : formatKeyName(pCtrl[act.key])}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'hud' && (
+          <div className="space-y-3.5 pt-1">
+            {!onChangeHudSettings ? (
+              <p className="text-xs text-slate-400">HUD customization saves automatically for all matches.</p>
+            ) : (
+              <>
+                {/* Scale & Opacity Sliders */}
+                <div className="bg-black/70 border border-slate-800 rounded-md p-3.5 space-y-3 text-xs font-mono-num">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-300 shrink-0">HUD Scale</span>
+                    <div className="flex items-center gap-2 flex-1 max-w-[240px]">
+                      <input
+                        type="range"
+                        min={75}
+                        max={120}
+                        step={5}
+                        value={Math.round(hudSettings.scale * 100)}
+                        onChange={(e) => updateHud({ scale: Number(e.target.value) / 100 })}
+                        className="flex-1 accent-cyan-400 cursor-pointer"
+                      />
+                      <span className="w-10 text-right text-cyan-300 font-bold">
+                        {Math.round(hudSettings.scale * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-300 shrink-0">HUD Opacity</span>
+                    <div className="flex items-center gap-2 flex-1 max-w-[240px]">
+                      <input
+                        type="range"
+                        min={35}
+                        max={100}
+                        step={5}
+                        value={Math.round(hudSettings.opacity * 100)}
+                        onChange={(e) => updateHud({ opacity: Number(e.target.value) / 100 })}
+                        className="flex-1 accent-purple-400 cursor-pointer"
+                      />
+                      <span className="w-10 text-right text-purple-300 font-bold">
+                        {Math.round(hudSettings.opacity * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-300 shrink-0 flex items-center gap-1.5">
+                      <MapIcon className="w-3.5 h-3.5 text-cyan-400" />
+                      Map Opacity
+                    </span>
+                    <div className="flex items-center gap-2 flex-1 max-w-[240px]">
+                      <input
+                        type="range"
+                        min={25}
+                        max={100}
+                        step={5}
+                        value={Math.round(hudSettings.mapOpacity * 100)}
+                        onChange={(e) => updateHud({ mapOpacity: Number(e.target.value) / 100 })}
+                        className="flex-1 accent-amber-400 cursor-pointer"
+                      />
+                      <span className="w-10 text-right text-amber-300 font-bold">
+                        {Math.round(hudSettings.mapOpacity * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map Anchor Position */}
+                <div className="bg-black/70 border border-slate-800 rounded-md p-3 space-y-2">
+                  <div className="font-mono-num text-[10px] text-slate-400 uppercase tracking-wider">
+                    Floor Map Corner Position
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { id: 'top-left', label: 'Top Left' },
+                        { id: 'top-right', label: 'Top Right' },
+                        { id: 'bottom-right', label: 'Bottom Right' },
+                      ] as const
+                    ).map((pos) => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => updateHud({ mapPosition: pos.id })}
+                        className={`py-1.5 px-2 rounded border font-mono-num text-[11px] font-bold cursor-pointer ${
+                          hudSettings.mapPosition === pos.id
+                            ? 'bg-cyan-950/75 border-cyan-400 text-cyan-200'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Visibility Toggles */}
+                <div className="grid grid-cols-2 gap-2 font-mono-num text-[11px]">
+                  {(
+                    [
+                      { key: 'showMap', label: 'Floor Map', icon: <MapIcon className="w-3.5 h-3.5" /> },
+                      { key: 'showPartyHealth', label: 'Party Health', icon: <Users className="w-3.5 h-3.5" /> },
+                      { key: 'showPing', label: 'Ping Meter', icon: <Wifi className="w-3.5 h-3.5" /> },
+                      { key: 'showGoldCounter', label: 'Gold Counter', icon: <Coins className="w-3.5 h-3.5" /> },
+                      { key: 'showBossBar', label: 'Boss Health Bar', icon: <Skull className="w-3.5 h-3.5" /> },
+                      { key: 'showExtraUi', label: 'Extra Metrics', icon: <Sparkles className="w-3.5 h-3.5" /> },
+                      { key: 'compactSkills', label: 'Compact Skills', icon: <Zap className="w-3.5 h-3.5" /> },
+                    ] as const
+                  ).map((tog) => {
+                    const active = Boolean(hudSettings[tog.key]);
+                    return (
+                      <button
+                        key={tog.key}
+                        type="button"
+                        onClick={() => updateHud({ [tog.key]: !active })}
+                        className={`px-3 py-2 rounded border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                          active
+                            ? 'bg-emerald-950/45 border-emerald-500/75 text-emerald-100'
+                            : 'bg-black/65 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          {tog.icon}
+                          <span className="truncate">{tog.label}</span>
+                        </span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            active ? 'bg-emerald-500 text-black' : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {active ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Reset Buttons */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {onResetPartyPos && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onResetPartyPos();
+                      }}
+                      className="py-2 px-3 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 font-mono-num text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset Party Pos</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onChangeHudSettings(DEFAULT_HUD_SETTINGS);
+                      onResetPartyPos?.();
+                    }}
+                    className="py-2 px-3 rounded border border-amber-700/70 bg-amber-950/45 hover:bg-amber-900/60 text-amber-200 font-mono-num text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset HUD Defaults</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'network' && (
+          <div className="space-y-3 pt-1">
+            {onOptimizeAllConnections && (
+              <div className="bg-emerald-950/25 border border-emerald-500/70 rounded-md p-3.5 space-y-2">
+                <div className="font-mono-num text-xs font-bold text-emerald-300 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 shrink-0" />
+                  <span>PARTY CONNECTION OPTIMIZER (PAUSE + SYNC)</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  Pauses the match for everyone, flushes congested WebRTC queues, rebuilds peer stream channels, and broadcasts a clean authoritative keyframe.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onClose();
+                    onOptimizeAllConnections();
+                  }}
+                  className="w-full py-2.5 px-3 rounded border border-emerald-400 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Optimize All Connections Now</span>
+                </button>
               </div>
-              <span
-                className={`font-mono-num text-[10px] font-bold px-2 py-0.5 rounded border ${
-                  optimizeConnection
-                    ? 'bg-emerald-950/70 border-emerald-500/70 text-emerald-300'
-                    : 'bg-slate-900 border-slate-700 text-slate-400'
-                }`}
-              >
-                {optimizeConnection ? 'LOW-PING ON' : 'STANDARD'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-snug">
-              For bad ping or packet lag: strips heavy cosmetic particles from sync packets, tightens WebRTC queue buffering, and refreshes the peer stream.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playUiClick();
-                onOptimizeConnection();
-              }}
-              className={`w-full py-2.5 px-3 rounded border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-                optimizeConnection
-                  ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
-                  : 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-600/70 text-emerald-200'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>{optimizeConnection ? 'Optimized Mode ON (Click to Re-Sync / Toggle)' : 'Optimize Connection (Fix Bad Ping)'}</span>
-            </button>
+            )}
+
+            {onOptimizeConnection && (
+              <div className="bg-black/75 border border-emerald-800/60 rounded-md p-3.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                    <Wifi className="w-4 h-4 shrink-0" />
+                    <span>LOW-BANDWIDTH PACKET COMPRESSION</span>
+                  </div>
+                  <span
+                    className={`font-mono-num text-[10px] font-bold px-2 py-0.5 rounded border ${
+                      optimizeConnection
+                        ? 'bg-emerald-950/70 border-emerald-500/70 text-emerald-300'
+                        : 'bg-slate-900 border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {optimizeConnection ? 'LOW-PING ON' : 'STANDARD'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-snug">
+                  Strips cosmetic particles from sync packets, caps WebRTC queue depth to stop ping spikes, and refreshes your stream channel.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onOptimizeConnection();
+                  }}
+                  className={`w-full py-2.5 px-3 rounded border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                    optimizeConnection
+                      ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
+                      : 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-600/70 text-emerald-200'
+                  }`}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>{optimizeConnection ? 'Low-Bandwidth Mode ON (Toggle)' : 'Enable Low-Bandwidth Mode'}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -164,6 +428,7 @@ interface PauseModalProps {
   roomCode?: string;
   optimizeConnection?: boolean;
   onOptimizeConnection?: () => void;
+  onOptimizeAllConnections?: () => void;
   pausedBy?: PlayerId;
   pausedByName?: string;
   onMusicChange: (v: number) => void;
@@ -188,6 +453,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   roomCode,
   optimizeConnection = false,
   onOptimizeConnection,
+  onOptimizeAllConnections,
   pausedBy,
   pausedByName,
   onMusicChange,
@@ -292,26 +558,41 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           <button
             type="button"
             onClick={onControls}
-            className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+            className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
           >
-            Customize Controls
+            <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+            <span>HUD &amp; Controls Settings</span>
           </button>
-          {onOptimizeConnection && (
+          {isOnline && onOptimizeAllConnections ? (
             <button
               type="button"
               onClick={() => {
                 soundEngine.playUiClick();
-                onOptimizeConnection();
+                onOptimizeAllConnections();
               }}
-              className={`w-full py-2.5 rounded-md border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-                optimizeConnection
-                  ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
-                  : 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-600/70 text-emerald-200'
-              }`}
+              className="w-full py-2.5 rounded-md border border-emerald-400 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-[0_0_18px_rgba(16,185,129,0.28)]"
             >
-              <Wifi className="w-3.5 h-3.5" />
-              <span>{optimizeConnection ? 'Optimize Connection: ON (Re-Sync)' : 'Optimize Connection (Bad Ping)'}</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Optimize All Connections (Fix Lag/Ping)</span>
             </button>
+          ) : (
+            onOptimizeConnection && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playUiClick();
+                  onOptimizeConnection();
+                }}
+                className={`w-full py-2.5 rounded-md border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                  optimizeConnection
+                    ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
+                    : 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-600/70 text-emerald-200'
+                }`}
+              >
+                <Wifi className="w-3.5 h-3.5" />
+                <span>{optimizeConnection ? 'Optimize Connection: ON (Re-Sync)' : 'Optimize Connection (Bad Ping)'}</span>
+              </button>
+            )
           )}
           {!isOnline && (
             <button
@@ -344,6 +625,81 @@ export const PauseModal: React.FC<PauseModalProps> = ({
             <Home className="w-3.5 h-3.5" /> {isOnline ? 'Leave Online Match' : 'Main Menu'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+export const OptimizeLoadingModal: React.FC<{
+  step: string;
+  progress: number;
+  players?: PlayerHudState[];
+  pingByPlayer?: Record<number, number | null>;
+}> = ({ step, progress, players = [], pingByPlayer = {} }) => {
+  const pct = Math.max(0, Math.min(100, Math.round(progress)));
+  return (
+    <div className="fixed inset-0 z-55 bg-black/88 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-[#09080f] border-2 border-emerald-500/75 rounded-lg p-6 space-y-5 shadow-[0_0_50px_rgba(16,185,129,0.25)]">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-md bg-emerald-950/75 border border-emerald-400/70 flex items-center justify-center shrink-0">
+            <RefreshCw className={`w-5 h-5 text-emerald-300 ${pct < 100 ? 'animate-spin' : ''}`} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-arcade text-xs sm:text-sm text-emerald-200 tracking-wide">
+              OPTIMIZING CONNECTIONS
+            </h2>
+            <p className="font-mono-num text-[11px] text-slate-400 mt-0.5 truncate">
+              {step}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="w-full h-3 rounded-sm bg-black border border-emerald-800/80 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-600 via-emerald-400 to-cyan-300 transition-all duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between font-mono-num text-[11px]">
+            <span className="text-emerald-300 font-bold">{pct < 100 ? 'CALIBRATING PARTY LINKS...' : 'COMPLETE'}</span>
+            <span className="text-white font-bold">{pct}%</span>
+          </div>
+        </div>
+
+        {players.length > 0 && (
+          <div className="bg-black/75 border border-slate-800 rounded p-3 space-y-1.5">
+            <div className="font-mono-num text-[10px] text-slate-400 uppercase tracking-wider">
+              Live Party Ping
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {players.map((pl) => {
+                const ms = pl.id === 1 ? 0 : pingByPlayer[pl.id] ?? null;
+                return (
+                  <div
+                    key={pl.id}
+                    className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-stone-950/85 border border-stone-800 font-mono-num text-[10px]"
+                  >
+                    <span className="text-stone-200 font-semibold truncate">{pl.name || `P${pl.id}`}</span>
+                    <span
+                      className={`font-bold ${
+                        ms === null
+                          ? 'text-stone-400'
+                          : ms <= 70
+                          ? 'text-emerald-300'
+                          : ms <= 140
+                          ? 'text-amber-300'
+                          : 'text-rose-300'
+                      }`}
+                    >
+                      {ms === null ? '--ms' : `${ms}ms`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1503,9 +1859,20 @@ interface VersionUpdateEntry {
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.1.2',
+    title: 'Fullscreen Battlefield, Walk-Through Hallways, HUD Customizer & Connection Reset',
+    tag: 'LATEST',
+    changes: [
+      'Converted the game battlefield into a true edge-to-edge full-screen arena with responsive 1:1 rendering and floating translucent HUD overlays.',
+      'Replaced flat doorway pads with walkable stone dungeon hallways featuring open archways, flickering torches, directional floor runes, and far mist/stair thresholds.',
+      'Added a tabbed Settings & HUD Customizer (HUD Scale, Panel Opacity, Floor Map Corner Position & Opacity, Individual Toggle Switches, and Reset Party Position).',
+      'Added an "Optimize All Connections" pause action that triggers a party-wide loading recalibration: flushes WebRTC queues, rebuilds unreliable peer streams, re-probes ping, and sends a fresh keyframe.',
+      'Prevented sync traffic from blocking reliable ping/control channels and widened guest local movement deadzones to cut lag spikes and rubberbanding.',
+    ],
+  },
+  {
     version: 'beta test 0.1.1',
     title: 'Chest Loot Animations, Connection Hardening & HUD Overhaul',
-    tag: 'LATEST',
     changes: [
       'Fixed disconnected online teammates standing idle or duplicating on reconnect — dead WebRTC peers vanish cleanly and reconnect into their exact slot.',
       'Stopped periodic healing kits and power-up relics from spawning inside cleared dungeon rooms, shops, vaults, or defeated boss sanctums.',
@@ -1606,7 +1973,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.1.1
+                Every update from beta test 0.0.1 through 0.1.2
               </p>
             </div>
           </div>

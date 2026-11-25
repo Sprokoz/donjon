@@ -764,7 +764,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       {/* Quiet Footer */}
       <footer className="relative z-10 w-full max-w-5xl flex items-center justify-between gap-4 text-xs text-stone-400">
         <span className="font-mono-num text-[11px] text-amber-400/75 font-semibold tracking-wider uppercase">
-          beta test 0.0.9
+          beta test 0.1.0
         </span>
         <button
           type="button"

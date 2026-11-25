@@ -1,5 +1,5 @@
 import { GameRuntime, getTentacleSegments } from './engine';
-import { CANVAS_HEIGHT, CANVAS_WIDTH, Enemy, Player, WEAPONS_CATALOG } from './types';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, Enemy, Player, PlayerId, WEAPONS_CATALOG } from './types';
 
 // Offscreen caches to eliminate per-frame shadowBlur and radial gradient allocations
 const bgCache = new Map<string, HTMLCanvasElement>();
@@ -2625,8 +2625,11 @@ function drawEdgeIndicator(
   ctx.restore();
 }
 
-function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntime, now: number) {
-  const refPlayer = rt.players.find((p) => p.state === 'alive') || rt.players[0];
+function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntime, now: number, viewerPlayerId?: PlayerId) {
+  const refPlayer =
+    (viewerPlayerId !== undefined ? rt.players.find((p) => p.id === viewerPlayerId && p.state === 'alive') : undefined) ||
+    rt.players.find((p) => p.state === 'alive') ||
+    rt.players[0];
   const refX = refPlayer ? refPlayer.x + refPlayer.size / 2 : rt.camera.x;
   const refY = refPlayer ? refPlayer.y + refPlayer.size / 2 : rt.camera.y;
 
@@ -2635,9 +2638,10 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
   if (showKnives) {
     for (let i = 0; i < rt.knives.length; i++) {
       const k = rt.knives[i];
+      if (viewerPlayerId !== undefined && k.owner !== viewerPlayerId) continue;
       const ownerP = rt.players.find((p) => p.id === k.owner);
       if (ownerP && ownerP.hasKnife) continue;
-      const lbl = rt.numPlayers >= 2 ? `P${k.owner}` : 'BLADE';
+      const lbl = rt.numPlayers >= 2 && viewerPlayerId === undefined ? `P${k.owner}` : 'BLADE';
       drawEdgeIndicator(ctx, k.x + k.size / 2, k.y + k.size / 2, refX, refY, k.color, '✦', lbl, rt, now);
     }
   }
@@ -2780,7 +2784,7 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
   }
 }
 
-export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
+export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewerPlayerId?: PlayerId) {
   const now = performance.now();
 
   const realm: 'iron' | 'void' | 'oni' | 'eclipse' =
@@ -3886,6 +3890,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
   if (showKnives) {
     for (let i = 0; i < rt.knives.length; i++) {
       const k = rt.knives[i];
+      if (viewerPlayerId !== undefined && k.owner !== viewerPlayerId) continue;
       const ownerP = rt.players.find((p) => p.id === k.owner);
       if (ownerP && ownerP.hasKnife) continue;
       const bobY = Math.sin(k.bobPhase) * 3.5;
@@ -4312,7 +4317,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime) {
   ctx.restore();
 
   // Off-screen directional waypoint indicators for Blade Orbs, Relics, Medkits, and Torii Shrines
-  drawDirectionalIndicators(ctx, rt, now);
+  drawDirectionalIndicators(ctx, rt, now, viewerPlayerId);
 
   if (rt.isBossLevel && rt.boss.state === 'dead') {
     const deadBarH = Math.round(Math.min(1, rt.bossDeadTimer / 0.45) * 44);

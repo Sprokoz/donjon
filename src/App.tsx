@@ -18,10 +18,12 @@ import { TutorialModal } from './components/TutorialModal';
 import {
   advanceTutorialStep,
   applyBoon,
+  applyOnlineCheckpointToRuntime,
   castFinalVote,
   cheatClearOrExpose,
   cheatHealParty,
   cheatWarpBoss,
+  clearOnlineCheckpoint,
   computeRank,
   createInitialGameRuntime,
   dropBagScroll,
@@ -30,8 +32,12 @@ import {
   GameRuntime,
   getBoonChoices,
   loadLeaderboard,
+  loadOnlineCheckpoint,
+  OnlineCampaignCheckpoint,
   purchaseShopItemById,
+  restoreOnlinePlayerSlot,
   saveLeaderboardEntry,
+  saveOnlineCheckpoint,
   setRuntimeCheats,
   skipBossIntro,
   stepGame,
@@ -89,6 +95,7 @@ import {
 const CONTROLS_STORAGE_KEY = 'dungeon_bouncer_controls_v3';
 const PLAYER_NAME_STORAGE_KEY = 'dungeon_bouncer_player_name_v1';
 const P2_NAME_STORAGE_KEY = 'dungeon_bouncer_p2_name_v1';
+const NET_OPT_STORAGE_KEY = 'dungeon_bouncer_net_opt_v1';
 
 function loadSavedName(key: string, fallback: string): string {
   try {
@@ -164,6 +171,16 @@ export default function App() {
   const [onlineError, setOnlineError] = useState<string | null>(null);
   const [pausedBy, setPausedBy] = useState<PlayerId | undefined>(undefined);
   const [disconnectModal, setDisconnectModal] = useState<{ isHost: boolean } | null>(null);
+  const [optimizeConnection, setOptimizeConnection] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NET_OPT_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [savedCheckpoint, setSavedCheckpoint] = useState<OnlineCampaignCheckpoint | null>(() =>
+    loadOnlineCheckpoint()
+  );
 
   const [localPlayerId, setLocalPlayerId] = useState<PlayerId>(1);
   const [localReady, setLocalReady] = useState<boolean>(false);
@@ -271,6 +288,14 @@ export default function App() {
   const showInventoryModalRef = useRef(showInventoryModal);
   const showShopModalRef = useRef(showShopModal);
   const hudRef = useRef<HudSnapshot | null>(hud);
+  const optimizeConnectionRef = useRef<boolean>(optimizeConnection);
+  const roomCodeRef = useRef<string>(roomCode);
+  const lastRoomCodeRef = useRef<string>('');
+  const lastSavedCheckpointSigRef = useRef<string>('');
+  const disconnectModalRef = useRef<{ isHost: boolean } | null>(disconnectModal);
+  const boonDraftStateRef = useRef(boonDraftState);
+  const transitionTargetRef = useRef(transitionTarget);
+  const pausedByRef = useRef(pausedBy);
 
   useEffect(() => {
     localPlayerNameRef.current = localPlayerName;
@@ -344,6 +369,31 @@ export default function App() {
   useEffect(() => {
     pingByPlayerRef.current = pingByPlayer;
   }, [pingByPlayer]);
+
+  useEffect(() => {
+    optimizeConnectionRef.current = optimizeConnection;
+  }, [optimizeConnection]);
+
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+    if (roomCode) lastRoomCodeRef.current = roomCode;
+  }, [roomCode]);
+
+  useEffect(() => {
+    disconnectModalRef.current = disconnectModal;
+  }, [disconnectModal]);
+
+  useEffect(() => {
+    boonDraftStateRef.current = boonDraftState;
+  }, [boonDraftState]);
+
+  useEffect(() => {
+    transitionTargetRef.current = transitionTarget;
+  }, [transitionTarget]);
+
+  useEffect(() => {
+    pausedByRef.current = pausedBy;
+  }, [pausedBy]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -463,7 +513,7 @@ export default function App() {
     }
   }, []);
 
-  const destroyOnlineSession = useCallback(() => {
+  const destroyOnlineSession = useCallback((preserveMidRun = false) => {
     if (onlineSessionRef.current) {
       onlineSessionRef.current.destroy();
       onlineSessionRef.current = null;
@@ -471,23 +521,59 @@ export default function App() {
     soundEngine.setSfxBroadcastHook(null);
     pendingSfxRef.current = [];
     remoteInputsRef.current = {};
-    latestGuestSnapRef.current = null;
-    guestSnapSeqRef.current = 0;
-    guestAppliedSeqRef.current = 0;
-    guestDisplayRtRef.current = null;
-    guestFloorCacheRef.current = null;
-    hostSentFloorRevRef.current = -1;
-    setConnectedGuestIds([]);
-    setGuestConfigs({});
-    setGuestLobbyRoster([]);
-    setLocalReady(false);
-    setLocalPlayerId(1);
-    setPingByPlayer({ 1: 0 });
-    setOnlineStatus('idle');
-    setOnlineError(null);
-    setPausedBy(undefined);
-    setDisconnectModal(null);
+    if (!preserveMidRun) {
+      latestGuestSnapRef.current = null;
+      guestSnapSeqRef.current = 0;
+      guestAppliedSeqRef.current = 0;
+      guestDisplayRtRef.current = null;
+      guestFloorCacheRef.current = null;
+      hostSentFloorRevRef.current = -1;
+      setConnectedGuestIds([]);
+      setGuestConfigs({});
+      setGuestLobbyRoster([]);
+      setLocalReady(false);
+      setLocalPlayerId(1);
+      setPingByPlayer({ 1: 0 });
+      setOnlineStatus('idle');
+      setOnlineError(null);
+      setPausedBy(undefined);
+      setDisconnectModal(null);
+    }
   }, []);
+
+  const handleOptimizeConnection = useCallback(() => {
+    const next = !optimizeConnectionRef.current;
+    optimizeConnectionRef.current = next;
+    setOptimizeConnection(next);
+    try {
+      localStorage.setItem(NET_OPT_STORAGE_KEY, next ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+
+    const session = onlineSessionRef.current;
+    if (session) {
+      session.setLowBandwidth(next);
+      session.reopenStream();
+      if (session.getRole() === 'host' && runtimeRef.current && session.isConnected()) {
+        const rt = runtimeRef.current;
+        if (rt.isOnlineCampaign) {
+          const fm = buildFloorMapSnapshot(rt);
+          if (fm) {
+            hostSentFloorRevRef.current = rt.floorMapRev;
+            session.send({ type: 'floor_sync', rev: rt.floorMapRev, stage: rt.stage, floorMap: fm });
+          }
+        }
+        const sfx = pendingSfxRef.current.splice(0);
+        session.send({ type: 'sync', snap: serializeRuntimeForSync(rt, next), sfx });
+      }
+    }
+    showFullscreenNotice(
+      next
+        ? 'Optimize Connection ON: Low-ping packet compression & stream refresh applied.'
+        : 'Optimize Connection OFF: Standard full-VFX sync restored.'
+    );
+  }, [showFullscreenNotice]);
 
   useEffect(() => {
     return () => {
@@ -508,6 +594,11 @@ export default function App() {
 
   const finalizeRun = useCallback(
     (rt: GameRuntime, victory: boolean) => {
+      if (rt.isOnlineCampaign && activeOnlineRoleRef.current === 'host') {
+        clearOnlineCheckpoint();
+        setSavedCheckpoint(null);
+        lastSavedCheckpointSigRef.current = '';
+      }
       const base = {
         victory,
         score: Math.round(rt.score),
@@ -557,6 +648,8 @@ export default function App() {
         broadcastScreenMessage({ type: 'screen', screen: 'PLAYING' });
         if (activeOnlineRoleRef.current === 'host' && onlineSessionRef.current?.isConnected()) {
           if (rt.isOnlineCampaign) {
+            const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+            if (cp) setSavedCheckpoint(cp);
             const fm = buildFloorMapSnapshot(rt);
             if (fm) {
               hostSentFloorRevRef.current = rt.floorMapRev;
@@ -571,7 +664,7 @@ export default function App() {
           const sfx = pendingSfxRef.current.splice(0);
           onlineSessionRef.current.send({
             type: 'sync',
-            snap: serializeRuntimeForSync(rt),
+            snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
             sfx,
           });
         }
@@ -592,7 +685,7 @@ export default function App() {
     [boonDraftState, launchStageTransition]
   );
 
-  const beginRun = useCallback(() => {
+  const beginRun = useCallback((resumeFromCheckpoint = false) => {
     soundEngine.unlock();
     if (stageTransitionTimerRef.current) {
       window.clearTimeout(stageTransitionTimerRef.current);
@@ -641,8 +734,9 @@ export default function App() {
       }
     }
 
+    const cpToUse = resumeFromCheckpoint && isOnlineCampaign ? savedCheckpoint : null;
     const rt = createInitialGameRuntime({
-      difficulty,
+      difficulty: cpToUse ? cpToUse.difficulty : difficulty,
       mode: mode === 'tutorial' ? 'campaign' : mode,
       numPlayers: activePlayerIds.length,
       isOnlineCampaign,
@@ -652,6 +746,9 @@ export default function App() {
       playerNames: resolvedNames,
       cheats: isOnlineHost ? DEFAULT_CHEATS : cheats,
     });
+    if (cpToUse) {
+      applyOnlineCheckpointToRuntime(rt, cpToUse);
+    }
     rt.pingByPlayer = isOnlineHost
       ? onlineSessionRef.current?.getPingByPlayer() || { 1: 0 }
       : { 1: 0 };
@@ -672,6 +769,12 @@ export default function App() {
     setHud(extractHudSnapshot(rt));
     setScreen('PLAYING');
 
+    if (isOnlineCampaign) {
+      const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+      if (cp) setSavedCheckpoint(cp);
+      lastSavedCheckpointSigRef.current = `${rt.floorNumber}_${rt.loopLevel}_${rt.bossesDefeatedCount}_${rt.roomDepth}`;
+    }
+
     if (isOnlineHost && onlineSessionRef.current?.isConnected()) {
       onlineSessionRef.current.send({ type: 'screen', screen: 'PLAYING' });
       if (rt.isOnlineCampaign) {
@@ -689,11 +792,11 @@ export default function App() {
       const sfx = pendingSfxRef.current.splice(0);
       onlineSessionRef.current.send({
         type: 'sync',
-        snap: serializeRuntimeForSync(rt),
+        snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
         sfx,
       });
     }
-  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats, localPlayerName, p2LocalName]);
+  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats, localPlayerName, p2LocalName, savedCheckpoint]);
 
   const beginTutorial = useCallback(() => {
     soundEngine.unlock();
@@ -818,7 +921,18 @@ export default function App() {
         setGuestConfigs(nextGuests);
         setPlayerClasses((prev) => ({ ...prev, [fromPlayerId]: msg.heroClass }));
         setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
-        broadcastHostLobbyState(nextGuests);
+        if (screenRef.current === 'HERO_SETUP') {
+          broadcastHostLobbyState(nextGuests);
+        } else if (runtimeRef.current) {
+          const rt = runtimeRef.current;
+          const pSlot = rt.players.find((p) => p.id === fromPlayerId);
+          if (pSlot) {
+            if (nextGuests[fromPlayerId]?.playerName) pSlot.name = nextGuests[fromPlayerId].playerName!;
+            pSlot.color = matchedColor.hex;
+            rt.playerColors[fromPlayerId] = matchedColor.hex;
+            rt.playerNames[fromPlayerId] = pSlot.name;
+          }
+        }
       } else if (msg.type === 'loadout') {
         const matchedColor =
           COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[fromPlayerId] || COLOR_OPTIONS[1];
@@ -847,7 +961,7 @@ export default function App() {
             const sfx = pendingSfxRef.current.splice(0);
             onlineSessionRef.current.send({
               type: 'sync',
-              snap: serializeRuntimeForSync(rt),
+              snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
               sfx,
             });
           }
@@ -924,6 +1038,40 @@ export default function App() {
             setScreen('PLAYING');
             onlineSessionRef.current?.send({ type: 'screen', screen: 'PLAYING' });
           }
+        } else if (msg.action === 'resync_me') {
+          const rt = runtimeRef.current;
+          const session = onlineSessionRef.current;
+          if (rt && session) {
+            session.send(
+              {
+                type: 'screen',
+                screen: screenRef.current,
+                pausedBy: pausedByRef.current,
+                boonDraft: boonDraftStateRef.current
+                  ? {
+                      clearedStage: boonDraftStateRef.current.clearedStage,
+                      nextStage: boonDraftStateRef.current.nextStage,
+                      choices: boonDraftStateRef.current.choices,
+                    }
+                  : undefined,
+                transitionTarget: transitionTargetRef.current,
+              },
+              fromPlayerId
+            );
+            if (rt.isOnlineCampaign) {
+              const fm = buildFloorMapSnapshot(rt);
+              if (fm) {
+                session.send(
+                  { type: 'floor_sync', rev: rt.floorMapRev, stage: rt.stage, floorMap: fm },
+                  fromPlayerId
+                );
+              }
+            }
+            session.send(
+              { type: 'sync', snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current), sfx: [] },
+              fromPlayerId
+            );
+          }
         } else if (msg.action === 'leave') {
           if (screenRef.current !== 'HERO_SETUP' && screenRef.current !== 'TITLE_MENU') {
             const rt = runtimeRef.current;
@@ -936,6 +1084,10 @@ export default function App() {
               }
               const aliveOrDown = rt.players.filter((p) => p.state !== 'spectator').length;
               rt.numPlayers = Math.max(1, aliveOrDown);
+              if (rt.isOnlineCampaign) {
+                const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+                if (cp) setSavedCheckpoint(cp);
+              }
             }
             const remaining = onlineSessionRef.current?.getConnectedGuestIds().filter((id) => id !== fromPlayerId) || [];
             if (remaining.length === 0) {
@@ -979,6 +1131,9 @@ export default function App() {
       } else if (msg.type === 'sync') {
         latestGuestSnapRef.current = msg.snap;
         guestSnapSeqRef.current += 1;
+        if (disconnectModalRef.current) {
+          setDisconnectModal(null);
+        }
         if (msg.snap.floorMap) {
           guestFloorCacheRef.current = {
             rev: msg.snap.floorMapRev,
@@ -1004,6 +1159,9 @@ export default function App() {
       } else if (msg.type === 'sfx') {
         msg.events.forEach((ev) => soundEngine.replaySfxEvent(ev));
       } else if (msg.type === 'screen') {
+        if (disconnectModalRef.current) {
+          setDisconnectModal(null);
+        }
         if (msg.screen === 'PLAYING') {
           setBoonDraftState(null);
           setTransitionTarget(null);
@@ -1036,6 +1194,8 @@ export default function App() {
     destroyOnlineSession();
     const code = generateRoomCode();
     setRoomCode(code);
+    roomCodeRef.current = code;
+    lastRoomCodeRef.current = code;
     setOnlineError(null);
     setLocalPlayerId(1);
     setLocalReady(false);
@@ -1052,18 +1212,69 @@ export default function App() {
         onGuestJoin: (playerId) => {
           const curSession = onlineSessionRef.current;
           setConnectedGuestIds(curSession ? curSession.getConnectedGuestIds() : [playerId]);
-          const defaultCol = COLOR_OPTIONS[playerId - 1]?.hex || '#22d3ee';
+          const existingCfg = guestConfigsRef.current[playerId];
+          const defaultCol = existingCfg?.colorHex || COLOR_OPTIONS[playerId - 1]?.hex || '#22d3ee';
+          const defaultCls =
+            existingCfg?.heroClass ||
+            ((['ronin', 'phantom', 'vanguard', 'volt', 'ronin'][playerId - 1] || 'phantom') as HeroClassId);
           const nextGuests = {
             ...guestConfigsRef.current,
             [playerId]: {
               colorHex: defaultCol,
-              heroClass: (['ronin', 'phantom', 'vanguard', 'volt', 'ronin'][playerId - 1] || 'phantom') as HeroClassId,
-              ready: false,
+              heroClass: defaultCls,
+              ready: existingCfg?.ready ?? false,
+              playerName: existingCfg?.playerName,
             },
           };
           guestConfigsRef.current = nextGuests;
           setGuestConfigs(nextGuests);
-          broadcastHostLobbyState(nextGuests);
+
+          if (screenRef.current !== 'HERO_SETUP' && screenRef.current !== 'TITLE_MENU' && runtimeRef.current) {
+            const rt = runtimeRef.current;
+            restoreOnlinePlayerSlot(rt, playerId, {
+              playerName: existingCfg?.playerName || rt.playerNames[playerId],
+              colorHex: defaultCol,
+              heroClass: defaultCls,
+            });
+            soundEngine.setSfxBroadcastHook((ev) => {
+              pendingSfxRef.current.push(ev);
+            });
+            setDisconnectModal(null);
+            setHud(extractHudSnapshot(rt));
+            if (curSession) {
+              curSession.send(
+                {
+                  type: 'screen',
+                  screen: screenRef.current,
+                  pausedBy: pausedByRef.current,
+                  boonDraft: boonDraftStateRef.current
+                    ? {
+                        clearedStage: boonDraftStateRef.current.clearedStage,
+                        nextStage: boonDraftStateRef.current.nextStage,
+                        choices: boonDraftStateRef.current.choices,
+                      }
+                    : undefined,
+                  transitionTarget: transitionTargetRef.current,
+                },
+                playerId
+              );
+              if (rt.isOnlineCampaign) {
+                const fm = buildFloorMapSnapshot(rt);
+                if (fm) {
+                  curSession.send(
+                    { type: 'floor_sync', rev: rt.floorMapRev, stage: rt.stage, floorMap: fm },
+                    playerId
+                  );
+                }
+              }
+              curSession.send(
+                { type: 'sync', snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current), sfx: [] },
+                playerId
+              );
+            }
+          } else {
+            broadcastHostLobbyState(nextGuests);
+          }
         },
         onPingUpdate: (pings) => {
           pingByPlayerRef.current = pings;
@@ -1083,10 +1294,12 @@ export default function App() {
 
           if (disconnectedPlayerId !== undefined) {
             delete remoteInputsRef.current[disconnectedPlayerId];
-            const nextGuests = { ...guestConfigsRef.current };
-            delete nextGuests[disconnectedPlayerId];
-            guestConfigsRef.current = nextGuests;
-            setGuestConfigs(nextGuests);
+            if (screenRef.current === 'HERO_SETUP' || screenRef.current === 'TITLE_MENU') {
+              const nextGuests = { ...guestConfigsRef.current };
+              delete nextGuests[disconnectedPlayerId];
+              guestConfigsRef.current = nextGuests;
+              setGuestConfigs(nextGuests);
+            }
           }
 
           if (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP') {
@@ -1099,6 +1312,10 @@ export default function App() {
                 rt.knives = rt.knives.filter((k) => k.owner !== disconnectedPlayerId);
               }
               rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+              if (rt.isOnlineCampaign) {
+                const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+                if (cp) setSavedCheckpoint(cp);
+              }
             }
             if (remaining.length === 0) {
               setDisconnectModal({ isHost: true });
@@ -1115,17 +1332,19 @@ export default function App() {
       },
       maxP
     );
+    session.setLowBandwidth(optimizeConnectionRef.current);
     onlineSessionRef.current = session;
   }, [destroyOnlineSession, broadcastHostLobbyState]);
 
   const joinGuestRoom = useCallback(
-    (explicitCode?: string) => {
-      const code = sanitizeRoomCode(explicitCode ?? joinInput);
+    (explicitCode?: string, preserveMidRun = false) => {
+      const code = sanitizeRoomCode(explicitCode ?? (joinInput || lastRoomCodeRef.current));
       if (code.length < 4) return;
-      destroyOnlineSession();
+      destroyOnlineSession(preserveMidRun);
+      lastRoomCodeRef.current = code;
       setJoinInput(code);
       setOnlineError(null);
-      setLocalReady(false);
+      if (!preserveMidRun) setLocalReady(false);
 
       const session = new OnlineSession('guest', code, {
         onStatusChange: (status, err) => {
@@ -1133,6 +1352,11 @@ export default function App() {
           setOnlineError(err || null);
           if (status === 'connected') {
             sendGuestConfig();
+            if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
+              window.setTimeout(() => {
+                session.send({ type: 'cmd', action: 'resync_me' });
+              }, 80);
+            }
           }
         },
         onAssignedSlot: (assignedId) => {
@@ -1142,7 +1366,12 @@ export default function App() {
             ...prev,
             [assignedId]: prev[assignedId] || COLOR_OPTIONS[assignedId - 1] || COLOR_OPTIONS[1],
           }));
-          window.setTimeout(() => sendGuestConfig(), 40);
+          window.setTimeout(() => {
+            sendGuestConfig();
+            if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
+              session.send({ type: 'cmd', action: 'resync_me' });
+            }
+          }, 40);
         },
         onMessage: (msg, fromId) => guestMessageHandlerRef.current(msg, fromId),
         onPartnerDisconnect: () => {
@@ -1157,10 +1386,26 @@ export default function App() {
           }
         },
       });
+      session.setLowBandwidth(optimizeConnectionRef.current);
       onlineSessionRef.current = session;
     },
     [joinInput, destroyOnlineSession, sendGuestConfig]
   );
+
+  const handleGuestReconnect = useCallback(() => {
+    const code = sanitizeRoomCode(lastRoomCodeRef.current || joinInput || roomCodeRef.current);
+    if (code.length < 4) {
+      setOnlineError('Room code missing. Return to Menu to rejoin.');
+      return;
+    }
+    joinGuestRoom(code, true);
+  }, [joinGuestRoom, joinInput]);
+
+  const handleWaitForReconnect = useCallback(() => {
+    setDisconnectModal(null);
+    setPausedBy(1);
+    setScreen('PAUSED');
+  }, []);
 
   // Auto-open Host room when entering HERO_SETUP in ONLINE Host mode
   useEffect(() => {
@@ -1432,7 +1677,7 @@ export default function App() {
 
           if (displayRt) {
             if (ctx) {
-              renderGame(ctx, displayRt);
+              renderGame(ctx, displayRt, localPlayerIdRef.current);
             }
             hudSyncAccum += dt;
             if (hudSyncAccum >= 0.12) {
@@ -1445,7 +1690,7 @@ export default function App() {
         // Solo, Local 2P, or Online Host authoritative simulation
         const rt = runtimeRef.current;
         if (rt && canvas) {
-          if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal) {
+          if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal && !disconnectModalRef.current) {
             const hostModalOpen = showInventoryModalRef.current || showShopModalRef.current;
             stepGame(
               rt,
@@ -1456,6 +1701,15 @@ export default function App() {
               role === 'host' ? remoteInputsRef.current : undefined
             );
 
+            if (rt.isOnlineCampaign && role === 'host') {
+              const sig = `${rt.floorNumber}_${rt.loopLevel}_${rt.bossesDefeatedCount}_${rt.roomDepth}`;
+              if (sig !== lastSavedCheckpointSigRef.current) {
+                lastSavedCheckpointSigRef.current = sig;
+                const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+                if (cp) setSavedCheckpoint(cp);
+              }
+            }
+
             if (rt.pendingEvent) {
               const ev = rt.pendingEvent;
               rt.pendingEvent = null;
@@ -1465,7 +1719,7 @@ export default function App() {
                 const sfx = pendingSfxRef.current.splice(0);
                 onlineSessionRef.current.send({
                   type: 'sync',
-                  snap: serializeRuntimeForSync(rt),
+                  snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
                   sfx,
                 });
               }
@@ -1514,14 +1768,20 @@ export default function App() {
                   }
                 }
                 const entityLoad = rt.bossProjectiles.length + rt.enemies.length + rt.playerProjectiles.length;
-                const syncInterval = entityLoad > 45 ? 0.045 : 0.033;
+                const syncInterval = optimizeConnectionRef.current
+                  ? entityLoad > 40
+                    ? 0.06
+                    : 0.048
+                  : entityLoad > 45
+                  ? 0.045
+                  : 0.033;
                 netSyncAccum += dt;
                 if (netSyncAccum >= syncInterval) {
                   netSyncAccum = 0;
                   const sfx = pendingSfxRef.current.slice(0);
                   const sent = onlineSessionRef.current.send({
                     type: 'sync',
-                    snap: serializeRuntimeForSync(rt),
+                    snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
                     sfx,
                   });
                   if (sent) {
@@ -1538,7 +1798,8 @@ export default function App() {
           }
 
           if (ctx) {
-            renderGame(ctx, rt);
+            const viewerId = coopModeRef.current === 'local' ? undefined : (1 as PlayerId);
+            renderGame(ctx, rt, viewerId);
           }
         }
       }
@@ -1560,6 +1821,11 @@ export default function App() {
     if (stageTransitionTimerRef.current) {
       window.clearTimeout(stageTransitionTimerRef.current);
       stageTransitionTimerRef.current = null;
+    }
+    const rt = runtimeRef.current;
+    if (rt && rt.isOnlineCampaign && activeOnlineRoleRef.current === 'host') {
+      const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
+      if (cp) setSavedCheckpoint(cp);
     }
     if (activeOnlineRoleRef.current !== 'none' && onlineSessionRef.current?.isConnected()) {
       onlineSessionRef.current.send({ type: 'cmd', action: 'leave' });
@@ -1733,6 +1999,7 @@ export default function App() {
           onContinue={() => setScreen('HERO_SETUP')}
           onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenCheats={() => setShowCheatsModal(true)}
+          onOpenSettings={() => setShowControlsModal(true)}
           onBackToSplash={() => setScreen('LANDING')}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
@@ -1743,6 +2010,16 @@ export default function App() {
           leaderboard={leaderboard}
         />
         {fullscreenToast}
+        {showControlsModal && (
+          <ControlsModal
+            controls={controls}
+            numPlayers={numPlayers}
+            optimizeConnection={optimizeConnection}
+            onOptimizeConnection={handleOptimizeConnection}
+            onChange={handleSaveControls}
+            onClose={() => setShowControlsModal(false)}
+          />
+        )}
         {showTutorialModal && (
           <TutorialModal
             onClose={() => setShowTutorialModal(false)}
@@ -1789,7 +2066,7 @@ export default function App() {
           pingByPlayer={pingByPlayer}
           onHostCreateRoom={createHostRoom}
           onGuestJoinRoom={() => joinGuestRoom()}
-          onDisconnectOnline={destroyOnlineSession}
+          onDisconnectOnline={() => destroyOnlineSession()}
           difficulty={difficulty}
           mode={mode}
           playerColors={playerColors}
@@ -1805,11 +2082,19 @@ export default function App() {
           onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
+          optimizeConnection={optimizeConnection}
+          onToggleOptimizeConnection={handleOptimizeConnection}
+          savedCheckpoint={savedCheckpoint}
+          onResumeCheckpoint={() => beginRun(true)}
+          onDiscardCheckpoint={() => {
+            clearOnlineCheckpoint();
+            setSavedCheckpoint(null);
+          }}
           onBack={() => {
             destroyOnlineSession();
             setScreen('TITLE_MENU');
           }}
-          onStart={beginRun}
+          onStart={() => beginRun(false)}
         />
         {fullscreenToast}
       </>
@@ -1955,6 +2240,9 @@ export default function App() {
           fullscreenNote={fullscreenNote}
           showTouchControls={showTouchControls}
           onlineRole={activeOnlineRole}
+          roomCode={activeOnlineRole === 'host' ? roomCode : lastRoomCodeRef.current || joinInput}
+          optimizeConnection={optimizeConnection}
+          onOptimizeConnection={handleOptimizeConnection}
           pausedBy={pausedBy}
           pausedByName={pausedByName}
           onMusicChange={(v) => {
@@ -1979,7 +2267,7 @@ export default function App() {
           onControls={() => setShowControlsModal(true)}
           onCheats={() => setShowCheatsModal(true)}
           cheatsActive={Boolean(hud?.cheatsUsed || anyCheatActive)}
-          onRestart={hud?.isTutorial ? beginTutorial : beginRun}
+          onRestart={hud?.isTutorial ? beginTutorial : () => beginRun(false)}
           onMenu={handleReturnToMenu}
         />
       )}
@@ -1988,6 +2276,8 @@ export default function App() {
         <ControlsModal
           controls={controls}
           numPlayers={activeOnlineRole !== 'none' ? 1 : numPlayers}
+          optimizeConnection={optimizeConnection}
+          onOptimizeConnection={handleOptimizeConnection}
           onChange={handleSaveControls}
           onClose={() => setShowControlsModal(false)}
         />
@@ -2040,7 +2330,7 @@ export default function App() {
         <EndScreenModal
           summary={runSummary}
           onlineRole={activeOnlineRole}
-          onPlayAgain={beginRun}
+          onPlayAgain={() => beginRun(false)}
           onMainMenu={handleReturnToMenu}
         />
       )}
@@ -2064,7 +2354,7 @@ export default function App() {
               const sfx = pendingSfxRef.current.splice(0);
               onlineSessionRef.current.send({
                 type: 'sync',
-                snap: serializeRuntimeForSync(rt),
+                snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
                 sfx,
               });
             }
@@ -2105,6 +2395,12 @@ export default function App() {
       {disconnectModal && (
         <OnlineDisconnectModal
           isHost={disconnectModal.isHost}
+          roomCode={disconnectModal.isHost ? roomCode : lastRoomCodeRef.current || joinInput}
+          floorNumber={hud?.floorMap?.floorNumber}
+          isReconnecting={!disconnectModal.isHost && onlineStatus === 'connecting'}
+          reconnectError={onlineError}
+          onWaitForReconnect={disconnectModal.isHost ? handleWaitForReconnect : undefined}
+          onReconnect={!disconnectModal.isHost ? handleGuestReconnect : undefined}
           onContinueSolo={disconnectModal.isHost ? handleContinueSolo : undefined}
           onReturnToMenu={handleReturnToMenu}
         />

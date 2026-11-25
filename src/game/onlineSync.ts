@@ -304,7 +304,7 @@ export type OnlineMessage =
       summary?: RunSummary | null;
       pausedBy?: PlayerId;
     }
-  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'drop_weapon' }
+  | { type: 'cmd'; action: 'skip_intro' | 'pause' | 'resume' | 'leave' | 'use_potion' | 'drop_weapon' | 'resync_me' }
   | { type: 'cmd'; action: 'use_scroll' | 'drop_scroll'; scrollId: number }
   | { type: 'cmd'; action: 'buy_shop_item'; itemId: number }
   | { type: 'cmd'; action: 'switch_practice_weapon'; weaponId: WeaponId }
@@ -344,7 +344,7 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot {
+export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = false): SyncedRuntimeSnapshot {
   const playerCombos: Record<number, { count: number; timer: number }> = {};
   for (const k of Object.keys(rt.playerCombos)) {
     const id = Number(k);
@@ -458,13 +458,15 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
       dashTime: p.dashTime,
       dashCooldown: p.dashCooldown,
       dashImmune: p.dashImmune,
-      dashTrail: p.dashTrail.slice(-3).map((t) => ({
-        x: r0(t.x),
-        y: r0(t.y),
-        alpha: r2(t.alpha),
-        color: t.color,
-        angle: r2(t.angle),
-      })),
+      dashTrail: optimizeConnection
+        ? []
+        : p.dashTrail.slice(-3).map((t) => ({
+            x: r0(t.x),
+            y: r0(t.y),
+            alpha: r2(t.alpha),
+            color: t.color,
+            angle: r2(t.angle),
+          })),
       dashTimeLeft: r2(p.dashTimeLeft),
       dashCooldownTimer: r1(p.dashCooldownTimer),
       postDashInvulnerability: r2(p.postDashInvulnerability),
@@ -618,42 +620,52 @@ export function serializeRuntimeForSync(rt: GameRuntime): SyncedRuntimeSnapshot 
     eclipseSanctuaryActive: rt.eclipseSanctuaryActive,
     medkits: rt.medkits.map((m) => ({ ...m, x: r0(m.x), y: r0(m.y), bob: r2(m.bob) })),
     relics: rt.relics.map((r) => ({ ...r, x: r0(r.x), y: r0(r.y), bob: r2(r.bob) })),
-    dustParticles: rt.dustParticles.slice(-4).map((d) => ({
-      ...d,
-      x: r0(d.x),
-      y: r0(d.y),
-      alpha: r2(d.alpha),
-    })),
-    deathEffects: rt.deathEffects.slice(-8).map((de) => ({
-      ...de,
-      x: r0(de.x),
-      y: r0(de.y),
-      radius: de.radius !== undefined ? r0(de.radius) : undefined,
-      alpha: r2(de.alpha),
-    })),
-    slashArcs: rt.slashArcs.slice(-8).map((sa) => ({
-      ...sa,
-      x: r0(sa.x),
-      y: r0(sa.y),
-      alpha: r2(sa.alpha),
-    })),
-    floatingTexts: rt.floatingTexts.slice(-10).map((ft) => ({
+    dustParticles: optimizeConnection
+      ? []
+      : rt.dustParticles.slice(-4).map((d) => ({
+          ...d,
+          x: r0(d.x),
+          y: r0(d.y),
+          alpha: r2(d.alpha),
+        })),
+    deathEffects: optimizeConnection
+      ? []
+      : rt.deathEffects.slice(-8).map((de) => ({
+          ...de,
+          x: r0(de.x),
+          y: r0(de.y),
+          radius: de.radius !== undefined ? r0(de.radius) : undefined,
+          alpha: r2(de.alpha),
+        })),
+    slashArcs: optimizeConnection
+      ? []
+      : rt.slashArcs.slice(-8).map((sa) => ({
+          ...sa,
+          x: r0(sa.x),
+          y: r0(sa.y),
+          alpha: r2(sa.alpha),
+        })),
+    floatingTexts: rt.floatingTexts.slice(optimizeConnection ? -4 : -10).map((ft) => ({
       ...ft,
       x: r0(ft.x),
       y: r0(ft.y),
       alpha: r2(ft.alpha),
     })),
-    comicSlashes: rt.comicSlashes.slice(-6).map((cs) => ({
-      ...cs,
-      alpha: r2(cs.alpha),
-    })),
-    voidRifts: rt.voidRifts.slice(-6).map((vr) => ({
-      ...vr,
-      size: r1(vr.size),
-      alpha: r2(vr.alpha),
-      rotation: r2(vr.rotation),
-    })),
-    energyWaves: rt.energyWaves.slice(-6).map((ew) => ({
+    comicSlashes: optimizeConnection
+      ? []
+      : rt.comicSlashes.slice(-6).map((cs) => ({
+          ...cs,
+          alpha: r2(cs.alpha),
+        })),
+    voidRifts: optimizeConnection
+      ? []
+      : rt.voidRifts.slice(-6).map((vr) => ({
+          ...vr,
+          size: r1(vr.size),
+          alpha: r2(vr.alpha),
+          rotation: r2(vr.rotation),
+        })),
+    energyWaves: rt.energyWaves.slice(optimizeConnection ? -3 : -6).map((ew) => ({
       ...ew,
       radius: r1(ew.radius),
       alpha: r2(ew.alpha),
@@ -1291,13 +1303,27 @@ function getBufferedAmount(conn: DataConnection | null | undefined): number {
   return typeof dc?.bufferedAmount === 'number' ? dc.bufferedAmount : 0;
 }
 
+function getOrCreateClientUid(): string {
+  const key = 'dungeon_bouncer_client_uid_v1';
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing && existing.length >= 6) return existing;
+    const next = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    sessionStorage.setItem(key, next);
+    return next;
+  } catch {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
 export class OnlineSession {
   private peer: Peer | null = null;
   private hostConn: DataConnection | null = null;
   private hostStreamConn: DataConnection | null = null;
   private guests = new Map<PlayerId, GuestSlot>();
+  private slotByClientUid = new Map<string, PlayerId>();
   private pendingStreams = new Map<string, DataConnection>();
-  private guestClientUid = Math.random().toString(36).slice(2, 10);
+  private guestClientUid = getOrCreateClientUid();
   private role: 'host' | 'guest';
   private roomCode: string;
   private maxPlayers: number;
@@ -1306,6 +1332,7 @@ export class OnlineSession {
   private connectTimer: number | null = null;
   private pingTimer: number | null = null;
   private hostWasConnected = false;
+  private lowBandwidth = false;
 
   constructor(
     role: 'host' | 'guest',
@@ -1373,16 +1400,60 @@ export class OnlineSession {
     return Boolean(this.hostConn && this.hostConn.open);
   }
 
+  setLowBandwidth(enabled: boolean) {
+    this.lowBandwidth = enabled;
+  }
+
+  isLowBandwidth(): boolean {
+    return this.lowBandwidth;
+  }
+
+  reopenStream() {
+    if (this.destroyed) return;
+    if (this.role === 'guest') {
+      if (this.peer && !this.peer.destroyed && this.hostConn?.open) {
+        try {
+          this.hostStreamConn?.close();
+        } catch {
+          // ignore
+        }
+        this.hostStreamConn = null;
+        const targetId = `${PEER_PREFIX}${this.roomCode}`;
+        const streamConn = this.peer.connect(targetId, {
+          label: 'stream',
+          reliable: false,
+          serialization: 'json',
+          metadata: { channel: 'stream', clientUid: this.guestClientUid },
+        });
+        this.attachGuestToHostConnection(streamConn, true);
+        this.send({ type: 'cmd', action: 'resync_me' });
+      }
+    } else {
+      const now = performance.now();
+      for (const slot of this.guests.values()) {
+        if (slot.conn.open) {
+          try {
+            slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
   send(msg: OnlineMessage, targetPlayerId?: PlayerId): boolean {
     if (this.destroyed) return false;
     const isStreamMsg = msg.type === 'sync' || msg.type === 'input';
+    const syncLimit = this.lowBandwidth ? 14336 : 24576;
+    const inputLimit = this.lowBandwidth ? 8192 : 16384;
 
     if (this.role === 'host') {
       if (targetPlayerId !== undefined) {
         const slot = this.guests.get(targetPlayerId);
         if (slot && slot.conn.open) {
           const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 24576) return false;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > syncLimit) return false;
           try {
             targetConn.send(msg);
             return true;
@@ -1396,7 +1467,7 @@ export class OnlineSession {
       for (const slot of this.guests.values()) {
         if (slot.conn.open) {
           const targetConn = isStreamMsg && slot.streamConn?.open ? slot.streamConn : slot.conn;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > 24576) continue;
+          if (msg.type === 'sync' && getBufferedAmount(targetConn) > syncLimit) continue;
           try {
             targetConn.send(msg);
             sentAny = true;
@@ -1410,7 +1481,7 @@ export class OnlineSession {
 
     const targetConn = isStreamMsg && this.hostStreamConn?.open ? this.hostStreamConn : this.hostConn;
     if (!targetConn || !targetConn.open) return false;
-    if (msg.type === 'input' && getBufferedAmount(targetConn) > 16384) return false;
+    if (msg.type === 'input' && getBufferedAmount(targetConn) > inputLimit) return false;
     try {
       targetConn.send(msg);
       return true;
@@ -1517,13 +1588,33 @@ export class OnlineSession {
         }
 
         let assignedSlot: PlayerId | null = null;
-        const candidateSlots: PlayerId[] = [2, 3, 4, 5];
-        for (const s of candidateSlots) {
-          if (s <= this.maxPlayers && !this.guests.has(s)) {
-            assignedSlot = s;
-            break;
+        if (meta.clientUid && this.slotByClientUid.has(meta.clientUid)) {
+          const prevSlot = this.slotByClientUid.get(meta.clientUid)!;
+          if (prevSlot <= this.maxPlayers) {
+            const existing = this.guests.get(prevSlot);
+            if (existing) {
+              this.guests.delete(prevSlot);
+              try {
+                existing.streamConn?.close();
+                existing.conn.close();
+              } catch {
+                // ignore
+              }
+            }
+            assignedSlot = prevSlot;
           }
         }
+
+        if (assignedSlot === null) {
+          const candidateSlots: PlayerId[] = [2, 3, 4, 5];
+          for (const s of candidateSlots) {
+            if (s <= this.maxPlayers && !this.guests.has(s)) {
+              assignedSlot = s;
+              break;
+            }
+          }
+        }
+
         if (assignedSlot === null) {
           incomingConn.on('open', () => {
             try {
@@ -1540,6 +1631,9 @@ export class OnlineSession {
             }, 150);
           });
           return;
+        }
+        if (meta.clientUid) {
+          this.slotByClientUid.set(meta.clientUid, assignedSlot);
         }
         this.attachHostToGuestConnection(incomingConn, assignedSlot, meta.clientUid);
       });
@@ -1583,6 +1677,13 @@ export class OnlineSession {
   }
 
   private attachHostStreamConnection(conn: DataConnection, slot: GuestSlot, slotId: PlayerId) {
+    if (slot.streamConn && slot.streamConn !== conn) {
+      try {
+        slot.streamConn.close();
+      } catch {
+        // ignore
+      }
+    }
     slot.streamConn = conn;
     conn.on('data', (raw) => {
       if (this.destroyed || !raw || typeof raw !== 'object') return;

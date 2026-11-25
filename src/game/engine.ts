@@ -9331,82 +9331,83 @@ export function stepGame(
     if (e.hitFlashTimer && e.hitFlashTimer > 0) {
       e.hitFlashTimer = Math.max(0, e.hitFlashTimer - dt);
     }
-    if (e.stunTimer && e.stunTimer > 0) {
-      e.stunTimer -= dt;
-      continue;
-    }
-    e.rotation += dt * 4.5;
+    const isStunned = Boolean(e.stunTimer && e.stunTimer > 0);
+    if (isStunned) {
+      e.stunTimer = Math.max(0, (e.stunTimer || 0) - dt);
+    } else {
+      e.rotation += dt * 4.5;
 
-    const zoneSlow = rt.skillZones.some(
-      (z) => z.kind === 'holy_ground' && Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius
-    )
-      ? 0.6
-      : 1;
+      const zoneSlow = rt.skillZones.some(
+        (z) => z.kind === 'holy_ground' && Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius
+      )
+        ? 0.6
+        : 1;
 
-    if (e.type === 'charger') {
-      e.chargeTimer = (e.chargeTimer || 0) - dt;
-      if (e.chargeState === 'roam') {
+      if (e.type === 'charger') {
+        e.chargeTimer = (e.chargeTimer || 0) - dt;
+        if (e.chargeState === 'roam') {
+          e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+          e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
+          if (e.chargeTimer <= 0) {
+            e.chargeState = 'telegraph';
+            e.chargeTimer = 0.65;
+            const tp = getRandomAlivePlayer(rt);
+            e.chargeTargetX = tp.x + tp.size / 2;
+            e.chargeTargetY = tp.y + tp.size / 2;
+          }
+        } else if (e.chargeState === 'telegraph') {
+          if (e.chargeTimer <= 0) {
+            e.chargeState = 'lunge';
+            e.chargeTimer = 0.55;
+            const dx = (e.chargeTargetX || rt.arenaWidth / 2) - (e.x + e.size / 2);
+            const dy = (e.chargeTargetY || rt.arenaHeight / 2) - (e.y + e.size / 2);
+            const d = Math.hypot(dx, dy) || 1;
+            e.dx = dx / d;
+            e.dy = dy / d;
+          }
+        } else if (e.chargeState === 'lunge') {
+          e.x += e.dx * e.speed * 3.4 * (dt * 60) * zoneSlow;
+          e.y += e.dy * e.speed * 3.4 * (dt * 60) * zoneSlow;
+          if (e.chargeTimer <= 0) {
+            e.chargeState = 'roam';
+            e.chargeTimer = 1.6 + Math.random() * 1.4;
+          }
+        }
+      } else if (e.type === 'void_stalker') {
         e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
         e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
-        if (e.chargeTimer <= 0) {
-          e.chargeState = 'telegraph';
-          e.chargeTimer = 0.65;
+        e.blinkTimer = (e.blinkTimer || 2) - dt;
+        e.alpha = e.blinkTimer < 0.4 ? 0.35 : 1.0;
+        if (e.blinkTimer <= 0) {
+          e.blinkTimer = 2.4 + Math.random() * 1.6;
           const tp = getRandomAlivePlayer(rt);
-          e.chargeTargetX = tp.x + tp.size / 2;
-          e.chargeTargetY = tp.y + tp.size / 2;
+          const angle = Math.random() * Math.PI * 2;
+          e.x = Math.max(20, Math.min(rt.arenaWidth - e.size - 20, tp.x + Math.cos(angle) * 140));
+          e.y = Math.max(20, Math.min(rt.arenaHeight - e.size - 20, tp.y + Math.sin(angle) * 140));
         }
-      } else if (e.chargeState === 'telegraph') {
-        if (e.chargeTimer <= 0) {
-          e.chargeState = 'lunge';
-          e.chargeTimer = 0.55;
-          const dx = (e.chargeTargetX || rt.arenaWidth / 2) - (e.x + e.size / 2);
-          const dy = (e.chargeTargetY || rt.arenaHeight / 2) - (e.y + e.size / 2);
+      } else if (e.type === 'oni_acolyte') {
+        e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+        e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
+        e.shootTimer = (e.shootTimer || 2) - dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = 2.6 + Math.random() * 1.2;
+          const tp = getRandomAlivePlayer(rt);
+          const dx = tp.x + tp.size / 2 - (e.x + e.size / 2);
+          const dy = tp.y + tp.size / 2 - (e.y + e.size / 2);
           const d = Math.hypot(dx, dy) || 1;
-          e.dx = dx / d;
-          e.dy = dy / d;
+          pushBossProj(rt, { uid: rt.nextUid++, x: e.x + e.size / 2, y: e.y + e.size / 2, dx: (dx / d) * 3.8, dy: (dy / d) * 3.8, size: 13, speed: 1, color: '#f97316', damage: 15, shape: 'ember' });
+          soundEngine.playBossShoot();
         }
-      } else if (e.chargeState === 'lunge') {
-        e.x += e.dx * e.speed * 3.4 * (dt * 60) * zoneSlow;
-        e.y += e.dy * e.speed * 3.4 * (dt * 60) * zoneSlow;
-        if (e.chargeTimer <= 0) {
-          e.chargeState = 'roam';
-          e.chargeTimer = 1.6 + Math.random() * 1.4;
-        }
+      } else {
+        e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
+        e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
       }
-    } else if (e.type === 'void_stalker') {
-      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
-      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
-      e.blinkTimer = (e.blinkTimer || 2) - dt;
-      e.alpha = e.blinkTimer < 0.4 ? 0.35 : 1.0;
-      if (e.blinkTimer <= 0) {
-        e.blinkTimer = 2.4 + Math.random() * 1.6;
-        const tp = getRandomAlivePlayer(rt);
-        const angle = Math.random() * Math.PI * 2;
-        e.x = Math.max(20, Math.min(rt.arenaWidth - e.size - 20, tp.x + Math.cos(angle) * 140));
-        e.y = Math.max(20, Math.min(rt.arenaHeight - e.size - 20, tp.y + Math.sin(angle) * 140));
-      }
-    } else if (e.type === 'oni_acolyte') {
-      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
-      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
-      e.shootTimer = (e.shootTimer || 2) - dt;
-      if (e.shootTimer <= 0) {
-        e.shootTimer = 2.6 + Math.random() * 1.2;
-        const tp = getRandomAlivePlayer(rt);
-        const dx = tp.x + tp.size / 2 - (e.x + e.size / 2);
-        const dy = tp.y + tp.size / 2 - (e.y + e.size / 2);
-        const d = Math.hypot(dx, dy) || 1;
-        pushBossProj(rt, { uid: rt.nextUid++, x: e.x + e.size / 2, y: e.y + e.size / 2, dx: (dx / d) * 3.8, dy: (dy / d) * 3.8, size: 13, speed: 1, color: '#f97316', damage: 15, shape: 'ember' });
-        soundEngine.playBossShoot();
-      }
-    } else {
-      e.x += e.dx * e.speed * (dt * 60) * zoneSlow;
-      e.y += e.dy * e.speed * (dt * 60) * zoneSlow;
-    }
 
-    if (e.x <= 0) { e.x = 0; e.dx = Math.abs(e.dx); }
-    if (e.x + e.size >= rt.arenaWidth) { e.x = rt.arenaWidth - e.size; e.dx = -Math.abs(e.dx); }
-    if (e.y <= 0) { e.y = 0; e.dy = Math.abs(e.dy); }
-    if (e.y + e.size >= rt.arenaHeight) { e.y = rt.arenaHeight - e.size; e.dy = -Math.abs(e.dy); }
+      if (e.x <= 0) { e.x = 0; e.dx = Math.abs(e.dx); }
+      if (e.x + e.size >= rt.arenaWidth) { e.x = rt.arenaWidth - e.size; e.dx = -Math.abs(e.dx); }
+      if (e.y <= 0) { e.y = 0; e.dy = Math.abs(e.dy); }
+      if (e.y + e.size >= rt.arenaHeight) { e.y = rt.arenaHeight - e.size; e.dy = -Math.abs(e.dy); }
+    }
 
     for (const player of rt.players) {
       if (player.state !== 'alive') continue;
@@ -9442,6 +9443,7 @@ export function stepGame(
           damageEnemy(rt, i, player.id, strikeDmg, player.facingAngle, player.color);
           break;
         } else if (
+          !isStunned &&
           !player.inSafeZone &&
           !player.invulnerable &&
           !player.dashImmune &&
@@ -10356,3 +10358,231 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     p2: toPlayerHud(p2),
   };
 }
+
+export const ONLINE_CHECKPOINT_STORAGE_KEY = 'dungeon_bouncer_online_checkpoint_v1';
+
+export interface OnlineCheckpointPlayerData {
+  id: PlayerId;
+  name: string;
+  heroClass: HeroClassId;
+  color: string;
+  weapon: WeaponId;
+  scrollBag: SkillScrollItem[];
+  learnedSkills: Partial<Record<WeaponClassId, number[]>>;
+  potions: number;
+  coins: number;
+  hp: number;
+  maxHp: number;
+  bonusMaxHp: number;
+}
+
+export interface OnlineCampaignCheckpoint {
+  version: 1;
+  roomCode?: string;
+  difficulty: DifficultyKey;
+  floorNumber: number;
+  loopLevel: number;
+  bossesDefeatedCount: number;
+  activeBoons: BoonId[];
+  score: number;
+  kills: number;
+  grazes: number;
+  elapsedSeconds: number;
+  savedAt: number;
+  players: OnlineCheckpointPlayerData[];
+}
+
+export function createOnlineCampaignCheckpoint(
+  rt: GameRuntime,
+  roomCode?: string
+): OnlineCampaignCheckpoint | null {
+  if (!rt.isOnlineCampaign || rt.isTutorial || rt.isTeamworkPractice || rt.gameOver || rt.victory) {
+    return null;
+  }
+  const players: OnlineCheckpointPlayerData[] = rt.players
+    .filter((p) => !p.isBot && (p.state !== 'spectator' || p.weapon !== 'none' || p.coins > 0 || p.scrollBag.length > 0))
+    .map((p) => {
+      const learnedSkills: Partial<Record<WeaponClassId, number[]>> = {};
+      for (const [k, v] of Object.entries(p.learnedSkills || {})) {
+        if (Array.isArray(v)) learnedSkills[k as WeaponClassId] = [...v];
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        heroClass: p.heroClass,
+        color: p.color,
+        weapon: p.weapon,
+        scrollBag: p.scrollBag.map((s) => ({ ...s })),
+        learnedSkills,
+        potions: p.potions,
+        coins: p.coins,
+        hp: Math.round(p.hp),
+        maxHp: p.maxHp,
+        bonusMaxHp: p.bonusMaxHp,
+      };
+    });
+
+  return {
+    version: 1,
+    roomCode,
+    difficulty: rt.difficulty,
+    floorNumber: rt.floorNumber,
+    loopLevel: rt.loopLevel,
+    bossesDefeatedCount: rt.bossesDefeatedCount,
+    activeBoons: [...rt.activeBoons],
+    score: Math.round(rt.score),
+    kills: rt.kills,
+    grazes: rt.grazes,
+    elapsedSeconds: rt.elapsedSeconds,
+    savedAt: Date.now(),
+    players,
+  };
+}
+
+export function saveOnlineCheckpoint(rt: GameRuntime, roomCode?: string): OnlineCampaignCheckpoint | null {
+  const cp = createOnlineCampaignCheckpoint(rt, roomCode);
+  if (!cp) return null;
+  try {
+    localStorage.setItem(ONLINE_CHECKPOINT_STORAGE_KEY, JSON.stringify(cp));
+  } catch {
+    // ignore storage quota errors
+  }
+  return cp;
+}
+
+export function loadOnlineCheckpoint(): OnlineCampaignCheckpoint | null {
+  try {
+    const raw = localStorage.getItem(ONLINE_CHECKPOINT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OnlineCampaignCheckpoint;
+    if (!parsed || parsed.version !== 1 || typeof parsed.floorNumber !== 'number') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearOnlineCheckpoint(): void {
+  try {
+    localStorage.removeItem(ONLINE_CHECKPOINT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function applyOnlineCheckpointToRuntime(rt: GameRuntime, cp: OnlineCampaignCheckpoint): void {
+  if (!rt.isOnlineCampaign) return;
+  rt.floorNumber = Math.max(1, cp.floorNumber);
+  rt.loopLevel = Math.max(1, cp.loopLevel);
+  rt.bossesDefeatedCount = Math.max(0, Math.min(3, cp.bossesDefeatedCount));
+  rt.score = Math.max(0, cp.score || 0);
+  rt.kills = Math.max(0, cp.kills || 0);
+  rt.grazes = Math.max(0, cp.grazes || 0);
+  rt.elapsedSeconds = Math.max(0, cp.elapsedSeconds || 0);
+
+  for (const boonId of cp.activeBoons || []) {
+    if (!rt.activeBoons.includes(boonId)) {
+      applyBoon(rt, boonId);
+    }
+  }
+
+  for (const pl of rt.players) {
+    if (pl.state === 'spectator') continue;
+    const saved = cp.players.find((sp) => sp.id === pl.id);
+    if (!saved) continue;
+    pl.bonusMaxHp = saved.bonusMaxHp || 0;
+    pl.maxHp = Math.max(pl.maxHp, saved.maxHp || pl.maxHp);
+    pl.hp = Math.max(Math.round(pl.maxHp * 0.65), Math.min(pl.maxHp, saved.hp || pl.maxHp));
+    pl.coins = Math.max(0, saved.coins || 0);
+    pl.potions = Math.max(0, Math.min(2, saved.potions ?? 2));
+    pl.scrollBag = Array.isArray(saved.scrollBag) ? saved.scrollBag.map((s) => ({ ...s })) : [];
+    if (saved.weapon && saved.weapon !== 'none') {
+      equipWeapon(rt, pl, saved.weapon);
+    }
+    if (saved.learnedSkills) {
+      const copied: Partial<Record<WeaponClassId, number[]>> = {};
+      for (const [k, v] of Object.entries(saved.learnedSkills)) {
+        if (Array.isArray(v)) copied[k as WeaponClassId] = [...v];
+      }
+      pl.learnedSkills = copied;
+      if (pl.weapon !== 'none') {
+        const tiers = copied[pl.weapon] || [1];
+        pl.unlockedSkillTier = Math.max(1, Math.min(4, Math.max(...tiers)));
+      }
+    }
+  }
+
+  const combatStage = getCampaignDungeonStage(rt.bossesDefeatedCount);
+  resetFloorWorkspace(rt, combatStage, 15);
+  showPhaseAnnounce(rt, `RESUMED FLOOR ${rt.floorNumber} · CHECKPOINT RESTORED!`, '#34d399', 3.4);
+}
+
+export function restoreOnlinePlayerSlot(
+  rt: GameRuntime,
+  playerId: PlayerId,
+  info?: { playerName?: string; colorHex?: string; heroClass?: HeroClassId }
+): Player {
+  let slot = rt.players.find((p) => p.id === playerId);
+  const usesWeapons = usesWeaponSystem(rt);
+  const colorHex = info?.colorHex || rt.playerColors[playerId] || slot?.color || '#22d3ee';
+  const resolvedName = info?.playerName?.trim().slice(0, 14) || slot?.name || `Player ${playerId}`;
+  rt.playerColors[playerId] = colorHex;
+  rt.playerNames[playerId] = resolvedName;
+
+  const anchor = rt.players.find((p) => p.id !== playerId && p.state === 'alive');
+  const spawnX = anchor
+    ? Math.max(48, Math.min(rt.arenaWidth - 88, anchor.x + 48))
+    : Math.round(rt.arenaWidth / 2 - 19);
+  const spawnY = anchor
+    ? Math.max(64, Math.min(rt.arenaHeight - 88, anchor.y + 12))
+    : Math.round(rt.arenaHeight * 0.65);
+
+  if (!slot) {
+    slot = createPlayer(
+      playerId,
+      info?.heroClass || rt.playerClasses[playerId] || 'phantom',
+      spawnX,
+      spawnY,
+      colorHex,
+      rt.diffSettings,
+      Math.max(rt.numPlayers + 1, playerId),
+      usesWeapons,
+      resolvedName,
+      false
+    );
+    rt.players.push(slot);
+    rt.players.sort((a, b) => a.id - b.id);
+  } else {
+    slot.name = resolvedName;
+    slot.color = colorHex;
+    slot.state = 'alive';
+    slot.hp = Math.max(Math.min(slot.maxHp, 35), slot.hp > 0 ? slot.hp : Math.round(slot.maxHp * 0.65));
+    slot.x = spawnX;
+    slot.y = spawnY;
+    slot.vx = 0;
+    slot.vy = 0;
+    slot.invulnFrames = 2.5;
+    slot.sealed = false;
+    slot.sealTimer = 0;
+    slot.dashImmune = false;
+    slot.dashTimeLeft = 0;
+  }
+
+  slot.hasKnife = true;
+  rt.knives = rt.knives.filter((k) => k.owner !== playerId);
+  const pos = getStandardKnifePos(rt, 22);
+  rt.knives.push({
+    x: pos.x,
+    y: pos.y,
+    size: 22,
+    color: colorHex,
+    owner: playerId,
+    bobPhase: playerId * 1.1,
+    luckyTimer: 0,
+  });
+
+  rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+  showPhaseAnnounce(rt, `${slot.name.toUpperCase()} RECONNECTED!`, '#34d399', 2.8);
+  return slot;
+}
+

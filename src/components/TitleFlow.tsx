@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen, Sliders, RotateCcw, Trash2 } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -13,6 +13,7 @@ import {
   PlayerId,
   WEAPONS_CATALOG,
 } from '../game/types';
+import { OnlineCampaignCheckpoint } from '../game/engine';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 import {
@@ -30,6 +31,7 @@ interface TitleMenuProps {
   onContinue: () => void;
   onOpenTutorial: () => void;
   onOpenCheats: () => void;
+  onOpenSettings?: () => void;
   onBackToSplash?: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
@@ -48,6 +50,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onContinue,
   onOpenTutorial,
   onOpenCheats,
+  onOpenSettings,
   onBackToSplash,
   anyCheatActive,
   isMuted,
@@ -150,6 +153,21 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               {!isMuted && menuAudioBlocked && <span>Play Music</span>}
             </button>
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenSettings();
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors bg-[#09090e]/90 border-slate-700 text-emerald-300 hover:border-emerald-500/70"
+                title="Controls & Connection Optimizer"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Settings</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -455,7 +473,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         <footer className="flex items-center justify-between gap-4 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
           <span>DUNGEON BOUNCER · BY SPROKOZ</span>
           <span className="text-amber-400/80 font-semibold tracking-wider uppercase">
-            beta test 0.0.9
+            beta test 0.1.0
           </span>
         </footer>
       </div>
@@ -509,6 +527,11 @@ interface HeroSetupProps {
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  optimizeConnection?: boolean;
+  onToggleOptimizeConnection?: () => void;
+  savedCheckpoint?: OnlineCampaignCheckpoint | null;
+  onResumeCheckpoint?: () => void;
+  onDiscardCheckpoint?: () => void;
   onBack: () => void;
   onStart: () => void;
 }
@@ -546,6 +569,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
+  optimizeConnection = false,
+  onToggleOptimizeConnection,
+  savedCheckpoint,
+  onResumeCheckpoint,
+  onDiscardCheckpoint,
   onBack,
   onStart,
 }) => {
@@ -859,6 +887,24 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     {copiedType === 'link' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link2 className="w-3.5 h-3.5" />}
                     <span>{copiedType === 'link' ? 'Link Copied' : 'Copy Invite Link'}</span>
                   </button>
+                  {onToggleOptimizeConnection && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onToggleOptimizeConnection();
+                      }}
+                      className={`px-3 py-2 rounded border text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                        optimizeConnection
+                          ? 'bg-emerald-600 border-emerald-400 text-white'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-emerald-300'
+                      }`}
+                      title="Optimize connection for bad ping"
+                    >
+                      <Wifi className="w-3.5 h-3.5" />
+                      <span>{optimizeConnection ? 'Low-Ping: ON' : 'Optimize Ping'}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -911,6 +957,23 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
                   >
                     Leave Room
+                  </button>
+                )}
+                {onToggleOptimizeConnection && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playUiClick();
+                      onToggleOptimizeConnection();
+                    }}
+                    className={`px-3 py-2 rounded border text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                      optimizeConnection
+                        ? 'bg-emerald-600 border-emerald-400 text-white'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-emerald-300'
+                    }`}
+                  >
+                    <Wifi className="w-3.5 h-3.5" />
+                    <span>{optimizeConnection ? 'Low-Ping: ON' : 'Optimize Ping'}</span>
                   </button>
                 )}
               </div>
@@ -1028,6 +1091,47 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
             {onlineError && (
               <p className="text-xs text-red-400 font-mono-num">{onlineError}</p>
+            )}
+
+            {onlineRole === 'host' && mode === 'campaign' && savedCheckpoint && onResumeCheckpoint && (
+              <div className="mt-2 p-3 rounded-md bg-amber-950/25 border border-amber-500/60 flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <div className="font-arcade text-[10px] text-amber-300">
+                    SAVED FLOOR CHECKPOINT · FLOOR {savedCheckpoint.floorNumber}
+                  </div>
+                  <div className="font-mono-num text-[11px] text-slate-300">
+                    Loop {savedCheckpoint.loopLevel} · {savedCheckpoint.bossesDefeatedCount}/4 Bosses Cleared · {savedCheckpoint.players.length} Saved Slots
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={!canHostDeploy}
+                    onClick={() => {
+                      soundEngine.unlock();
+                      soundEngine.playBoonSelect();
+                      onResumeCheckpoint();
+                    }}
+                    className="px-3.5 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Resume Floor {savedCheckpoint.floorNumber}</span>
+                  </button>
+                  {onDiscardCheckpoint && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onDiscardCheckpoint();
+                      }}
+                      className="p-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-400 hover:text-red-300 cursor-pointer"
+                      title="Discard Saved Checkpoint"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2 } from 'lucide-react';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw } from 'lucide-react';
 import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, FinalVoteState, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
@@ -16,11 +16,20 @@ function formatKeyName(key: string): string {
 interface ControlsModalProps {
   controls: ControlsConfig;
   numPlayers: number;
+  optimizeConnection?: boolean;
+  onOptimizeConnection?: () => void;
   onChange: (next: ControlsConfig) => void;
   onClose: () => void;
 }
 
-export const ControlsModal: React.FC<ControlsModalProps> = ({ controls, numPlayers, onChange, onClose }) => {
+export const ControlsModal: React.FC<ControlsModalProps> = ({
+  controls,
+  numPlayers,
+  optimizeConnection = false,
+  onOptimizeConnection,
+  onChange,
+  onClose,
+}) => {
   const [listening, setListening] = useState<{ player: 1 | 2; action: keyof PlayerControls } | null>(null);
 
   useEffect(() => {
@@ -95,6 +104,44 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({ controls, numPlaye
           })}
         </div>
 
+        {onOptimizeConnection && (
+          <div className="bg-black/75 border border-emerald-800/60 rounded-md p-3.5 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                <Wifi className="w-4 h-4 shrink-0" />
+                <span>CONNECTION OPTIMIZER</span>
+              </div>
+              <span
+                className={`font-mono-num text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  optimizeConnection
+                    ? 'bg-emerald-950/70 border-emerald-500/70 text-emerald-300'
+                    : 'bg-slate-900 border-slate-700 text-slate-400'
+                }`}
+              >
+                {optimizeConnection ? 'LOW-PING ON' : 'STANDARD'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              For bad ping or packet lag: strips heavy cosmetic particles from sync packets, tightens WebRTC queue buffering, and refreshes the peer stream.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onOptimizeConnection();
+              }}
+              className={`w-full py-2.5 px-3 rounded border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                optimizeConnection
+                  ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
+                  : 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-600/70 text-emerald-200'
+              }`}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>{optimizeConnection ? 'Optimized Mode ON (Click to Re-Sync / Toggle)' : 'Optimize Connection (Fix Bad Ping)'}</span>
+            </button>
+          </div>
+        )}
+
         <button
           type="button"
           onClick={onClose}
@@ -114,6 +161,9 @@ interface PauseModalProps {
   fullscreenNote?: string | null;
   showTouchControls: boolean;
   onlineRole?: 'none' | 'host' | 'guest';
+  roomCode?: string;
+  optimizeConnection?: boolean;
+  onOptimizeConnection?: () => void;
   pausedBy?: PlayerId;
   pausedByName?: string;
   onMusicChange: (v: number) => void;
@@ -135,6 +185,9 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   fullscreenNote,
   showTouchControls,
   onlineRole = 'none',
+  roomCode,
+  optimizeConnection = false,
+  onOptimizeConnection,
   pausedBy,
   pausedByName,
   onMusicChange,
@@ -155,6 +208,11 @@ export const PauseModal: React.FC<PauseModalProps> = ({
       <div className="w-full max-w-sm bg-[#09090e] border border-slate-700 rounded-lg p-6 space-y-5 max-h-[92dvh] overflow-y-auto">
         <div className="text-center space-y-1">
           <h2 className="font-arcade text-base text-white">PAUSED · SETTINGS</h2>
+          {isOnline && roomCode && (
+            <p className="font-mono-num text-[11px] text-emerald-300 font-bold tracking-wider">
+              ROOM CODE: <span className="select-all text-white">{roomCode}</span>
+            </p>
+          )}
           {isOnline && pausedBy && (
             <p className="font-mono-num text-[11px] text-amber-300">
               Paused by {pausedByName || `Player ${pausedBy}`}
@@ -238,6 +296,23 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           >
             Customize Controls
           </button>
+          {onOptimizeConnection && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onOptimizeConnection();
+              }}
+              className={`w-full py-2.5 rounded-md border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                optimizeConnection
+                  ? 'bg-emerald-700 hover:bg-emerald-600 border-emerald-400 text-white'
+                  : 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-600/70 text-emerald-200'
+              }`}
+            >
+              <Wifi className="w-3.5 h-3.5" />
+              <span>{optimizeConnection ? 'Optimize Connection: ON (Re-Sync)' : 'Optimize Connection (Bad Ping)'}</span>
+            </button>
+          )}
           {!isOnline && (
             <button
               type="button"
@@ -774,12 +849,24 @@ export const EndScreenModal: React.FC<EndScreenModalProps> = ({
 
 interface OnlineDisconnectModalProps {
   isHost: boolean;
+  roomCode?: string;
+  floorNumber?: number;
+  isReconnecting?: boolean;
+  reconnectError?: string | null;
+  onWaitForReconnect?: () => void;
+  onReconnect?: () => void;
   onContinueSolo?: () => void;
   onReturnToMenu: () => void;
 }
 
 export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
   isHost,
+  roomCode,
+  floorNumber,
+  isReconnecting = false,
+  reconnectError,
+  onWaitForReconnect,
+  onReconnect,
   onContinueSolo,
   onReturnToMenu,
 }) => {
@@ -790,14 +877,52 @@ export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
           <AlertTriangle className="w-8 h-8 text-amber-400" />
         </div>
         <h2 className="font-arcade text-sm text-white">
-          {isHost ? 'PLAYERS DISCONNECTED' : 'HOST DISCONNECTED'}
+          {isHost ? 'PLAYERS DISCONNECTED' : 'CONNECTION INTERRUPTED'}
         </h2>
         <p className="text-xs text-slate-300 leading-relaxed">
           {isHost
-            ? 'All online teammates left the match. You can continue this run solo or return to the main menu.'
-            : 'The Host ended the session or lost connection.'}
+            ? 'Teammates dropped out. Keep this room open to wait for them to reconnect with their gear, continue solo, or save your floor checkpoint.'
+            : 'Connection to the Host dropped. Reconnect to rejoin your exact slot, weapons, scrolls & floor progress.'}
         </p>
+        {(roomCode || floorNumber) && (
+          <div className="bg-black/75 border border-slate-800 rounded px-3 py-2 font-mono-num text-[11px] flex items-center justify-center gap-3 text-slate-300">
+            {roomCode && (
+              <span>
+                ROOM <strong className="text-emerald-300 select-all">{roomCode}</strong>
+              </span>
+            )}
+            {floorNumber !== undefined && floorNumber > 0 && (
+              <span>
+                FLOOR <strong className="text-amber-300">{floorNumber}</strong>
+              </span>
+            )}
+          </div>
+        )}
+        {reconnectError && (
+          <p className="font-mono-num text-[11px] text-rose-400">{reconnectError}</p>
+        )}
         <div className="flex flex-col gap-2.5 pt-1">
+          {!isHost && onReconnect && (
+            <button
+              type="button"
+              disabled={isReconnecting}
+              onClick={onReconnect}
+              className="w-full py-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-950/60 disabled:text-emerald-300 text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isReconnecting ? 'animate-spin' : ''}`} />
+              <span>{isReconnecting ? 'Reconnecting to Host...' : 'Reconnect to Match'}</span>
+            </button>
+          )}
+          {isHost && onWaitForReconnect && (
+            <button
+              type="button"
+              onClick={onWaitForReconnect}
+              className="w-full py-2.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Wait for Reconnect (Pause Room)</span>
+            </button>
+          )}
           {isHost && onContinueSolo && (
             <button
               type="button"
@@ -812,7 +937,7 @@ export const OnlineDisconnectModal: React.FC<OnlineDisconnectModalProps> = ({
             onClick={onReturnToMenu}
             className="w-full py-2.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
           >
-            Return to Main Menu
+            {isHost ? 'Save Floor & Return to Menu' : 'Return to Main Menu'}
           </button>
         </div>
       </div>

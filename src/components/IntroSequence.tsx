@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FastForward, Maximize2, Minimize2, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { FastForward, Maximize2, Minimize2, Play, RotateCcw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { soundEngine } from '../game/soundEngine';
 
 const INTRO_TOTAL_SECONDS = 10.0;
@@ -554,6 +554,7 @@ interface LandingSplashProps {
   onToggleFullscreen: () => void;
   onStart: () => void;
   onReplayIntro: () => void;
+  onOpenUpdates?: () => void;
 }
 
 export const LandingSplash: React.FC<LandingSplashProps> = ({
@@ -564,6 +565,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
   onToggleFullscreen,
   onStart,
   onReplayIntro,
+  onOpenUpdates,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -762,10 +764,26 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       </main>
 
       {/* Quiet Footer */}
-      <footer className="relative z-10 w-full max-w-5xl flex items-center justify-between gap-4 text-xs text-stone-400">
-        <span className="font-mono-num text-[11px] text-amber-400/75 font-semibold tracking-wider uppercase">
-          beta test 0.1.0
-        </span>
+      <footer className="relative z-10 w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400">
+        <div className="flex items-center gap-3">
+          <span className="font-mono-num text-[11px] text-amber-400/85 font-semibold tracking-wider uppercase">
+            beta test 0.1.1
+          </span>
+          {onOpenUpdates && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onOpenUpdates();
+              }}
+              className="min-h-[34px] px-3 py-1 rounded-md bg-purple-950/60 hover:bg-purple-900/70 border border-purple-500/60 text-purple-200 font-mono-num text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+              <span>New Updates</span>
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => {

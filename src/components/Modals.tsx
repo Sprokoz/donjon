@@ -1493,3 +1493,189 @@ export const ShopNpcModal: React.FC<ShopNpcModalProps> = ({
     </div>
   );
 };
+
+interface VersionUpdateEntry {
+  version: string;
+  title: string;
+  tag?: 'LATEST' | 'MAJOR';
+  changes: string[];
+}
+
+const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
+  {
+    version: 'beta test 0.1.1',
+    title: 'Chest Loot Animations, Connection Hardening & HUD Overhaul',
+    tag: 'LATEST',
+    changes: [
+      'Fixed disconnected online teammates standing idle or duplicating on reconnect — dead WebRTC peers vanish cleanly and reconnect into their exact slot.',
+      'Stopped periodic healing kits and power-up relics from spawning inside cleared dungeon rooms, shops, vaults, or defeated boss sanctums.',
+      'Added multi-stage Chest Opening animations (shake, golden rays, hinged lid pop), parabolic pop-out drops, and animated Gold flying straight into your Gold counter UI.',
+      'Added Host Kick buttons in both the Online Party Roster and the in-game Party Health panel.',
+      'Enlarged the playable arena viewport and added a Hide/Show Extra UI toggle, independent Floor Map Show/Hide + Opacity slider, and a freely draggable collapsible Party Health window.',
+      'Added this New Updates changelog viewer on the Landing & Main Menu screens.',
+    ],
+  },
+  {
+    version: 'beta test 0.1.0',
+    title: 'Floor Checkpoints, Reconnect Recovery & Host Sync Stability',
+    changes: [
+      'Added automatic floor checkpoint saving so online hosts and guests can resume cleared floor progress after disconnects.',
+      'Hid teammates’ idle blade markers cleanly to avoid pickup confusion and enabled attacking stunned enemies.',
+      'Added an Optimize Connection toggle inside Settings & Lobby to reduce packet load on high-ping networks.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.9',
+    title: 'Online Latency Optimization & Shop Economy Rebalance',
+    changes: [
+      'Split WebRTC control and unreliable stream channels with throttled delta broadcasts to cut guest lag during heavy boss bullet patterns.',
+      'Rebalanced dungeon gold drops and adjusted Merchant Broker Vex item pricing.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.8',
+    title: 'Boss Rhythm Tuning & Breathing Room',
+    changes: [
+      'Smoothed boss attack cadences and added clearer recovery windows between heavy teamwork mechanics.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.7',
+    title: '3 Signature Teamwork Mechanics Per Boss',
+    changes: [
+      'Expanded every boss encounter (Mecha, Void, Oni, and Eclipse) with 3 distinct teamwork attacks forcing tank shielding, sanctuary positioning, and co-op coordination.',
+      'Activated teamwork drills reliably inside Teamwork Practice Mode.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.6',
+    title: 'Class Headgear, Potion Cap, Stairs Down & Practice Mode',
+    changes: [
+      'Added class-identifying headgear/helmets for equipped weapons and removed gray scrollbar clutter in favor of dark purple styling.',
+      'Added Stairs to descend deeper for extra loot/scrolls before challenging a boss, buffed boss HP, and capped Crimson Flasks to 2 charges (90s cooldown).',
+      'Added Boss Teamwork Practice Mode with dummy AI allies.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.5',
+    title: 'Single-Weapon Slot, Inventory Bag [I], Broker NPC & Dungeon Gates',
+    changes: [
+      'Replaced 3-weapon hoarding with single active weapon + Minecraft-style Inventory Bag [I] for storing/dropping weapon-specific skill scrolls.',
+      'Rebuilt the Shop around Gilded Broker Vex NPC interaction and added multi-room Dungeon Gates + Arena Safe-Zone Teamwork attacks.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.4',
+    title: 'Up to 5-Player Online Co-op Campaign & Dungeon Exploration',
+    changes: [
+      'Launched 1–5P Online Co-op Campaign with procedural connected floor rooms, Treasure Vaults, Weapon Drops, and post-Eclipse Endless Loop voting.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.3',
+    title: 'Relics, Style Rank, Clean Dodge & Hall of Champions',
+    changes: [
+      'Added Overdrive/Aegis/Magnet/Nova relics, Style Rank meter (D to SSS), Clean Dodge blade empowerment, and Local Leaderboard tracking.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.2',
+    title: '4 Hero Classes, Boss Rush, Training Grounds & Remappable Controls',
+    changes: [
+      'Introduced Blade Ronin, Shadow Phantom, Iron Vanguard, and Volt Arcanist heroes, Boss Rush mode, Training Drills, and Cheat Vault.',
+    ],
+  },
+  {
+    version: 'beta test 0.0.1',
+    title: 'Initial Dungeon Bouncer Foundation',
+    changes: [
+      'Core arena movement, pickup-blade strike combat, dash i-frames, multi-phase bosses, and co-op revive mechanics.',
+    ],
+  },
+];
+
+export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl max-h-[88dvh] bg-[#07070c] border border-purple-500/60 rounded-lg p-5 sm:p-6 shadow-[0_0_45px_rgba(168,85,247,0.2)] flex flex-col gap-4">
+        <div className="flex items-center justify-between border-b border-stone-800 pb-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Sparkles className="w-5 h-5 text-purple-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="font-arcade text-sm sm:text-base text-purple-200 tracking-wide">
+                PATCH NOTES &amp; VERSION HISTORY
+              </h2>
+              <p className="font-mono-num text-[11px] text-stone-400">
+                Every update from beta test 0.0.1 through 0.1.1
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onClose();
+            }}
+            className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer shrink-0"
+            aria-label="Close Updates"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+          {VERSION_UPDATES_LOG.map((entry) => {
+            const isLatest = entry.tag === 'LATEST';
+            return (
+              <div
+                key={entry.version}
+                className={`rounded-md border p-3.5 space-y-2 ${
+                  isLatest
+                    ? 'bg-purple-950/25 border-purple-500/70'
+                    : 'bg-black/70 border-stone-800/90'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-num text-xs font-extrabold uppercase tracking-wider text-amber-300">
+                      {entry.version}
+                    </span>
+                    {isLatest && (
+                      <span className="px-1.5 py-0.5 rounded bg-purple-600/80 border border-purple-300/60 font-mono-num text-[9px] font-bold text-white">
+                        NEW
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono-num text-[11px] font-semibold text-stone-300">
+                    {entry.title}
+                  </span>
+                </div>
+                <ul className="space-y-1 text-xs text-stone-300 pl-3.5 list-disc marker:text-purple-400">
+                  {entry.changes.map((line, i) => (
+                    <li key={i} className="leading-relaxed">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="pt-2 border-t border-stone-800 flex justify-end shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onClose();
+            }}
+            className="px-5 py-2 rounded bg-purple-700 hover:bg-purple-600 border border-purple-400/70 text-white text-xs font-semibold cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+

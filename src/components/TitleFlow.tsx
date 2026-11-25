@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen, Sliders, RotateCcw, Trash2 } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen, Sliders, RotateCcw, Trash2, Sparkles, UserX } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -32,6 +32,7 @@ interface TitleMenuProps {
   onOpenTutorial: () => void;
   onOpenCheats: () => void;
   onOpenSettings?: () => void;
+  onOpenUpdates?: () => void;
   onBackToSplash?: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
@@ -51,6 +52,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenTutorial,
   onOpenCheats,
   onOpenSettings,
+  onOpenUpdates,
   onBackToSplash,
   anyCheatActive,
   isMuted,
@@ -153,6 +155,21 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               {!isMuted && menuAudioBlocked && <span>Play Music</span>}
             </button>
+            {onOpenUpdates && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenUpdates();
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors bg-purple-950/60 border-purple-500/70 text-purple-200 hover:bg-purple-900/70"
+                title="View Patch Notes & Version History"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+                <span className="hidden sm:inline">New Updates</span>
+              </button>
+            )}
             {onOpenSettings && (
               <button
                 type="button"
@@ -470,11 +487,27 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         </div>
 
         {/* Version Footer */}
-        <footer className="flex items-center justify-between gap-4 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
+        <footer className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
           <span>DUNGEON BOUNCER · BY SPROKOZ</span>
-          <span className="text-amber-400/80 font-semibold tracking-wider uppercase">
-            beta test 0.1.0
-          </span>
+          <div className="flex items-center gap-3">
+            {onOpenUpdates && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenUpdates();
+                }}
+                className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900/70 border border-purple-500/60 text-purple-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+              >
+                <Sparkles className="w-3 h-3 text-purple-300" />
+                <span>New Updates</span>
+              </button>
+            )}
+            <span className="text-amber-400/85 font-semibold tracking-wider uppercase">
+              beta test 0.1.1
+            </span>
+          </div>
         </footer>
       </div>
     </div>
@@ -512,6 +545,7 @@ interface HeroSetupProps {
   onHostCreateRoom: () => void;
   onGuestJoinRoom: () => void;
   onDisconnectOnline: () => void;
+  onKickPlayer?: (playerId: PlayerId) => void;
   difficulty: DifficultyKey;
   mode: GameMode;
   playerColors: Record<number, ColorOption>;
@@ -554,6 +588,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onHostCreateRoom,
   onGuestJoinRoom,
   onDisconnectOnline,
+  onKickPlayer,
   difficulty,
   mode,
   playerColors,
@@ -1062,25 +1097,41 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                           <span className="font-mono-num text-[10px] text-slate-400 truncate">
                             P{info.id} · {usesWeaponLoadout ? 'Adventurer' : clsInfo?.name || 'HERO'}
                           </span>
-                          <span
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold shrink-0 ${
-                              info.ready
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                                : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
-                            }`}
-                          >
-                            {info.ready ? (
-                              <>
-                                <CheckCircle2 className="w-2.5 h-2.5" />
-                                <span>READY</span>
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="w-2.5 h-2.5" />
-                                <span>WAIT</span>
-                              </>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {onlineRole === 'host' && !info.isHost && onKickPlayer && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  soundEngine.playUiClick();
+                                  onKickPlayer(info.id);
+                                }}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-red-950/70 hover:bg-red-900/90 border border-red-600/60 text-red-200 font-mono-num text-[9px] font-bold cursor-pointer transition-colors"
+                                title={`Kick ${info.playerName || `P${info.id}`}`}
+                              >
+                                <UserX className="w-2.5 h-2.5" />
+                                <span>KICK</span>
+                              </button>
                             )}
-                          </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold shrink-0 ${
+                                info.ready
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                                  : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                              }`}
+                            >
+                              {info.ready ? (
+                                <>
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>READY</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-2.5 h-2.5" />
+                                  <span>WAIT</span>
+                                </>
+                              )}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );

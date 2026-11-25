@@ -16,6 +16,7 @@ import {
   CheatsConfig,
   ChestDrop,
   ClassSkillDef,
+  CoinBurstEvent,
   ComicSlash,
   ControlsConfig,
   DeathEffect,
@@ -123,6 +124,7 @@ export interface GameRuntime {
   chests: ChestDrop[];
   weaponDrops: WeaponDrop[];
   scrollDrops: SkillScrollDrop[];
+  coinBursts: CoinBurstEvent[];
   skillZones: SkillZone[];
   gates: DungeonGate[];
   shopItems: ShopItem[];
@@ -704,6 +706,7 @@ export function createInitialGameRuntime(params: {
     eclipseSanctuaryActive: false,
     medkits: [],
     relics: [],
+    coinBursts: [],
     dustParticles: [],
     deathEffects: [],
     slashArcs: [],
@@ -2618,13 +2621,21 @@ function spawnSkillScroll(
   x: number,
   y: number,
   targetWeapon?: WeaponClassId,
-  skillSlot?: 2 | 3 | 4
+  skillSlot?: 2 | 3 | 4,
+  popOpts?: {
+    popFromX: number;
+    popFromY: number;
+    popDuration?: number;
+    popArcHeight?: number;
+    lockTimer?: number;
+  }
 ) {
   const sx = Math.max(85, Math.min(rt.arenaWidth - 85, x));
   const sy = Math.max(95, Math.min(rt.arenaHeight - 95, y));
   const picked = targetWeapon && skillSlot
     ? { targetWeapon, skillSlot }
     : pickSpecificScrollTarget(rt);
+  const popDuration = popOpts?.popDuration ?? 0;
   rt.scrollDrops.push({
     id: rt.nextUid++,
     targetWeapon: targetWeapon || picked.targetWeapon,
@@ -2633,7 +2644,12 @@ function spawnSkillScroll(
     y: sy,
     size: 26,
     bob: Math.random() * Math.PI * 2,
-    lockTimer: 0,
+    lockTimer: popOpts?.lockTimer ?? 0,
+    popTimer: popDuration > 0 ? popDuration : undefined,
+    popDuration: popDuration > 0 ? popDuration : undefined,
+    popFromX: popOpts?.popFromX,
+    popFromY: popOpts?.popFromY,
+    popArcHeight: popOpts?.popArcHeight,
   });
 }
 
@@ -3085,6 +3101,7 @@ function resetFloorWorkspace(rt: GameRuntime, combatStage: StageKey, healBonus: 
   rt.chests = [];
   rt.weaponDrops = [];
   rt.scrollDrops = [];
+  rt.coinBursts = [];
   rt.skillZones = [];
   rt.gates = [];
   rt.shopItems = [];
@@ -3163,6 +3180,7 @@ export function advanceToNextLoop(rt: GameRuntime) {
   rt.chests = [];
   rt.weaponDrops = [];
   rt.scrollDrops = [];
+  rt.coinBursts = [];
   rt.skillZones = [];
   rt.gates = [];
   rt.shopItems = [];
@@ -3253,6 +3271,7 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
   rt.chests = [];
   rt.weaponDrops = [];
   rt.scrollDrops = [];
+  rt.coinBursts = [];
   rt.skillZones = [];
   rt.gates = [];
   rt.shopItems = [];
@@ -3959,7 +3978,22 @@ function damagePlayer(rt: GameRuntime, player: Player, rawDamage = 18) {
   }
 }
 
+function shouldAllowArenaCombatSpawns(rt: GameRuntime): boolean {
+  if (rt.isTutorial || rt.introPlaying || rt.bossDeadTimer > 0) return false;
+  if (rt.isBossLevel) {
+    return rt.boss.health > 0 && rt.boss.state !== 'dead';
+  }
+  if (rt.isOnlineCampaign) {
+    const room = rt.floorGrid[rt.currentRoomKey];
+    if (rt.gates.length > 0) return false;
+    if (room && (room.cleared || room.kind === 'shop' || room.kind === 'treasure')) return false;
+    return rt.enemies.length > 0;
+  }
+  return rt.enemies.length > 0;
+}
+
 function spawnMedkit(rt: GameRuntime) {
+  if (!shouldAllowArenaCombatSpawns(rt)) return;
   if (rt.medkits.length >= 2) return;
   rt.medkits.push({
     x: 90 + Math.random() * (rt.arenaWidth - 180),
@@ -3972,6 +4006,7 @@ function spawnMedkit(rt: GameRuntime) {
 }
 
 function spawnRelic(rt: GameRuntime) {
+  if (!shouldAllowArenaCombatSpawns(rt)) return;
   if (rt.relics.length >= 2) return;
   const types: RelicType[] = ['overdrive', 'shield', 'magnet', 'nova'];
   const type = types[Math.floor(Math.random() * types.length)];
@@ -8520,6 +8555,12 @@ export function stepGame(
     rt.medkitNotifTimer -= dt;
     if (rt.medkitNotifTimer <= 0) rt.medkitNotif = null;
   }
+  for (let bi = rt.coinBursts.length - 1; bi >= 0; bi--) {
+    rt.coinBursts[bi].ttl -= dt;
+    if (rt.coinBursts[bi].ttl <= 0) {
+      rt.coinBursts.splice(bi, 1);
+    }
+  }
 
   const dtS = dt * rt.timeScale;
 
@@ -9020,8 +9061,8 @@ export function stepGame(
     }
   }
 
-  // Medkit & Relic Spawns (suppressed during early tutorial steps)
-  if (!rt.isTutorial) {
+  // Medkit & Relic Spawns (only during active combat; suppressed in cleared rooms, shops, vaults & tutorial)
+  if (shouldAllowArenaCombatSpawns(rt)) {
     rt.medkitSpawnTimer -= dt;
     if (rt.medkitSpawnTimer <= 0) {
       spawnMedkit(rt);
@@ -9505,12 +9546,15 @@ export function stepGame(
 
   // Online Campaign Interactive Props: Chests, Weapon Drops, Skill Scrolls, Shop Pedestals & Persistent Connected Gates
   if (rt.isOnlineCampaign) {
-    // 1. Weapon Drops (auto-equip if unarmed; press [E] near drop to swap)
+    // 1. Weapon Drops (pop-out arc + auto-equip if unarmed; press [E] near drop to swap)
     for (let wi = rt.weaponDrops.length - 1; wi >= 0; wi--) {
       const wd = rt.weaponDrops[wi];
       wd.bob += dt * 3.5;
+      if (wd.popTimer && wd.popTimer > 0) {
+        wd.popTimer = Math.max(0, wd.popTimer - dt);
+      }
       if (wd.swapLockTimer > 0) wd.swapLockTimer = Math.max(0, wd.swapLockTimer - dt);
-      if (wd.swapLockTimer <= 0) {
+      if (wd.swapLockTimer <= 0 && (!wd.popTimer || wd.popTimer <= 0.08)) {
         const unarmedFinder = rt.players.find(
           (pl) => pl.state === 'alive' && pl.weapon === 'none' && Math.hypot(pl.x + pl.size / 2 - wd.x, pl.y + pl.size / 2 - wd.y) <= 38
         );
@@ -9521,12 +9565,15 @@ export function stepGame(
       }
     }
 
-    // 1b. Specific Skill Scrolls (picked up into Minecraft-style Scroll Bag [I])
+    // 1b. Specific Skill Scrolls (pop-out arc + pickup into Minecraft-style Scroll Bag [I])
     for (let si = rt.scrollDrops.length - 1; si >= 0; si--) {
       const sd = rt.scrollDrops[si];
       sd.bob += dt * 4.2;
+      if (sd.popTimer && sd.popTimer > 0) {
+        sd.popTimer = Math.max(0, sd.popTimer - dt);
+      }
       if (sd.lockTimer > 0) sd.lockTimer = Math.max(0, sd.lockTimer - dt);
-      if (sd.lockTimer > 0) continue;
+      if (sd.lockTimer > 0 || (sd.popTimer && sd.popTimer > 0.08)) continue;
 
       const tw = sd.targetWeapon;
       const slot = sd.skillSlot || 2;
@@ -9567,71 +9614,118 @@ export function stepGame(
       }
     }
 
-    // 2. Chests (walk over to open -> shared Gold coins + Weapon/Treasure + Rare Scroll)
+    // 2. Chests (pre-open tremble -> spring lid burst -> pop-out drops & flying gold coin burst)
     rt.chests.forEach((ch) => {
       if (ch.opened) {
-        ch.openAnim = Math.min(1, ch.openAnim + dt * 3.2);
+        ch.openAnim = Math.min(1, ch.openAnim + dt * 1.55);
+        if (ch.openAnim >= 0.4 && !ch.lootSpawned) {
+          ch.lootSpawned = true;
+          soundEngine.playBoonSelect();
+          rt.energyWaves.push({ x: ch.x, y: ch.y - 4, radius: 10, maxRadius: 165, alpha: 0.95, speed: 360, color: '#fbbf24' });
+          for (let k = 0; k < 18; k++) {
+            const a = -Math.PI * 0.15 - Math.random() * Math.PI * 0.7 + (Math.random() - 0.5) * 0.9;
+            const sp = 95 + Math.random() * 190;
+            addParticle(rt, {
+              x: ch.x + (Math.random() - 0.5) * 14,
+              y: ch.y - 8,
+              dx: Math.cos(a) * sp,
+              dy: Math.sin(a) * sp - 35,
+              alpha: 1,
+              size: 3 + Math.random() * 2.5,
+              color: k % 3 === 0 ? '#ffffff' : k % 2 === 0 ? '#fde047' : '#fb923c',
+            });
+          }
+
+          const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
+          const perPlayer = Math.max(4, Math.round((ch.coinsTotal || 14) / Math.max(1, activeParty.length)));
+          activeParty.forEach((pl) => {
+            pl.coins += perPlayer;
+          });
+          rt.coinBursts.push({
+            id: rt.nextUid++,
+            x: ch.x,
+            y: ch.y - 12,
+            amount: perPlayer,
+            ttl: 0.7,
+          });
+
+          if (ch.rewardKind === 'weapon') {
+            const wid = ch.weaponId || pickRandomWeaponId(rt, true);
+            const dropAngle = (Math.random() - 0.5) * 0.9 + Math.PI / 2;
+            const destX = Math.max(80, Math.min(rt.arenaWidth - 80, ch.x + Math.cos(dropAngle) * 44));
+            const destY = Math.max(95, Math.min(rt.arenaHeight - 95, ch.y + 38));
+            rt.weaponDrops.push({
+              id: rt.nextUid++,
+              weaponId: wid,
+              x: destX,
+              y: destY,
+              size: 28,
+              bob: 0,
+              swapLockTimer: 0.58,
+              popTimer: 0.58,
+              popDuration: 0.58,
+              popFromX: ch.x,
+              popFromY: ch.y - 6,
+              popArcHeight: 48,
+            });
+            const wDef = WEAPONS_CATALOG.find((w) => w.id === wid);
+            addFloatingText(
+              rt,
+              ch.x,
+              ch.y - 28,
+              `CHEST: ${wDef?.name.toUpperCase() || 'WEAPON'} +${perPlayer}g EACH!`,
+              wDef?.accent || '#38bdf8',
+              1.25
+            );
+          } else {
+            addFloatingText(
+              rt,
+              ch.x,
+              ch.y - 28,
+              ch.rewardKind === 'treasure' ? `VAULT TREASURE: +${perPlayer}g EACH!` : `+${perPlayer}g EACH PLAYER!`,
+              '#fbbf24',
+              1.3
+            );
+          }
+
+          const opener =
+            rt.players.find((pl) => pl.state === 'alive' && Math.hypot(pl.x + pl.size / 2 - ch.x, pl.y + pl.size / 2 - ch.y) <= 95) ||
+            rt.players.find((pl) => pl.state === 'alive') ||
+            rt.players[0];
+
+          if (ch.bonusPotions && ch.bonusPotions > 0) {
+            if (ch.rewardKind === 'treasure') {
+              activeParty.forEach((pl) => {
+                pl.potions = Math.min(2, pl.potions + ch.bonusPotions!);
+              });
+              addFloatingText(rt, ch.x, ch.y - 44, `+${ch.bonusPotions} PARTY FLASK (MAX 2)!`, '#34d399', 1.15);
+            } else if (opener) {
+              opener.potions = Math.min(2, opener.potions + ch.bonusPotions);
+              addFloatingText(rt, opener.x + opener.size / 2, opener.y - 22, `+${ch.bonusPotions} FLASK [C] (MAX 2)`, '#34d399', 1.15);
+            }
+          }
+
+          if (ch.bonusScrollWeapon) {
+            spawnSkillScroll(rt, ch.x + 62, ch.y + 16, ch.bonusScrollWeapon, ch.bonusScrollSlot || 2, {
+              popFromX: ch.x,
+              popFromY: ch.y - 8,
+              popDuration: 0.62,
+              popArcHeight: 54,
+              lockTimer: 0.62,
+            });
+          }
+        }
         return;
       }
+
       const opener = rt.players.find(
         (pl) => pl.state === 'alive' && Math.hypot(pl.x + pl.size / 2 - ch.x, pl.y + pl.size / 2 - ch.y) <= 44
       );
       if (opener) {
         ch.opened = true;
-        soundEngine.playBoonSelect();
-        rt.energyWaves.push({ x: ch.x, y: ch.y, radius: 10, maxRadius: 150, alpha: 0.9, speed: 340, color: '#fbbf24' });
-        const activeParty = rt.players.filter((pl) => pl.state !== 'spectator');
-        const perPlayer = Math.max(4, Math.round((ch.coinsTotal || 14) / Math.max(1, activeParty.length)));
-        activeParty.forEach((pl) => {
-          pl.coins += perPlayer;
-        });
-
-        if (ch.rewardKind === 'weapon') {
-          const wid = ch.weaponId || pickRandomWeaponId(rt, true);
-          rt.weaponDrops.push({
-            id: rt.nextUid++,
-            weaponId: wid,
-            x: ch.x,
-            y: ch.y + 24,
-            size: 28,
-            bob: 0,
-            swapLockTimer: 0.35,
-          });
-          const wDef = WEAPONS_CATALOG.find((w) => w.id === wid);
-          addFloatingText(
-            rt,
-            ch.x,
-            ch.y - 26,
-            `CHEST: ${wDef?.name.toUpperCase() || 'WEAPON'} +${perPlayer}g EACH!`,
-            wDef?.accent || '#38bdf8',
-            1.25
-          );
-        } else {
-          addFloatingText(
-            rt,
-            ch.x,
-            ch.y - 26,
-            ch.rewardKind === 'treasure' ? `VAULT TREASURE: +${perPlayer}g EACH!` : `+${perPlayer}g EACH PLAYER!`,
-            '#fbbf24',
-            1.3
-          );
-        }
-
-        if (ch.bonusPotions && ch.bonusPotions > 0) {
-          if (ch.rewardKind === 'treasure') {
-            activeParty.forEach((pl) => {
-              pl.potions = Math.min(2, pl.potions + ch.bonusPotions!);
-            });
-            addFloatingText(rt, opener.x + opener.size / 2, opener.y - 20, `+${ch.bonusPotions} PARTY FLASK (MAX 2)!`, '#34d399', 1.15);
-          } else {
-            opener.potions = Math.min(2, opener.potions + ch.bonusPotions);
-            addFloatingText(rt, opener.x + opener.size / 2, opener.y - 20, `+${ch.bonusPotions} FLASK [C] (MAX 2)`, '#34d399', 1.15);
-          }
-        }
-
-        if (ch.bonusScrollWeapon) {
-          spawnSkillScroll(rt, ch.x + 56, ch.y - 12, ch.bonusScrollWeapon, ch.bonusScrollSlot || 2);
-        }
+        ch.openAnim = 0;
+        ch.lootSpawned = false;
+        soundEngine.playUiClick();
       }
     });
 
@@ -9856,17 +9950,31 @@ export function stepGame(
         rt.eclipseMirrors = [];
         rt.bossDeadTimer = 0;
         rt.bossDeadBeat = 0;
+        const bossCoinBonus = 18 + Math.max(0, rt.loopLevel - 1) * 8;
         rt.players.forEach((pl) => {
           if (pl.state !== 'spectator') {
             pl.state = 'alive';
             pl.invulnerable = false;
             pl.invulnFrames = 1.5;
             pl.hp = Math.min(pl.maxHp, pl.hp + 30);
-            pl.coins += 18 + Math.max(0, rt.loopLevel - 1) * 8;
+            pl.coins += bossCoinBonus;
           }
         });
+        rt.coinBursts.push({
+          id: rt.nextUid++,
+          x: cx,
+          y: cy - 12,
+          amount: bossCoinBonus,
+          ttl: 0.7,
+        });
         spawnRoomChest(rt, cx - 55, cy, 'weapon');
-        spawnSkillScroll(rt, cx + 55, cy);
+        spawnSkillScroll(rt, cx + 55, cy, undefined, undefined, {
+          popFromX: cx,
+          popFromY: cy,
+          popDuration: 0.58,
+          popArcHeight: 46,
+          lockTimer: 0.58,
+        });
         const room = rt.floorGrid[rt.currentRoomKey];
         if (room) {
           room.cleared = true;
@@ -10240,7 +10348,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
   });
 
   const activePlayerHuds = rt.players
-    .filter((pl) => pl.id <= rt.numPlayers || pl.state !== 'spectator')
+    .filter((pl) => pl.state !== 'spectator')
     .map(toPlayerHud);
 
   const p1 = rt.players[0];
@@ -10356,6 +10464,8 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     players: activePlayerHuds,
     p1: toPlayerHud(p1),
     p2: toPlayerHud(p2),
+    cameraState: { ...rt.camera },
+    coinBursts: rt.coinBursts.map((b) => ({ id: b.id, x: b.x, y: b.y, amount: b.amount })),
   };
 }
 
@@ -10517,12 +10627,63 @@ export function applyOnlineCheckpointToRuntime(rt: GameRuntime, cp: OnlineCampai
   showPhaseAnnounce(rt, `RESUMED FLOOR ${rt.floorNumber} · CHECKPOINT RESTORED!`, '#34d399', 3.4);
 }
 
+export function disconnectOnlinePlayerSlot(rt: GameRuntime, playerId: PlayerId): void {
+  if (playerId === 1) return;
+  const slot = rt.players.find((p) => p.id === playerId);
+  if (!slot) return;
+  const wasActive = slot.state !== 'spectator';
+  slot.state = 'spectator';
+  slot.hasKnife = false;
+  slot.vx = 0;
+  slot.vy = 0;
+  slot.dashTimeLeft = 0;
+  slot.dashImmune = false;
+  slot.cloakTimer = 0;
+  slot.invulnerable = false;
+  slot.frontShieldTimer = 0;
+  rt.knives = rt.knives.filter((k) => k.owner !== playerId);
+  rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+  if (wasActive) {
+    showPhaseAnnounce(rt, `${(slot.name || `P${playerId}`).toUpperCase()} DISCONNECTED`, '#f59e0b', 2.4);
+  }
+}
+
+export function kickOnlinePlayerSlot(rt: GameRuntime, playerId: PlayerId): void {
+  if (playerId === 1) return;
+  const slot = rt.players.find((p) => p.id === playerId);
+  if (!slot) return;
+  const displayName = (slot.name || `P${playerId}`).toUpperCase();
+  if (slot.state === 'alive' && slot.weapon !== 'none') {
+    dropEquippedWeapon(rt, slot);
+  }
+  slot.state = 'spectator';
+  slot.weapon = 'none';
+  slot.scrollBag = [];
+  slot.hasKnife = false;
+  slot.vx = 0;
+  slot.vy = 0;
+  slot.dashTimeLeft = 0;
+  slot.dashImmune = false;
+  slot.cloakTimer = 0;
+  slot.invulnerable = false;
+  slot.frontShieldTimer = 0;
+  rt.knives = rt.knives.filter((k) => k.owner !== playerId);
+  rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+  showPhaseAnnounce(rt, `${displayName} WAS KICKED BY HOST`, '#f43f5e', 2.8);
+}
+
 export function restoreOnlinePlayerSlot(
   rt: GameRuntime,
   playerId: PlayerId,
   info?: { playerName?: string; colorHex?: string; heroClass?: HeroClassId }
 ): Player {
-  let slot = rt.players.find((p) => p.id === playerId);
+  // Deduplicate if any corrupted state left multiple entries for same playerId
+  const matching = rt.players.filter((p) => p.id === playerId);
+  let slot = matching[0];
+  if (matching.length > 1) {
+    rt.players = rt.players.filter((p) => p.id !== playerId || p === slot);
+  }
+
   const usesWeapons = usesWeaponSystem(rt);
   const colorHex = info?.colorHex || rt.playerColors[playerId] || slot?.color || '#22d3ee';
   const resolvedName = info?.playerName?.trim().slice(0, 14) || slot?.name || `Player ${playerId}`;
@@ -10566,6 +10727,8 @@ export function restoreOnlinePlayerSlot(
     slot.sealTimer = 0;
     slot.dashImmune = false;
     slot.dashTimeLeft = 0;
+    slot.cloakTimer = 0;
+    slot.invulnerable = false;
   }
 
   slot.hasKnife = true;

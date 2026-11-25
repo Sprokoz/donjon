@@ -614,6 +614,7 @@ export interface ChestDrop {
   size: number;
   opened: boolean;
   openAnim: number;
+  lootSpawned?: boolean;
   rewardKind: 'coins' | 'weapon' | 'treasure';
   coinsTotal?: number;
   weaponId?: Exclude<WeaponId, 'none'>;
@@ -630,6 +631,11 @@ export interface WeaponDrop {
   size: number;
   bob: number;
   swapLockTimer: number;
+  popTimer?: number;
+  popDuration?: number;
+  popFromX?: number;
+  popFromY?: number;
+  popArcHeight?: number;
 }
 
 export interface SkillScrollDrop {
@@ -641,6 +647,19 @@ export interface SkillScrollDrop {
   size: number;
   bob: number;
   lockTimer: number;
+  popTimer?: number;
+  popDuration?: number;
+  popFromX?: number;
+  popFromY?: number;
+  popArcHeight?: number;
+}
+
+export interface CoinBurstEvent {
+  id: number;
+  x: number;
+  y: number;
+  amount: number;
+  ttl: number;
 }
 
 export type GateDir = 'top' | 'bottom' | 'left' | 'right';
@@ -831,6 +850,8 @@ export interface HudSnapshot {
   tutorialProgress: number;
   tutorialTotal: number;
   tutorialWeapon?: WeaponId;
+  cameraState?: CameraState;
+  coinBursts?: { id: number; x: number; y: number; amount: number }[];
   players: PlayerHudState[];
   p1: PlayerHudState;
   p2: PlayerHudState;

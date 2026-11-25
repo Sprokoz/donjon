@@ -3538,58 +3538,151 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.restore();
     }
 
-    // 3. Treasure Chests
+    // 3. Treasure Chests (tremble -> golden seam burst -> spring-hinged open lid & volumetric glow)
     rt.chests.forEach((ch) => {
       ctx.save();
       const s = ch.size;
+      const openPhase = ch.opened ? ch.openAnim : 0;
+      const isTremble = ch.opened && openPhase < 0.4;
+      const isBurstOpen = ch.opened && openPhase >= 0.4;
+      const shakeX = isTremble ? Math.sin(openPhase * 110) * (1.8 + openPhase * 6) : 0;
+      const shakeY = isTremble ? Math.cos(openPhase * 85) * 1.4 : 0;
+      const cx = ch.x + shakeX;
+      const cy = ch.y + shakeY;
+
       if (!ch.opened) {
         ctx.fillStyle = 'rgba(251, 191, 36, 0.22)';
         ctx.beginPath();
-        ctx.arc(ch.x, ch.y, s * 0.82 + Math.sin(now / 150) * 3, 0, Math.PI * 2);
+        ctx.arc(cx, cy, s * 0.82 + Math.sin(now / 150) * 3, 0, Math.PI * 2);
         ctx.fill();
+      } else if (isTremble) {
+        const tGlow = openPhase / 0.4;
+        ctx.fillStyle = `rgba(253, 224, 71, ${(0.28 + tGlow * 0.42).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 2, s * (0.9 + tGlow * 0.45), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (isBurstOpen) {
+        const beamFade = Math.max(0, 1 - (openPhase - 0.4) / 0.6);
+        if (beamFade > 0.02) {
+          const beamGrad = ctx.createLinearGradient(cx, cy - 6, cx, cy - 72);
+          beamGrad.addColorStop(0, `rgba(253, 224, 71, ${(0.58 * beamFade).toFixed(2)})`);
+          beamGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+          ctx.fillStyle = beamGrad;
+          ctx.beginPath();
+          ctx.moveTo(cx - s * 0.36, cy - 4);
+          ctx.lineTo(cx - s * 0.88, cy - 72);
+          ctx.lineTo(cx + s * 0.88, cy - 72);
+          ctx.lineTo(cx + s * 0.36, cy - 4);
+          ctx.closePath();
+          ctx.fill();
+        }
       }
-      ctx.fillStyle = ch.opened ? '#451a03' : '#78350f';
-      ctx.strokeStyle = ch.opened ? '#92400e' : '#fbbf24';
-      ctx.lineWidth = 2.5;
+
+      // Ground shadow
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.45)';
       ctx.beginPath();
-      ctx.roundRect(ch.x - s / 2, ch.y - s / 2 + (ch.opened ? 4 : 0), s, s * 0.78, 4);
+      ctx.ellipse(cx, ch.y + s * 0.4, s * 0.56, s * 0.16, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Chest lower body
+      const bodyTop = cy - s * 0.12;
+      const bodyH = s * 0.46;
+      ctx.fillStyle = ch.opened ? '#451a03' : '#78350f';
+      ctx.strokeStyle = isBurstOpen ? '#b45309' : '#fbbf24';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.roundRect(cx - s / 2, bodyTop, s, bodyH, 4);
       ctx.fill();
       ctx.stroke();
 
-      // Chest gold trim & clasp
+      // Open dark cavity glow when lid springs back
+      if (isBurstOpen) {
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(cx - s / 2 + 3, bodyTop - 3, s - 6, 7);
+        ctx.fillStyle = `rgba(253, 224, 71, ${Math.max(0.25, 0.9 - (openPhase - 0.4)).toFixed(2)})`;
+        ctx.fillRect(cx - s / 2 + 5, bodyTop - 2, s - 10, 4);
+      }
+
+      // Chest lid (hinges upward when openPhase >= 0.4)
+      const lidOpenProgress = isBurstOpen ? Math.min(1, (openPhase - 0.4) / 0.38) : 0;
+      const lidLift = lidOpenProgress * 12;
+      const lidSquash = 1 - lidOpenProgress * 0.42;
+      ctx.save();
+      ctx.translate(cx, bodyTop);
+      ctx.scale(1, lidSquash);
+      ctx.fillStyle = isBurstOpen ? '#5c2608' : '#92400e';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.roundRect(-s / 2, -s * 0.34 - lidLift, s, s * 0.36, [6, 6, 2, 2]);
+      ctx.fill();
+      ctx.stroke();
+
+      // Lid gold bands
       ctx.fillStyle = '#fbbf24';
-      ctx.fillRect(ch.x - s / 2, ch.y - 4, s, 4);
-      ctx.fillRect(ch.x - 4, ch.y - 6, 8, 9);
+      ctx.fillRect(-s / 2 + 5, -s * 0.34 - lidLift, 4, s * 0.36);
+      ctx.fillRect(s / 2 - 9, -s * 0.34 - lidLift, 4, s * 0.36);
+      ctx.restore();
+
+      // Seam light flash right before lid pops
+      if (isTremble) {
+        ctx.fillStyle = `rgba(254, 240, 138, ${(0.45 + (openPhase / 0.4) * 0.55).toFixed(2)})`;
+        ctx.fillRect(cx - s / 2 + 2, bodyTop - 2, s - 4, 4);
+      }
+
+      // Clasp (locked until lid opens)
+      if (!isBurstOpen) {
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(cx - s / 2, bodyTop - 2, s, 4);
+        ctx.fillRect(cx - 4, bodyTop - 5, 8, 9);
+      }
 
       if (!ch.opened) {
         ctx.textAlign = 'center';
         ctx.font = 'bold 8px "Press Start 2P", monospace';
         ctx.strokeStyle = '#020617';
         ctx.lineWidth = 3.5;
-        ctx.strokeText('CHEST · WALK TO OPEN', ch.x, ch.y - s / 2 - 10);
+        ctx.strokeText('CHEST · WALK TO OPEN', cx, cy - s / 2 - 12);
         ctx.fillStyle = '#fde047';
-        ctx.fillText('CHEST · WALK TO OPEN', ch.x, ch.y - s / 2 - 10);
+        ctx.fillText('CHEST · WALK TO OPEN', cx, cy - s / 2 - 12);
       }
       ctx.restore();
     });
 
-    // 4. Ground Exclusive Role Weapon Drops
+    // 4. Ground Exclusive Role Weapon Drops (with chest pop-out parabolic arc)
     rt.weaponDrops.forEach((wd) => {
       const wDef = WEAPONS_CATALOG.find((w) => w.id === wd.weaponId);
       const col = wDef?.accent || '#38bdf8';
-      const bobY = Math.sin(wd.bob) * 4;
-      const wy = wd.y + bobY;
+      const hasPop = Boolean(wd.popTimer && wd.popTimer > 0 && wd.popDuration && wd.popDuration > 0);
+      const popT = hasPop ? 1 - Math.max(0, Math.min(1, (wd.popTimer || 0) / (wd.popDuration || 1))) : 1;
+      const baseX = hasPop && wd.popFromX !== undefined ? wd.popFromX + (wd.x - wd.popFromX) * popT : wd.x;
+      const baseY = hasPop && wd.popFromY !== undefined ? wd.popFromY + (wd.y - wd.popFromY) * popT : wd.y;
+      const arcLift = hasPop ? Math.sin(popT * Math.PI) * (wd.popArcHeight || 48) : 0;
+      const bobY = hasPop ? 0 : Math.sin(wd.bob) * 4;
+      const wx = baseX;
+      const wy = baseY - arcLift + bobY;
+      const popScale = hasPop ? 0.72 + Math.sin(popT * Math.PI) * 0.34 + popT * 0.28 : 1;
+
       ctx.save();
+      if (hasPop) {
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(baseX, baseY + 10, 12, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.translate(wx, wy);
+      ctx.scale(popScale, popScale);
+
       ctx.fillStyle = `${col}2e`;
       ctx.beginPath();
-      ctx.arc(wd.x, wy, 20, 0, Math.PI * 2);
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#090d16';
       ctx.strokeStyle = col;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(wd.x, wy, 14, 0, Math.PI * 2);
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
@@ -3597,39 +3690,61 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('⚔', wd.x, wy + 1);
+      ctx.fillText('⚔', 0, 1);
       ctx.textBaseline = 'alphabetic';
+      ctx.restore();
 
+      ctx.save();
+      ctx.textAlign = 'center';
       ctx.font = 'bold 9px "JetBrains Mono", monospace';
       ctx.strokeStyle = '#020617';
       ctx.lineWidth = 3.5;
       const title = wDef?.name.toUpperCase() || 'WEAPON';
-      ctx.strokeText(title, wd.x, wy - 22);
+      ctx.strokeText(title, wx, wy - 22);
       ctx.fillStyle = col;
-      ctx.fillText(title, wd.x, wy - 22);
+      ctx.fillText(title, wx, wy - 22);
 
-      const nearArmed = rt.players.some(
-        (pl) => pl.state === 'alive' && pl.weapon !== 'none' && Math.hypot(pl.x + pl.size / 2 - wd.x, pl.y + pl.size / 2 - wd.y) <= 56
-      );
-      const hint = nearArmed ? '[E] SWAP WEAPON' : 'WALK TO EQUIP';
-      ctx.font = 'bold 8px "JetBrains Mono", monospace';
-      ctx.strokeText(hint, wd.x, wy + 26);
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(hint, wd.x, wy + 26);
+      if (!hasPop) {
+        const nearArmed = rt.players.some(
+          (pl) => pl.state === 'alive' && pl.weapon !== 'none' && Math.hypot(pl.x + pl.size / 2 - wd.x, pl.y + pl.size / 2 - wd.y) <= 56
+        );
+        const hint = nearArmed ? '[E] SWAP WEAPON' : 'WALK TO EQUIP';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.strokeText(hint, wx, wy + 26);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText(hint, wx, wy + 26);
+      }
       ctx.restore();
     });
 
-    // 5. Weapon-Specific Skill Scrolls (Unlock next Skill Slot [Q], [R], [F] for targetWeapon)
+    // 5. Weapon-Specific Skill Scrolls (with chest pop-out parabolic arc)
     rt.scrollDrops.forEach((sd) => {
       const wDef = WEAPONS_CATALOG.find((w) => w.id === sd.targetWeapon);
       const scrollCol = wDef?.accent || '#c084fc';
       const wShort = wDef?.shortTag || 'CLASS';
-      const bobY = Math.sin(sd.bob) * 4.5;
-      const sy = sd.y + bobY;
+      const hasPop = Boolean(sd.popTimer && sd.popTimer > 0 && sd.popDuration && sd.popDuration > 0);
+      const popT = hasPop ? 1 - Math.max(0, Math.min(1, (sd.popTimer || 0) / (sd.popDuration || 1))) : 1;
+      const baseX = hasPop && sd.popFromX !== undefined ? sd.popFromX + (sd.x - sd.popFromX) * popT : sd.x;
+      const baseY = hasPop && sd.popFromY !== undefined ? sd.popFromY + (sd.y - sd.popFromY) * popT : sd.y;
+      const arcLift = hasPop ? Math.sin(popT * Math.PI) * (sd.popArcHeight || 52) : 0;
+      const bobY = hasPop ? 0 : Math.sin(sd.bob) * 4.5;
+      const sx = baseX;
+      const sy = baseY - arcLift + bobY;
+      const popScale = hasPop ? 0.72 + Math.sin(popT * Math.PI) * 0.36 + popT * 0.28 : 1;
+
       ctx.save();
+      if (hasPop) {
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.45)';
+        ctx.beginPath();
+        ctx.ellipse(baseX, baseY + 12, 12, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.translate(sx, sy);
+      ctx.scale(popScale, popScale);
+
       ctx.fillStyle = `${scrollCol}30`;
       ctx.beginPath();
-      ctx.arc(sd.x, sy, 23 + Math.sin(now / 140) * 2.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 23 + Math.sin(now / 140) * 2.5, 0, Math.PI * 2);
       ctx.fill();
 
       // Rotating arcane rune ring
@@ -3638,7 +3753,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.setLineDash([5, 5]);
       ctx.lineDashOffset = -(now / 32);
       ctx.beginPath();
-      ctx.arc(sd.x, sy, 20, 0, Math.PI * 2);
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -3647,32 +3762,34 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.strokeStyle = scrollCol;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(sd.x - 10, sy - 12, 20, 24, 4);
+      ctx.roundRect(-10, -12, 20, 24, 4);
       ctx.fill();
       ctx.stroke();
 
       // Top & bottom scroll rollers
       ctx.fillStyle = '#92400e';
-      ctx.fillRect(sd.x - 12, sy - 13, 24, 3);
-      ctx.fillRect(sd.x - 12, sy + 10, 24, 3);
+      ctx.fillRect(-12, -13, 24, 3);
+      ctx.fillRect(-12, 10, 24, 3);
 
       // Class-colored rune script lines
       ctx.fillStyle = scrollCol;
-      ctx.fillRect(sd.x - 6, sy - 5, 12, 2.5);
-      ctx.fillRect(sd.x - 6, sy, 12, 2.5);
-      ctx.fillRect(sd.x - 6, sy + 5, 8, 2.5);
+      ctx.fillRect(-6, -5, 12, 2.5);
+      ctx.fillRect(-6, 0, 12, 2.5);
+      ctx.fillRect(-6, 5, 8, 2.5);
+      ctx.restore();
 
       const slotKey = sd.skillSlot === 2 ? 'Q' : sd.skillSlot === 3 ? 'R' : 'F';
       const skName = wDef?.skills[sd.skillSlot - 1]?.shortName || `S${sd.skillSlot}`;
 
+      ctx.save();
       ctx.textAlign = 'center';
       ctx.font = 'bold 9px "Press Start 2P", monospace';
       ctx.strokeStyle = '#020617';
       ctx.lineWidth = 3.5;
       const topTag = `${wShort} [${slotKey}] SCROLL`;
-      ctx.strokeText(topTag, sd.x, sy - 23);
+      ctx.strokeText(topTag, sx, sy - 23);
       ctx.fillStyle = scrollCol;
-      ctx.fillText(topTag, sd.x, sy - 23);
+      ctx.fillText(topTag, sx, sy - 23);
 
       const holderNeedsIt = rt.players.some(
         (pl) =>
@@ -3682,7 +3799,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       );
       const subHint = holderNeedsIt ? `${skName.toUpperCase()} · BAG [I]` : `STORE IN BAG [I]`;
       ctx.font = 'bold 8px "JetBrains Mono", monospace';
-      ctx.strokeText(subHint, sd.x, sy + 28);
+      ctx.strokeText(subHint, sx, sy + 28);
       ctx.fillStyle = '#fde68a';
       ctx.fillText(subHint, sd.x, sy + 28);
       ctx.restore();

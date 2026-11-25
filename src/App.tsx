@@ -11,6 +11,7 @@ import {
   PauseModal,
   ShopNpcModal,
   StageTransitionModal,
+  UpdatesModal,
 } from './components/Modals';
 import { HeroSetup, TitleMenu } from './components/TitleFlow';
 import { LandingSplash, SprokozIntro } from './components/IntroSequence';
@@ -26,11 +27,13 @@ import {
   clearOnlineCheckpoint,
   computeRank,
   createInitialGameRuntime,
+  disconnectOnlinePlayerSlot,
   dropBagScroll,
   dropEquippedWeapon,
   extractHudSnapshot,
   GameRuntime,
   getBoonChoices,
+  kickOnlinePlayerSlot,
   loadLeaderboard,
   loadOnlineCheckpoint,
   OnlineCampaignCheckpoint,
@@ -219,6 +222,7 @@ export default function App() {
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showShopModal, setShowShopModal] = useState(false);
+  const [showUpdatesModal, setShowUpdatesModal] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [musicVol, setMusicVol] = useState(0.65);
   const [sfxVol, setSfxVol] = useState(0.8);
@@ -1076,14 +1080,8 @@ export default function App() {
           if (screenRef.current !== 'HERO_SETUP' && screenRef.current !== 'TITLE_MENU') {
             const rt = runtimeRef.current;
             if (rt) {
-              const slot = rt.players.find((p) => p.id === fromPlayerId);
-              if (slot) {
-                slot.state = 'spectator';
-                slot.hasKnife = false;
-                rt.knives = rt.knives.filter((k) => k.owner !== fromPlayerId);
-              }
-              const aliveOrDown = rt.players.filter((p) => p.state !== 'spectator').length;
-              rt.numPlayers = Math.max(1, aliveOrDown);
+              disconnectOnlinePlayerSlot(rt, fromPlayerId);
+              setHud(extractHudSnapshot(rt));
               if (rt.isOnlineCampaign) {
                 const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
                 if (cp) setSavedCheckpoint(cp);
@@ -1305,13 +1303,8 @@ export default function App() {
           if (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP') {
             const rt = runtimeRef.current;
             if (rt && disconnectedPlayerId !== undefined) {
-              const slot = rt.players.find((p) => p.id === disconnectedPlayerId);
-              if (slot) {
-                slot.state = 'spectator';
-                slot.hasKnife = false;
-                rt.knives = rt.knives.filter((k) => k.owner !== disconnectedPlayerId);
-              }
-              rt.numPlayers = Math.max(1, rt.players.filter((p) => p.state !== 'spectator').length);
+              disconnectOnlinePlayerSlot(rt, disconnectedPlayerId);
+              setHud(extractHudSnapshot(rt));
               if (rt.isOnlineCampaign) {
                 const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
                 if (cp) setSavedCheckpoint(cp);
@@ -1346,46 +1339,63 @@ export default function App() {
       setOnlineError(null);
       if (!preserveMidRun) setLocalReady(false);
 
-      const session = new OnlineSession('guest', code, {
-        onStatusChange: (status, err) => {
-          setOnlineStatus(status);
-          setOnlineError(err || null);
-          if (status === 'connected') {
-            sendGuestConfig();
-            if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
-              window.setTimeout(() => {
+      const session = new OnlineSession(
+        'guest',
+        code,
+        {
+          onStatusChange: (status, err) => {
+            setOnlineStatus(status);
+            setOnlineError(err || null);
+            if (status === 'connected') {
+              sendGuestConfig();
+              if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
+                window.setTimeout(() => {
+                  session.send({ type: 'cmd', action: 'resync_me' });
+                }, 80);
+              }
+            }
+          },
+          onAssignedSlot: (assignedId) => {
+            localPlayerIdRef.current = assignedId;
+            setLocalPlayerId(assignedId);
+            setPlayerColors((prev) => ({
+              ...prev,
+              [assignedId]: prev[assignedId] || COLOR_OPTIONS[assignedId - 1] || COLOR_OPTIONS[1],
+            }));
+            window.setTimeout(() => {
+              sendGuestConfig();
+              if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
                 session.send({ type: 'cmd', action: 'resync_me' });
-              }, 80);
-            }
-          }
-        },
-        onAssignedSlot: (assignedId) => {
-          localPlayerIdRef.current = assignedId;
-          setLocalPlayerId(assignedId);
-          setPlayerColors((prev) => ({
-            ...prev,
-            [assignedId]: prev[assignedId] || COLOR_OPTIONS[assignedId - 1] || COLOR_OPTIONS[1],
-          }));
-          window.setTimeout(() => {
-            sendGuestConfig();
-            if (preserveMidRun || (screenRef.current !== 'TITLE_MENU' && screenRef.current !== 'HERO_SETUP')) {
-              session.send({ type: 'cmd', action: 'resync_me' });
-            }
-          }, 40);
-        },
-        onMessage: (msg, fromId) => guestMessageHandlerRef.current(msg, fromId),
-        onPartnerDisconnect: () => {
-          if (
-            screenRef.current !== 'TITLE_MENU' &&
-            screenRef.current !== 'HERO_SETUP'
-          ) {
-            setDisconnectModal({ isHost: false });
-          } else {
+              }
+            }, 40);
+          },
+          onMessage: (msg, fromId) => guestMessageHandlerRef.current(msg, fromId),
+          onKicked: (reason) => {
+            setDisconnectModal(null);
             setOnlineStatus('error');
-            setOnlineError('Host closed the room.');
-          }
+            setOnlineError(reason);
+            soundEngine.stopMusic();
+            runtimeRef.current = null;
+            guestDisplayRtRef.current = null;
+            latestGuestSnapRef.current = null;
+            setHud(null);
+            setScreen('HERO_SETUP');
+          },
+          onPartnerDisconnect: () => {
+            if (
+              screenRef.current !== 'TITLE_MENU' &&
+              screenRef.current !== 'HERO_SETUP'
+            ) {
+              setDisconnectModal({ isHost: false });
+            } else {
+              setOnlineStatus('error');
+              setOnlineError('Host closed the room.');
+            }
+          },
         },
-      });
+        5,
+        localPlayerNameRef.current
+      );
       session.setLowBandwidth(optimizeConnectionRef.current);
       onlineSessionRef.current = session;
     },
@@ -1590,13 +1600,23 @@ export default function App() {
       }
     };
 
+    const onBeforeUnload = () => {
+      if (activeOnlineRoleRef.current === 'guest' && onlineSessionRef.current?.isConnected()) {
+        onlineSessionRef.current.send({ type: 'cmd', action: 'leave' });
+      }
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('pagehide', onBeforeUnload);
+    window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onBeforeUnload);
+      window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, [showControlsModal, showCheatsModal, broadcastScreenMessage]);
 
@@ -1860,6 +1880,38 @@ export default function App() {
     }
   }, [destroyOnlineSession]);
 
+  const handleKickPlayer = useCallback(
+    (playerId: PlayerId) => {
+      if (activeOnlineRoleRef.current !== 'host' || playerId === 1) return;
+      const session = onlineSessionRef.current;
+      if (!session) return;
+      session.kickGuest(playerId, 'You were removed from the party by the Host.');
+      delete remoteInputsRef.current[playerId];
+      const nextGuests = { ...guestConfigsRef.current };
+      delete nextGuests[playerId];
+      guestConfigsRef.current = nextGuests;
+      setGuestConfigs(nextGuests);
+      const remaining = session.getConnectedGuestIds();
+      setConnectedGuestIds(remaining);
+
+      const rt = runtimeRef.current;
+      if (rt) {
+        kickOnlinePlayerSlot(rt, playerId);
+        setHud(extractHudSnapshot(rt));
+        if (session.isConnected()) {
+          session.send({
+            type: 'sync',
+            snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
+            sfx: [],
+          });
+        }
+      } else {
+        broadcastHostLobbyState(nextGuests);
+      }
+    },
+    [broadcastHostLobbyState]
+  );
+
   const handleUsePotion = useCallback(() => {
     if (activeOnlineRoleRef.current === 'guest') {
       onlineSessionRef.current?.send({ type: 'cmd', action: 'use_potion' });
@@ -1982,8 +2034,10 @@ export default function App() {
           onToggleFullscreen={handleToggleFullscreen}
           onStart={() => setScreen('TITLE_MENU')}
           onReplayIntro={() => setScreen('INTRO')}
+          onOpenUpdates={() => setShowUpdatesModal(true)}
         />
         {fullscreenToast}
+        {showUpdatesModal && <UpdatesModal onClose={() => setShowUpdatesModal(false)} />}
       </>
     );
   }
@@ -2000,6 +2054,7 @@ export default function App() {
           onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenCheats={() => setShowCheatsModal(true)}
           onOpenSettings={() => setShowControlsModal(true)}
+          onOpenUpdates={() => setShowUpdatesModal(true)}
           onBackToSplash={() => setScreen('LANDING')}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
@@ -2035,6 +2090,7 @@ export default function App() {
             onClose={() => setShowCheatsModal(false)}
           />
         )}
+        {showUpdatesModal && <UpdatesModal onClose={() => setShowUpdatesModal(false)} />}
       </>
     );
   }
@@ -2067,6 +2123,7 @@ export default function App() {
           onHostCreateRoom={createHostRoom}
           onGuestJoinRoom={() => joinGuestRoom()}
           onDisconnectOnline={() => destroyOnlineSession()}
+          onKickPlayer={handleKickPlayer}
           difficulty={difficulty}
           mode={mode}
           playerColors={playerColors}
@@ -2119,6 +2176,8 @@ export default function App() {
           numPlayers={hud.isTutorial ? 1 : hud.players?.length || numPlayers}
           localPlayerNum={localPlayerNum}
           isOnline={activeOnlineRole !== 'none'}
+          isOnlineHost={activeOnlineRole === 'host'}
+          onKickPlayer={handleKickPlayer}
           playerColors={hudColorMap}
           pingByPlayer={pingByPlayer}
           isMuted={isMuted}
@@ -2227,6 +2286,7 @@ export default function App() {
             ref={canvasRef}
             width={CANVAS_WIDTH}
             height={CANVAS_HEIGHT}
+            data-arena-canvas="true"
             className="w-full h-full block"
           />
         </GameHud>

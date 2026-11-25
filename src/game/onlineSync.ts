@@ -13,6 +13,7 @@ import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
   ChestDrop,
+  CoinBurstEvent,
   ComicSlash,
   DeathEffect,
   DEFAULT_CHEATS,
@@ -202,6 +203,7 @@ export interface SyncedRuntimeSnapshot {
   chests: ChestDrop[];
   weaponDrops: WeaponDrop[];
   scrollDrops: SkillScrollDrop[];
+  coinBursts: CoinBurstEvent[];
   skillZones: SkillZone[];
   gates: DungeonGate[];
   shopNpc: ShopNpc | null;
@@ -281,6 +283,7 @@ export interface SyncedRuntimeSnapshot {
 export type OnlineMessage =
   | { type: 'welcome'; playerId: PlayerId }
   | { type: 'room_full' }
+  | { type: 'kicked'; reason?: string }
   | { type: 'ping'; ts: number }
   | { type: 'pong'; ts: number }
   | {
@@ -390,6 +393,13 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
       y: r0(sd.y),
       bob: r2(sd.bob),
       lockTimer: r2(sd.lockTimer),
+    })),
+    coinBursts: rt.coinBursts.map((b) => ({
+      id: b.id,
+      x: r0(b.x),
+      y: r0(b.y),
+      amount: b.amount,
+      ttl: r2(b.ttl),
     })),
     skillZones: rt.skillZones.map((sz) => ({
       ...sz,
@@ -961,6 +971,7 @@ export function applySyncedSnapshotToGuest(
       chests: snap.chests.map((c) => ({ ...c })),
       weaponDrops: snap.weaponDrops.map((w) => ({ ...w })),
       scrollDrops: snap.scrollDrops.map((sd) => ({ ...sd })),
+      coinBursts: (snap.coinBursts || []).map((b) => ({ ...b })),
       skillZones: snap.skillZones.map((sz) => ({ ...sz })),
       gates: snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] })),
       shopNpc: snap.shopNpc ? { ...snap.shopNpc } : null,
@@ -1098,7 +1109,8 @@ export function applySyncedSnapshotToGuest(
   displayRt.bossesDefeatedCount = snap.bossesDefeatedCount;
   displayRt.chests = snap.chests.map((c) => ({ ...c }));
   displayRt.weaponDrops = snap.weaponDrops.map((w) => ({ ...w }));
-  displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd }));
+  displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd })),
+  displayRt.coinBursts = (snap.coinBursts || []).map((b) => ({ ...b }));
   displayRt.skillZones = snap.skillZones.map((sz) => ({ ...sz }));
   displayRt.gates = snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] }));
   displayRt.shopNpc = snap.shopNpc ? { ...snap.shopNpc } : null;
@@ -1288,13 +1300,17 @@ export interface OnlineSessionCallbacks {
   onPartnerDisconnect: (disconnectedPlayerId?: PlayerId) => void;
   onPingUpdate?: (pings: Record<number, number | null>) => void;
   onAssignedSlot?: (playerId: PlayerId) => void;
+  onKicked?: (reason: string) => void;
 }
 
 interface GuestSlot {
   conn: DataConnection;
   streamConn: DataConnection | null;
   clientUid?: string;
+  roomToken?: string;
+  playerName?: string;
   pingMs: number | null;
+  lastHeardAt: number;
 }
 
 function getBufferedAmount(conn: DataConnection | null | undefined): number {
@@ -1316,14 +1332,36 @@ function getOrCreateClientUid(): string {
   }
 }
 
+function getOrCreateRoomToken(roomCode: string): string {
+  const key = `dungeon_bouncer_room_token_v1_${sanitizeRoomCode(roomCode)}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { token?: string; ts?: number };
+      if (parsed?.token && parsed.ts && Date.now() - parsed.ts < 12 * 60 * 60 * 1000) {
+        return parsed.token;
+      }
+    }
+    const next = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    localStorage.setItem(key, JSON.stringify({ token: next, ts: Date.now() }));
+    return next;
+  } catch {
+    return getOrCreateClientUid();
+  }
+}
+
 export class OnlineSession {
   private peer: Peer | null = null;
   private hostConn: DataConnection | null = null;
   private hostStreamConn: DataConnection | null = null;
   private guests = new Map<PlayerId, GuestSlot>();
   private slotByClientUid = new Map<string, PlayerId>();
+  private slotByRoomToken = new Map<string, PlayerId>();
+  private slotNameBySlotId = new Map<PlayerId, string>();
   private pendingStreams = new Map<string, DataConnection>();
   private guestClientUid = getOrCreateClientUid();
+  private guestRoomToken: string;
+  private guestPlayerName: string;
   private role: 'host' | 'guest';
   private roomCode: string;
   private maxPlayers: number;
@@ -1332,16 +1370,20 @@ export class OnlineSession {
   private connectTimer: number | null = null;
   private pingTimer: number | null = null;
   private hostWasConnected = false;
+  private hostLastHeardAt = performance.now();
   private lowBandwidth = false;
 
   constructor(
     role: 'host' | 'guest',
     roomCode: string,
     callbacks: OnlineSessionCallbacks,
-    maxPlayers = 5
+    maxPlayers = 5,
+    playerName = ''
   ) {
     this.role = role;
     this.roomCode = sanitizeRoomCode(roomCode);
+    this.guestRoomToken = getOrCreateRoomToken(this.roomCode);
+    this.guestPlayerName = playerName.trim().slice(0, 14);
     this.callbacks = callbacks;
     this.maxPlayers = Math.max(2, Math.min(5, maxPlayers));
     this.start();
@@ -1408,6 +1450,42 @@ export class OnlineSession {
     return this.lowBandwidth;
   }
 
+  kickGuest(playerId: PlayerId, reason = 'You were removed by the Host.'): boolean {
+    if (this.role !== 'host' || playerId === 1) return false;
+    const slot = this.guests.get(playerId);
+    // Forget sticky reconnect bindings for kicked player so slot opens cleanly
+    for (const [uid, sid] of this.slotByClientUid.entries()) {
+      if (sid === playerId) this.slotByClientUid.delete(uid);
+    }
+    for (const [tok, sid] of this.slotByRoomToken.entries()) {
+      if (sid === playerId) this.slotByRoomToken.delete(tok);
+    }
+    this.slotNameBySlotId.delete(playerId);
+
+    if (!slot) return false;
+    try {
+      if (slot.conn.open) {
+        slot.conn.send({ type: 'kicked', reason } as OnlineMessage);
+      }
+    } catch {
+      // ignore
+    }
+    this.guests.delete(playerId);
+    window.setTimeout(() => {
+      try {
+        slot.streamConn?.close();
+        slot.conn.close();
+      } catch {
+        // ignore
+      }
+    }, 80);
+    if (this.guests.size === 0) {
+      this.callbacks.onStatusChange('waiting');
+    }
+    this.callbacks.onPingUpdate?.(this.getPingByPlayer());
+    return true;
+  }
+
   reopenStream() {
     if (this.destroyed) return;
     if (this.role === 'guest') {
@@ -1423,7 +1501,12 @@ export class OnlineSession {
           label: 'stream',
           reliable: false,
           serialization: 'json',
-          metadata: { channel: 'stream', clientUid: this.guestClientUid },
+          metadata: {
+            channel: 'stream',
+            clientUid: this.guestClientUid,
+            roomToken: this.guestRoomToken,
+            playerName: this.guestPlayerName,
+          },
         });
         this.attachGuestToHostConnection(streamConn, true);
         this.send({ type: 'cmd', action: 'resync_me' });
@@ -1501,21 +1584,61 @@ export class OnlineSession {
     }
   }
 
+  private evictTimedOutGuest(slotId: PlayerId, slot: GuestSlot) {
+    if (this.guests.get(slotId) !== slot) return;
+    this.guests.delete(slotId);
+    try {
+      slot.streamConn?.close();
+      slot.conn.close();
+    } catch {
+      // ignore
+    }
+    if (this.guests.size === 0) {
+      this.callbacks.onStatusChange('waiting');
+    }
+    this.callbacks.onPingUpdate?.(this.getPingByPlayer());
+    this.callbacks.onPartnerDisconnect(slotId);
+  }
+
   private ensurePingLoop() {
-    if (this.role !== 'host' || this.pingTimer !== null) return;
-    this.pingTimer = window.setInterval(() => {
-      if (this.destroyed) return;
-      const now = performance.now();
-      for (const slot of this.guests.values()) {
-        if (slot.conn.open) {
+    if (this.pingTimer !== null) return;
+    if (this.role === 'host') {
+      this.pingTimer = window.setInterval(() => {
+        if (this.destroyed) return;
+        const now = performance.now();
+        for (const [slotId, slot] of Array.from(this.guests.entries())) {
+          if (now - slot.lastHeardAt > 5200) {
+            this.evictTimedOutGuest(slotId, slot);
+            continue;
+          }
+          if (slot.conn.open) {
+            try {
+              slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
+            } catch {
+              this.evictTimedOutGuest(slotId, slot);
+            }
+          }
+        }
+      }, 1000);
+    } else {
+      this.pingTimer = window.setInterval(() => {
+        if (this.destroyed || !this.hostWasConnected) return;
+        const now = performance.now();
+        if (now - this.hostLastHeardAt > 6500) {
+          this.clearTimers();
+          this.hostWasConnected = false;
           try {
-            slot.conn.send({ type: 'ping', ts: now } as OnlineMessage);
+            this.hostStreamConn?.close();
+            this.hostConn?.close();
           } catch {
             // ignore
           }
+          this.hostConn = null;
+          this.hostStreamConn = null;
+          this.callbacks.onPartnerDisconnect(1);
         }
-      }
-    }, 1500);
+      }, 1500);
+    }
   }
 
   private start() {
@@ -1550,7 +1673,12 @@ export class OnlineSession {
           label: 'ctrl',
           reliable: true,
           serialization: 'json',
-          metadata: { channel: 'ctrl', clientUid: this.guestClientUid },
+          metadata: {
+            channel: 'ctrl',
+            clientUid: this.guestClientUid,
+            roomToken: this.guestRoomToken,
+            playerName: this.guestPlayerName,
+          },
         });
         this.attachGuestToHostConnection(ctrlConn, false);
 
@@ -1558,7 +1686,12 @@ export class OnlineSession {
           label: 'stream',
           reliable: false,
           serialization: 'json',
-          metadata: { channel: 'stream', clientUid: this.guestClientUid },
+          metadata: {
+            channel: 'stream',
+            clientUid: this.guestClientUid,
+            roomToken: this.guestRoomToken,
+            playerName: this.guestPlayerName,
+          },
         });
         this.attachGuestToHostConnection(streamConn, true);
       }
@@ -1570,11 +1703,16 @@ export class OnlineSession {
           incomingConn.close();
           return;
         }
-        const meta = (incomingConn.metadata || {}) as { channel?: 'ctrl' | 'stream'; clientUid?: string };
+        const meta = (incomingConn.metadata || {}) as {
+          channel?: 'ctrl' | 'stream';
+          clientUid?: string;
+          roomToken?: string;
+          playerName?: string;
+        };
         if (meta.channel === 'stream' && meta.clientUid) {
           let matchedSlot: GuestSlot | undefined;
           for (const slot of this.guests.values()) {
-            if (slot.clientUid === meta.clientUid) {
+            if (slot.clientUid === meta.clientUid || (meta.roomToken && slot.roomToken === meta.roomToken)) {
               matchedSlot = slot;
               break;
             }
@@ -1588,24 +1726,50 @@ export class OnlineSession {
         }
 
         let assignedSlot: PlayerId | null = null;
+        // 1. Match active tab UID first
         if (meta.clientUid && this.slotByClientUid.has(meta.clientUid)) {
           const prevSlot = this.slotByClientUid.get(meta.clientUid)!;
           if (prevSlot <= this.maxPlayers) {
-            const existing = this.guests.get(prevSlot);
-            if (existing) {
-              this.guests.delete(prevSlot);
-              try {
-                existing.streamConn?.close();
-                existing.conn.close();
-              } catch {
-                // ignore
-              }
-            }
             assignedSlot = prevSlot;
           }
         }
+        // 2. Match persistent room token (survives tab close/reopen on same browser)
+        if (assignedSlot === null && meta.roomToken && this.slotByRoomToken.has(meta.roomToken)) {
+          const tokSlot = this.slotByRoomToken.get(meta.roomToken)!;
+          if (tokSlot <= this.maxPlayers) {
+            const active = this.guests.get(tokSlot);
+            // If same tab reloaded OR previous connection closed/stale (>3.5s) reuse exact slot
+            if (!active || !active.conn.open || performance.now() - active.lastHeardAt > 3500) {
+              assignedSlot = tokSlot;
+            }
+          }
+        }
+        // 3. Fallback: match disconnected slot with identical custom playerName
+        const incomingName = (meta.playerName || '').trim().toLowerCase();
+        if (assignedSlot === null && incomingName && !/^player\s*\d+$/i.test(incomingName)) {
+          for (const [sid, prevName] of this.slotNameBySlotId.entries()) {
+            if (sid <= this.maxPlayers && prevName.toLowerCase() === incomingName) {
+              const active = this.guests.get(sid);
+              if (!active || !active.conn.open || performance.now() - active.lastHeardAt > 3500) {
+                assignedSlot = sid;
+                break;
+              }
+            }
+          }
+        }
 
-        if (assignedSlot === null) {
+        if (assignedSlot !== null) {
+          const existing = this.guests.get(assignedSlot);
+          if (existing) {
+            this.guests.delete(assignedSlot);
+            try {
+              existing.streamConn?.close();
+              existing.conn.close();
+            } catch {
+              // ignore
+            }
+          }
+        } else {
           const candidateSlots: PlayerId[] = [2, 3, 4, 5];
           for (const s of candidateSlots) {
             if (s <= this.maxPlayers && !this.guests.has(s)) {
@@ -1635,7 +1799,13 @@ export class OnlineSession {
         if (meta.clientUid) {
           this.slotByClientUid.set(meta.clientUid, assignedSlot);
         }
-        this.attachHostToGuestConnection(incomingConn, assignedSlot, meta.clientUid);
+        if (meta.roomToken) {
+          this.slotByRoomToken.set(meta.roomToken, assignedSlot);
+        }
+        if (meta.playerName?.trim()) {
+          this.slotNameBySlotId.set(assignedSlot, meta.playerName.trim().slice(0, 14));
+        }
+        this.attachHostToGuestConnection(incomingConn, assignedSlot, meta.clientUid, meta.roomToken, meta.playerName);
       });
     }
 
@@ -1687,6 +1857,7 @@ export class OnlineSession {
     slot.streamConn = conn;
     conn.on('data', (raw) => {
       if (this.destroyed || !raw || typeof raw !== 'object') return;
+      slot.lastHeardAt = performance.now();
       const msg = raw as OnlineMessage;
       if ('type' in msg) {
         this.callbacks.onMessage(msg, slotId);
@@ -1701,8 +1872,22 @@ export class OnlineSession {
     conn.on('error', clearStream);
   }
 
-  private attachHostToGuestConnection(conn: DataConnection, slotId: PlayerId, clientUid?: string) {
-    const slot: GuestSlot = { conn, streamConn: null, clientUid, pingMs: null };
+  private attachHostToGuestConnection(
+    conn: DataConnection,
+    slotId: PlayerId,
+    clientUid?: string,
+    roomToken?: string,
+    playerName?: string
+  ) {
+    const slot: GuestSlot = {
+      conn,
+      streamConn: null,
+      clientUid,
+      roomToken,
+      playerName: playerName?.trim().slice(0, 14),
+      pingMs: null,
+      lastHeardAt: performance.now(),
+    };
     this.guests.set(slotId, slot);
 
     if (clientUid && this.pendingStreams.has(clientUid)) {
@@ -1713,6 +1898,7 @@ export class OnlineSession {
 
     conn.on('open', () => {
       if (this.destroyed) return;
+      slot.lastHeardAt = performance.now();
       try {
         conn.send({ type: 'welcome', playerId: slotId } as OnlineMessage);
         conn.send({ type: 'ping', ts: performance.now() } as OnlineMessage);
@@ -1726,12 +1912,16 @@ export class OnlineSession {
 
     conn.on('data', (raw) => {
       if (this.destroyed || !raw || typeof raw !== 'object') return;
+      slot.lastHeardAt = performance.now();
       const msg = raw as OnlineMessage;
       if (msg.type === 'pong') {
         const rtt = Math.max(1, Math.round(performance.now() - msg.ts));
         slot.pingMs = rtt;
         this.callbacks.onPingUpdate?.(this.getPingByPlayer());
         return;
+      }
+      if (msg.type === 'guest_config' && msg.playerName?.trim()) {
+        this.slotNameBySlotId.set(slotId, msg.playerName.trim().slice(0, 14));
       }
       if ('type' in msg) {
         this.callbacks.onMessage(msg, slotId);
@@ -1764,6 +1954,7 @@ export class OnlineSession {
       this.hostStreamConn = conn;
       conn.on('data', (raw) => {
         if (this.destroyed || !raw || typeof raw !== 'object') return;
+        this.hostLastHeardAt = performance.now();
         const msg = raw as OnlineMessage;
         if ('type' in msg) {
           this.callbacks.onMessage(msg, 1);
@@ -1787,12 +1978,15 @@ export class OnlineSession {
         window.clearTimeout(this.connectTimer);
         this.connectTimer = null;
       }
+      this.hostLastHeardAt = performance.now();
       this.hostWasConnected = true;
+      this.ensurePingLoop();
       this.callbacks.onStatusChange('connected');
     });
 
     conn.on('data', (raw) => {
       if (this.destroyed || !raw || typeof raw !== 'object') return;
+      this.hostLastHeardAt = performance.now();
       const msg = raw as OnlineMessage;
       if (msg.type === 'ping') {
         try {
@@ -1800,6 +1994,12 @@ export class OnlineSession {
         } catch {
           // ignore
         }
+        return;
+      }
+      if (msg.type === 'kicked') {
+        const reason = msg.reason || 'You were removed from the room by the Host.';
+        this.callbacks.onKicked?.(reason);
+        this.destroy();
         return;
       }
       if (msg.type === 'room_full') {

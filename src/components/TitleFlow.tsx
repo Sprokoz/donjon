@@ -529,7 +529,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
 
         {/* Version Footer */}
         <footer className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
-          <span>DUNGEON BOUNCER · BY SPROKOZ</span>
+          <span>DUNGEON BOUNCER · MADE BY SPROKOZ</span>
           <div className="flex flex-wrap items-center gap-3">
             {onOpenUpdates && (
               <button

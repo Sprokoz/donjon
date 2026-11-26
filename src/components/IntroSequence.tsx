@@ -451,7 +451,7 @@ export const SprokozIntro: React.FC<SprokozIntroProps> = ({
       {/* Top bar: Sprokoz on the side, audio & fullscreen on the right */}
       <div className="absolute top-4 inset-x-4 sm:inset-x-6 z-20 flex items-center justify-between gap-4">
         <span className="font-mono-num text-xs text-stone-400 tracking-wide whitespace-nowrap">
-          By Sprokoz
+          Made by Sprokoz
         </span>
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -700,7 +700,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       {/* Top Bar */}
       <div className="relative z-10 w-full max-w-5xl flex items-center justify-between gap-4">
         <span className="font-mono-num text-xs text-stone-400 tracking-wide whitespace-nowrap">
-          Sprokoz
+          Made by Sprokoz
         </span>
         <div className="flex items-center gap-2 shrink-0">
           <button

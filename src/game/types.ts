@@ -214,6 +214,8 @@ export interface Player {
   learnedSkills: Partial<Record<WeaponClassId, number[]>>;
   skillCooldowns: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
+  weaponCooldowns?: Partial<Record<WeaponClassId, [number, number, number, number]>>;
+  tankShieldReady?: boolean;
   abilityReady: boolean;
   abilityCooldown: number;
   abilityCooldownTimer: number;
@@ -338,10 +340,151 @@ export type BossChannelKind =
   | 'cursed_floor'
   | 'gravity_storm'
   | 'hunter_mark'
-  | 'overload_pylons'
+  | 'bow_weakpoint'
+  | 'emp_interrupt'
   | 'abyss_tether'
   | 'demon_seal_purge'
   | 'meteor_soak';
+
+export type BossVariantId =
+  | 'mecha_bastion'
+  | 'mecha_overclock'
+  | 'void_reaper'
+  | 'void_snare'
+  | 'oni_shogun'
+  | 'oni_tempest'
+  | 'eclipse_bastion'
+  | 'eclipse_twilight';
+
+export interface BossVariantDef {
+  id: BossVariantId;
+  bossType: BossType;
+  stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss';
+  name: string;
+  shortName: string;
+  subtitle: string;
+  suggestedWeapons: WeaponClassId[];
+  suggestedLabel: string;
+  mechanicSummary: string;
+  hardshipNote: string;
+  channelPool: BossChannelKind[];
+  accent: string;
+}
+
+export const BOSS_VARIANTS: BossVariantDef[] = [
+  {
+    id: 'mecha_bastion',
+    bossType: 'mecha',
+    stage: 'mechaBoss',
+    name: 'IRON DESTROYER · BASTION MK-I',
+    shortName: 'MK-I BASTION',
+    subtitle: 'Molten Siege Protocol',
+    suggestedWeapons: ['tank_shield', 'holy_staff'],
+    suggestedLabel: 'Tank Shield + Holy Staff',
+    mechanicSummary: 'Floods floor in lava except 1 tiny island while barraging it — Tank Shield blocks salvoes while Holy Staff sustains.',
+    hardshipNote: 'Without Tank Shield, island barrages hit hard and require tight dodge timing.',
+    channelPool: ['cursed_floor', 'siege_beam'],
+    accent: '#38bdf8',
+  },
+  {
+    id: 'mecha_overclock',
+    bossType: 'mecha',
+    stage: 'mechaBoss',
+    name: 'IRON DESTROYER · OVERCLOCK MK-II',
+    shortName: 'MK-II OVERCLOCK',
+    subtitle: 'Aerial Core & Unavoidable EMP',
+    suggestedWeapons: ['ranger_bow', 'assassin_blades'],
+    suggestedLabel: 'Ranger Bow + Assassin Blades',
+    mechanicSummary: 'No lava! Exposes an Overheated Core for 3x Bow damage & charges an unavoidable EMP blast broken instantly by Assassin skills.',
+    hardshipNote: 'Without Bow/Assassin, core exposure takes longer and EMP requires 3 multi-hits to interrupt.',
+    channelPool: ['bow_weakpoint', 'emp_interrupt'],
+    accent: '#34d399',
+  },
+  {
+    id: 'void_reaper',
+    bossType: 'void',
+    stage: 'voidBoss',
+    name: 'VOID PHANTOM · REAPER',
+    shortName: 'REAPER PROTOCOL',
+    subtitle: 'Execution Lock & Unavoidable Rift Pulse',
+    suggestedWeapons: ['tank_shield', 'assassin_blades'],
+    suggestedLabel: 'Tank Shield + Assassin Blades',
+    mechanicSummary: 'Targets allies with Sniper Execution Beams intercepted by Tank Shield and pulses Rift EMPs interrupted by Assassin.',
+    hardshipNote: 'Without Tank/Assassin, marked allies must stagger quickly or burn dashes to survive.',
+    channelPool: ['hunter_mark', 'emp_interrupt', 'gravity_storm'],
+    accent: '#a855f7',
+  },
+  {
+    id: 'void_snare',
+    bossType: 'void',
+    stage: 'voidBoss',
+    name: 'VOID PHANTOM · SNARE',
+    shortName: 'SNARE PROTOCOL',
+    subtitle: 'Rift Core & Soul Tether',
+    suggestedWeapons: ['ranger_bow', 'warrior_greatsword'],
+    suggestedLabel: 'Ranger Bow + Greatsword',
+    mechanicSummary: 'Exposes a distant Rift Core weak to Bow 3x volleys and binds allies with Abyss Tethers snapped cleanly by mobility & heavy waves.',
+    hardshipNote: 'Without Bow/Greatsword, core burn and tether pressure drag out the phase.',
+    channelPool: ['bow_weakpoint', 'abyss_tether', 'interrupt'],
+    accent: '#c084fc',
+  },
+  {
+    id: 'oni_shogun',
+    bossType: 'oni',
+    stage: 'oniBoss',
+    name: 'YAMATA-ONI · SHOGUN',
+    shortName: 'CRIMSON SHOGUN',
+    subtitle: 'Molten Arena & Meteor Soak',
+    suggestedWeapons: ['tank_shield', 'holy_staff'],
+    suggestedLabel: 'Tank Shield + Holy Staff',
+    mechanicSummary: 'Scorches the sanctum around 1 safe island and drops party Meteor Soaks neutralized by Tank Aegis & Staff Sanctum.',
+    hardshipNote: 'Without Tank/Holy Staff, island fires and 68 DMG meteor splits punish missteps severely.',
+    channelPool: ['cursed_floor', 'meteor_soak', 'demon_seal_purge'],
+    accent: '#f97316',
+  },
+  {
+    id: 'oni_tempest',
+    bossType: 'oni',
+    stage: 'oniBoss',
+    name: 'YAMATA-ONI · TEMPEST',
+    shortName: 'TEMPEST BLADE',
+    subtitle: 'Demon Seals & Unavoidable Calamity',
+    suggestedWeapons: ['assassin_blades', 'warrior_greatsword'],
+    suggestedLabel: 'Assassin Blades + Greatsword',
+    mechanicSummary: 'Casts unavoidable Demon Calamity blasts broken in 1 hit by Assassin skills while Greatsword cleaves through Soul Seals.',
+    hardshipNote: 'Without Assassin/Greatsword, calamity blasts demand fast multi-hit focus to interrupt.',
+    channelPool: ['emp_interrupt', 'demon_seal_purge', 'abyss_tether'],
+    accent: '#ef4444',
+  },
+  {
+    id: 'eclipse_bastion',
+    bossType: 'eclipse',
+    stage: 'eclipseBoss',
+    name: 'SOLARIS & LUNARIS · AEGIS',
+    shortName: 'ECLIPSE AEGIS',
+    subtitle: 'Astral Siege & Solar Meteor',
+    suggestedWeapons: ['tank_shield', 'holy_staff'],
+    suggestedLabel: 'Tank Shield + Holy Staff',
+    mechanicSummary: 'Unleashes wide Astral Siege Cones & Meteor Soaks designed for Tank Aegis deflection and Holy Staff party sustain.',
+    hardshipNote: 'Without Tank/Holy Staff, navigating dense cone lanes and meteor splits is unforgiving.',
+    channelPool: ['siege_beam', 'meteor_soak', 'cursed_floor'],
+    accent: '#fbbf24',
+  },
+  {
+    id: 'eclipse_twilight',
+    bossType: 'eclipse',
+    stage: 'eclipseBoss',
+    name: 'SOLARIS & LUNARIS · TWILIGHT',
+    shortName: 'TWILIGHT CORE',
+    subtitle: 'Astral Core & Supernova Pulse',
+    suggestedWeapons: ['ranger_bow', 'assassin_blades'],
+    suggestedLabel: 'Ranger Bow + Assassin Blades',
+    mechanicSummary: 'Opens an Astral Core vulnerable to Bow 3x precision arrows while Assassin skills snap unavoidable Twilight Supernovas.',
+    hardshipNote: 'Without Bow/Assassin, Twilight Supernovas require triple skill hits to cancel.',
+    channelPool: ['bow_weakpoint', 'emp_interrupt', 'interrupt'],
+    accent: '#38bdf8',
+  },
+];
 
 export interface Boss {
   x: number;
@@ -373,6 +516,7 @@ export interface Boss {
   postureDecayGrace: number;
   postureUnlocked: boolean;
   wallDirection: { isHorizontal: boolean; startX?: number; dirX?: number; startY?: number; dirY?: number } | null;
+  variantId?: BossVariantId;
   channelKind?: BossChannelKind | null;
   channelTimer?: number;
   channelMaxTimer?: number;
@@ -896,6 +1040,7 @@ export interface PlayerHudState {
   scrollBag: SkillScrollItem[];
   potions: number;
   potionCooldown: number;
+  potionCooldownExact?: number;
   coins: number;
   color: string;
   combo: number;
@@ -905,10 +1050,13 @@ export interface PlayerHudState {
   unlockedSkillTier: number;
   learnedSkills: Partial<Record<WeaponClassId, number[]>>;
   skillCooldowns: [number, number, number, number];
+  skillCooldownsExact?: [number, number, number, number];
   skillMaxCooldowns: [number, number, number, number];
   state: Player['state'];
   dashReady: boolean;
   dashCooldown: number;
+  dashCooldownExact?: number;
+  dashMaxCooldown?: number;
   dash2Active: boolean;
   dash2Ready: boolean;
   dash2Cooldown: number;
@@ -951,6 +1099,11 @@ export interface HudSnapshot {
   bossesDefeatedCount: number;
   gatesActive: boolean;
   bossType: BossType;
+  bossVariantId?: BossVariantId;
+  bossVariantName?: string;
+  bossSuggestedWeapons?: WeaponClassId[];
+  bossSuggestionText?: string;
+  bossHardshipNote?: string;
   bossName: string;
   bossAttackLabel: string;
   bossVoiceLine: string | null;

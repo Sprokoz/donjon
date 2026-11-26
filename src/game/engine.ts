@@ -8,8 +8,11 @@ import {
   BossChannelKind,
   BOSS_ARENA_HEIGHT,
   BOSS_ARENA_WIDTH,
+  BOSS_VARIANTS,
   BossProjectile,
   BossType,
+  BossVariantDef,
+  BossVariantId,
   CameraState,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -397,6 +400,8 @@ function createPlayer(
     learnedSkills: {},
     skillCooldowns: [0, 0, 0, 0],
     skillMaxCooldowns: sMax,
+    weaponCooldowns: {},
+    tankShieldReady: true,
     abilityReady: usesWeapons ? false : true,
     abilityCooldown: usesWeapons ? 12.0 : classDef.skillCooldown,
     abilityCooldownTimer: 0,
@@ -453,6 +458,7 @@ function createEmptyBoss(): Boss {
     postureDecayGrace: 0,
     postureUnlocked: false,
     wallDirection: null,
+    variantId: 'mecha_bastion',
     channelKind: null,
     channelTimer: 0,
     channelMaxTimer: 0,
@@ -1164,8 +1170,18 @@ function doesTankInterceptLine(
   });
 }
 
-export function getBossTeamworkPool(bossType: BossType): BossChannelKind[] {
-  if (bossType === 'mecha') return ['cursed_floor', 'siege_beam', 'overload_pylons'];
+export function getBossVariantDef(bossType: BossType, variantId?: BossVariantId): BossVariantDef {
+  if (variantId) {
+    const exact = BOSS_VARIANTS.find((v) => v.id === variantId);
+    if (exact) return exact;
+  }
+  return BOSS_VARIANTS.find((v) => v.bossType === bossType) || BOSS_VARIANTS[0];
+}
+
+export function getBossTeamworkPool(bossType: BossType, variantId?: BossVariantId): BossChannelKind[] {
+  const v = getBossVariantDef(bossType, variantId);
+  if (v && v.channelPool.length > 0) return v.channelPool;
+  if (bossType === 'mecha') return ['cursed_floor', 'siege_beam'];
   if (bossType === 'void') return ['hunter_mark', 'gravity_storm', 'abyss_tether'];
   if (bossType === 'oni') return ['cursed_floor', 'demon_seal_purge', 'meteor_soak'];
   return ['meteor_soak', 'siege_beam', 'interrupt'];
@@ -1181,7 +1197,9 @@ function startBossCounterChannel(
   if (alive.length === 0) return;
 
   const hasTank = partyHasTank(rt);
-  const pool = getBossTeamworkPool(rt.bossType);
+  const hasBow = alive.some((pl) => pl.weapon === 'ranger_bow');
+  const hasAssassin = alive.some((pl) => pl.weapon === 'assassin_blades');
+  const pool = getBossTeamworkPool(rt.bossType, b.variantId);
   const kind: BossChannelKind =
     forcedKind ||
     pool[(b.attacksBeforeVulnerable + rt.bossesDefeatedCount + rt.loopLevel) % pool.length];
@@ -1209,8 +1227,8 @@ function startBossCounterChannel(
     b.channelHitsNeeded = 1;
     b.attackTimer = 0.55;
     b.channelLabel = hasTank
-      ? 'ABYSSAL MELTDOWN — GATHER ON SAFE ISLAND & TANK [E] SHIELD BARRAGE!'
-      : 'ABYSSAL MELTDOWN — GATHER ON SAFE ISLAND & DODGE RAPID SHOTS!';
+      ? 'MOLTEN LOCKDOWN — ONLY 1 SAFE ISLAND! TANK [E] SHIELD BOSS BARRAGE!'
+      : 'MOLTEN LOCKDOWN — ONLY 1 SAFE ISLAND! WEAVE BARRAGE (HARD WITHOUT TANK)!';
 
     soundEngine.playBossTelegraph();
     showPhaseAnnounce(rt, b.channelLabel, '#fbbf24', 3.2);
@@ -1272,31 +1290,36 @@ function startBossCounterChannel(
     soundEngine.playBossTelegraph();
     showPhaseAnnounce(rt, b.channelLabel, '#ef4444', 3.1);
     addFloatingText(rt, target.x + target.size / 2, target.y - 24, 'EXECUTION TARGET!', '#ef4444', 1.25);
-  } else if (kind === 'overload_pylons') {
-    const dur = 4.6;
-    const padY = Math.round(rt.arenaHeight * 0.66);
-    const nodes =
-      alive.length >= 2
-        ? [
-            { x: Math.round(rt.arenaWidth * 0.24), y: padY, r: 62, activated: false },
-            { x: Math.round(rt.arenaWidth * 0.76), y: padY, r: 62, activated: false },
-          ]
-        : [{ x: Math.round(rt.arenaWidth * 0.5), y: padY, r: 68, activated: false }];
-    b.channelKind = 'overload_pylons';
+  } else if (kind === 'bow_weakpoint') {
+    const dur = 5.0;
+    b.channelKind = 'bow_weakpoint';
     b.channelTimer = dur;
     b.channelMaxTimer = dur;
-    b.channelNodes = nodes;
     b.channelHits = 0;
-    b.channelHitsNeeded = nodes.length;
-    b.attackTimer = 0.48;
-    b.channelLabel =
-      nodes.length >= 2
-        ? 'REACTOR OVERLOAD — STAND ON BOTH COOLING PYLONS SIMULTANEOUSLY!'
-        : 'REACTOR OVERLOAD — STAND ON COOLING PYLON TO VENT CORE!';
+    b.channelHitsNeeded = hasBow ? 4 : 5;
+    b.attackTimer = 0.55;
+    b.channelLabel = hasBow
+      ? 'OVERHEATED CORE EXPOSED — RANGER BOW ARROWS DEAL 3X CRITICAL DMG!'
+      : 'CORE EXPOSED (SHOCK AURA) — NO BOW! STAY RANGED & BURST HARDER!';
 
-    soundEngine.playBossTelegraph();
-    showPhaseAnnounce(rt, b.channelLabel, '#22d3ee', 3.2);
-    nodes.forEach((n, idx) => addFloatingText(rt, n.x, n.y - n.r - 12, `PYLON ${idx + 1}!`, '#22d3ee', 1.15));
+    soundEngine.playBossAttackExecuteSfx('bow_weakpoint');
+    showPhaseAnnounce(rt, b.channelLabel, '#34d399', 3.2);
+    addFloatingText(rt, bx, by - 46, 'CORE EXPOSED · BOW 3X!', '#34d399', 1.3);
+  } else if (kind === 'emp_interrupt') {
+    const dur = 4.0;
+    b.channelKind = 'emp_interrupt';
+    b.channelTimer = dur;
+    b.channelMaxTimer = dur;
+    b.channelHits = 0;
+    b.channelHitsNeeded = 3;
+    b.attackTimer = 0.85;
+    b.channelLabel = hasAssassin
+      ? 'UNAVOIDABLE EMP PULSE — ASSASSIN SKILL INTERRUPTS IN 1 HIT!'
+      : 'UNAVOIDABLE EMP PULSE — NO ASSASSIN! LAND 3 SKILL HITS TO INTERRUPT!';
+
+    soundEngine.playBossAttackExecuteSfx('emp_interrupt');
+    showPhaseAnnounce(rt, b.channelLabel, '#e879f9', 3.2);
+    addFloatingText(rt, bx, by - 46, 'UNAVOIDABLE EMP CHARGING!', '#f43f5e', 1.3);
   } else if (kind === 'abyss_tether') {
     const dur = 4.4;
     let pA = alive[0];
@@ -1398,8 +1421,17 @@ function startBossCounterChannel(
 
 function registerBossInterrupt(rt: GameRuntime, player: Player, amount = 1) {
   const b = rt.boss;
-  if ((b.channelKind !== 'interrupt' && b.channelKind !== 'hunter_mark') || (b.channelTimer || 0) <= 0) return;
-  b.channelHits = Math.min(b.channelHitsNeeded || 1, (b.channelHits || 0) + amount);
+  if (
+    (b.channelKind !== 'interrupt' && b.channelKind !== 'hunter_mark' && b.channelKind !== 'emp_interrupt') ||
+    (b.channelTimer || 0) <= 0
+  ) {
+    return;
+  }
+  const effectiveAmount =
+    b.channelKind === 'emp_interrupt' && player.weapon === 'assassin_blades'
+      ? Math.max(amount, b.channelHitsNeeded || 3)
+      : amount;
+  b.channelHits = Math.min(b.channelHitsNeeded || 1, (b.channelHits || 0) + effectiveAmount);
   const cx = b.x + b.size / 2;
   const cy = b.y + b.size / 2;
   if ((b.channelHits || 0) >= (b.channelHitsNeeded || 1)) {
@@ -1411,7 +1443,7 @@ function registerBossInterrupt(rt: GameRuntime, player: Player, amount = 1) {
     b.channelTargetPlayerId = undefined;
     b.channelTetherPair = undefined;
     b.health = Math.max(1, b.health - 1);
-    rt.score += Math.round(450 * getScoreMult(rt));
+    rt.score += Math.round(480 * getScoreMult(rt));
     rt.tutorialCounterDone = true;
     addFloatingText(
       rt,
@@ -1419,20 +1451,28 @@ function registerBossInterrupt(rt: GameRuntime, player: Player, amount = 1) {
       cy - 52,
       prevKind === 'hunter_mark'
         ? `${player.name.toUpperCase()} BROKE LOCK!`
+        : prevKind === 'emp_interrupt'
+        ? `${player.name.toUpperCase()} COUNTERED EMP!`
         : `${player.name.toUpperCase()} INTERRUPTED!`,
-      '#c084fc',
+      prevKind === 'emp_interrupt' ? '#e879f9' : '#c084fc',
       1.3
     );
     triggerBossExposedWindow(
       rt,
-      prevKind === 'hunter_mark' ? 'SNIPER LOCK STAGGERED!' : 'RITUAL INTERRUPTED — 2X CRITICAL DMG!'
+      prevKind === 'hunter_mark'
+        ? 'SNIPER LOCK STAGGERED!'
+        : prevKind === 'emp_interrupt'
+        ? 'UNAVOIDABLE EMP INTERRUPTED — 2X STAGGER!'
+        : 'RITUAL INTERRUPTED — 2X CRITICAL DMG!'
     );
   } else {
     addFloatingText(
       rt,
       cx,
       cy - 44,
-      `STAGGER ${b.channelHits}/${b.channelHitsNeeded}!`,
+      b.channelKind === 'emp_interrupt'
+        ? `EMP BREAK ${b.channelHits}/${b.channelHitsNeeded}!`
+        : `STAGGER ${b.channelHits}/${b.channelHitsNeeded}!`,
       '#e879f9',
       1.15
     );
@@ -1577,46 +1617,44 @@ function updateBossCounterChannel(rt: GameRuntime, dt: number) {
       }
       soundEngine.playBossShoot();
     }
-  } else if (b.channelKind === 'overload_pylons' && b.channelNodes && b.channelNodes.length > 0) {
-    const aliveList = rt.players.filter((pl) => pl.state === 'alive');
-    let activeNodes = 0;
-    b.channelNodes.forEach((node) => {
-      node.activated = aliveList.some(
-        (pl) => Math.hypot(pl.x + pl.size / 2 - node.x, pl.y + pl.size / 2 - node.y) <= node.r + 12
-      );
-      if (node.activated) activeNodes++;
-    });
-    b.channelHits = activeNodes;
-    if (activeNodes >= b.channelNodes.length) {
-      rt.score += 520;
-      rt.tutorialCounterDone = true;
-      soundEngine.playParry();
-      b.channelNodes.forEach((n) => {
-        rt.energyWaves.push({ x: n.x, y: n.y, radius: 14, maxRadius: 180, alpha: 0.92, speed: 460, color: '#22d3ee' });
-      });
-      triggerBossExposedWindow(rt, 'REACTOR COOLED — BOSS OVERHEATED (2X DMG)!');
-      return;
-    }
+  } else if (b.channelKind === 'bow_weakpoint') {
     b.attackTimer = (b.attackTimer || 0) - dt;
     if (b.attackTimer <= 0) {
-      b.attackTimer = 0.58;
-      const count = 6;
-      const rot = rt.elapsedSeconds * 1.9;
-      for (let i = 0; i < count; i++) {
-        const ang = rot + (i / count) * Math.PI * 2;
+      b.attackTimer = 0.6;
+      const shockR = 148;
+      rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: shockR, alpha: 0.72, speed: 340, color: '#fbbf24' });
+      rt.players.forEach((pl) => {
+        if (pl.state !== 'alive' || pl.dashImmune) return;
+        const pcx = pl.x + pl.size / 2;
+        const pcy = pl.y + pl.size / 2;
+        if (Math.hypot(pcx - cx, pcy - cy) <= shockR) {
+          damagePlayer(rt, pl, 9);
+          addFloatingText(rt, pcx, pl.y - 16, 'MELEE SHOCK! STAY RANGED', '#fbbf24', 0.95);
+        }
+      });
+      const orbs = 6;
+      const rot = rt.elapsedSeconds * 1.5;
+      for (let i = 0; i < orbs; i++) {
+        const ang = rot + (i / orbs) * Math.PI * 2;
         pushBossProj(rt, {
           uid: rt.nextUid++,
           x: cx,
           y: cy,
-          dx: Math.cos(ang) * 4.6,
-          dy: Math.sin(ang) * 4.6,
+          dx: Math.cos(ang) * 4.4,
+          dy: Math.sin(ang) * 4.4,
           size: 13,
           speed: 1,
-          color: '#22d3ee',
-          damage: 14,
+          color: '#34d399',
+          damage: 13,
           shape: 'shard',
         });
       }
+    }
+  } else if (b.channelKind === 'emp_interrupt') {
+    b.attackTimer = (b.attackTimer || 0) - dt;
+    if (b.attackTimer <= 0) {
+      b.attackTimer = 0.75;
+      rt.energyWaves.push({ x: cx, y: cy, radius: 16, maxRadius: 210, alpha: 0.75, speed: 380, color: '#e879f9' });
     }
   } else if (b.channelKind === 'abyss_tether' && b.channelTetherPair) {
     const [idA, idB] = b.channelTetherPair;
@@ -1875,16 +1913,35 @@ function updateBossCounterChannel(rt: GameRuntime, dt: number) {
         addFloatingText(rt, tx, target.y - 20, 'EXECUTION SHOT!', '#ef4444', 1.25);
       }
     }
-  } else if (kind === 'overload_pylons') {
-    const heal = Math.max(3, Math.round(b.maxHealth * 0.06));
-    b.health = Math.min(b.maxHealth, b.health + heal);
+  } else if (kind === 'bow_weakpoint') {
     soundEngine.playShockwave();
-    rt.screenShake = Math.max(rt.screenShake, 24);
-    rt.warningFlash = 0.45;
-    rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: 960, alpha: 0.94, speed: 780, color: '#ef4444' });
-    addFloatingText(rt, cx, cy - 42, `CORE MELTDOWN! (+${heal} BOSS HP)`, '#ef4444', 1.3);
+    rt.screenShake = Math.max(rt.screenShake, 18);
+    rt.energyWaves.push({ x: cx, y: cy, radius: 20, maxRadius: 420, alpha: 0.88, speed: 580, color: '#34d399' });
+    addFloatingText(rt, cx, cy - 40, 'CORE VENTED!', '#34d399', 1.2);
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2;
+      pushBossProj(rt, {
+        uid: rt.nextUid++,
+        x: cx,
+        y: cy,
+        dx: Math.cos(ang) * 5.6,
+        dy: Math.sin(ang) * 5.6,
+        size: 14,
+        speed: 1,
+        color: '#34d399',
+        damage: 16,
+        shape: 'shard',
+      });
+    }
+  } else if (kind === 'emp_interrupt') {
+    soundEngine.playShockwave();
+    rt.screenShake = Math.max(rt.screenShake, 28);
+    rt.warningFlash = 0.55;
+    rt.energyWaves.push({ x: cx, y: cy, radius: 24, maxRadius: 1200, alpha: 0.96, speed: 940, color: '#f43f5e' });
+    rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 960, alpha: 0.9, speed: 740, color: '#e879f9' });
+    addFloatingText(rt, cx, cy - 44, 'UNAVOIDABLE EMP DETONATION!', '#f43f5e', 1.35);
     rt.players.forEach((p) => {
-      if (p.state !== 'alive') return;
+      if (p.state !== 'alive' || p.invulnerable || rt.cheats.godMode) return;
       const pcx = p.x + p.size / 2;
       const pcy = p.y + p.size / 2;
       const inSanctuary = rt.skillZones.some(
@@ -1892,8 +1949,16 @@ function updateBossCounterChannel(rt: GameRuntime, dt: number) {
           (z.kind === 'sanctuary_dome' || z.kind === 'aegis_beacon') &&
           Math.hypot(pcx - z.x, pcy - z.y) <= z.radius + 14
       );
-      if (!inSanctuary && !isBehindTankShield(rt, p, cx, cy)) {
-        damagePlayer(rt, p, 36);
+      const empDmg = inSanctuary ? 16 : 34;
+      p.hp = Math.max(0, p.hp - empDmg);
+      p.cleanDodgeFailed = true;
+      soundEngine.playPlayerHit();
+      addFloatingText(rt, pcx, p.y - 18, `EMP -${empDmg}`, '#f43f5e', 1.25);
+      if (p.hp <= 0) {
+        p.state = 'down';
+        p.hp = 0;
+        p.reviveProgress = 0;
+        p.hasKnife = false;
       }
     });
   } else if (kind === 'abyss_tether') {
@@ -2090,9 +2155,16 @@ export function switchTutorialWeapon(rt: GameRuntime, weaponId: WeaponId) {
   }
   rt.isOnlineCampaign = true;
   p.learnedSkills[weaponId] = [1, 2, 3, 4];
+  if (p.weaponCooldowns) delete p.weaponCooldowns[weaponId];
+  p.tankShieldReady = true;
+  p.shieldRegenTimer = 0;
   equipWeapon(rt, p, weaponId);
   p.unlockedSkillTier = 4;
   p.learnedSkills[weaponId] = [1, 2, 3, 4];
+  p.skillCooldowns = [0, 0, 0, 0];
+  if (p.weaponCooldowns) p.weaponCooldowns[weaponId] = [0, 0, 0, 0];
+  p.abilityReady = true;
+  p.abilityCooldownTimer = 0;
   p.hp = p.maxHp;
 }
 
@@ -2102,10 +2174,14 @@ export function switchPracticeWeapon(rt: GameRuntime, playerId: PlayerId, weapon
   if (!p) return;
   p.weapon = 'none';
   p.learnedSkills[weaponId] = [1, 2, 3, 4];
+  if (p.weaponCooldowns) delete p.weaponCooldowns[weaponId];
+  p.tankShieldReady = true;
+  p.shieldRegenTimer = 0;
   equipWeapon(rt, p, weaponId);
   p.unlockedSkillTier = 4;
   p.learnedSkills[weaponId] = [1, 2, 3, 4];
   p.skillCooldowns = [0, 0, 0, 0];
+  if (p.weaponCooldowns) p.weaponCooldowns[weaponId] = [0, 0, 0, 0];
   p.abilityReady = true;
   p.abilityCooldownTimer = 0;
   p.hp = p.maxHp;
@@ -2130,6 +2206,7 @@ export function triggerPracticeAttack(
     pl.sealTimer = 0;
     if (pl.state === 'alive') {
       pl.skillCooldowns = [0, 0, 0, 0];
+      pl.weaponCooldowns = {};
       pl.abilityReady = true;
       pl.abilityCooldownTimer = 0;
     }
@@ -2138,16 +2215,20 @@ export function triggerPracticeAttack(
     rt.boss.state = 'idle';
     rt.boss.stateTimer = 1.6;
   }
-  const pool = getBossTeamworkPool(rt.bossType);
+  const pool = getBossTeamworkPool(rt.bossType, rt.boss.variantId);
   const chosenKind = kind || pool[rt.boss.attacksBeforeVulnerable % pool.length];
   startBossCounterChannel(rt, chosenKind);
   rt.boss.attacksBeforeVulnerable++;
   rt.practiceAttackTimer = 5.5;
 }
 
-export function switchPracticeBoss(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss') {
+export function switchPracticeBoss(
+  rt: GameRuntime,
+  stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss',
+  variantId?: BossVariantId
+) {
   if (!rt.isTeamworkPractice) return;
-  setupBossStage(rt, stage);
+  setupBossStage(rt, stage, variantId);
   skipBossIntro(rt);
   rt.introPlaying = false;
   rt.fadeOpacity = 0;
@@ -2407,9 +2488,17 @@ export function equipWeapon(
   const wDef = WEAPONS_CATALOG.find((w) => w.id === weaponId);
   if (!wDef) return;
 
-  // Strictly 1 weapon at a time: drop previously equipped weapon back onto floor
+  if (!p.weaponCooldowns) p.weaponCooldowns = {};
+
+  // Strictly 1 weapon at a time: save active cooldowns & drop previously equipped weapon back onto floor
   if (p.weapon !== 'none' && p.weapon !== weaponId) {
     const oldId = p.weapon;
+    p.weaponCooldowns[oldId] = [
+      p.skillCooldowns[0] || 0,
+      p.skillCooldowns[1] || 0,
+      p.skillCooldowns[2] || 0,
+      p.skillCooldowns[3] || 0,
+    ];
     rt.weaponDrops.push({
       id: rt.nextUid++,
       weaponId: oldId,
@@ -2436,25 +2525,39 @@ export function equipWeapon(
     wDef.skills[3].cooldown * cdFactor,
   ];
   p.abilityCooldown = p.skillMaxCooldowns[0];
-  p.skillCooldowns = [0, 0, 0, 0];
-  p.abilityCooldownTimer = 0;
-  p.abilityReady = true;
 
-  // Preserve purchased Vitality Tonic / bonusMaxHp when swapping weapons!
+  // Restore saved cooldowns for this weapon instead of resetting to 0 (prevents unequip/re-equip CD exploit)
+  const savedCds = p.weaponCooldowns[weaponId];
+  p.skillCooldowns = savedCds
+    ? [
+        Math.max(0, Math.min(p.skillMaxCooldowns[0], savedCds[0] || 0)),
+        Math.max(0, Math.min(p.skillMaxCooldowns[1], savedCds[1] || 0)),
+        Math.max(0, Math.min(p.skillMaxCooldowns[2], savedCds[2] || 0)),
+        Math.max(0, Math.min(p.skillMaxCooldowns[3], savedCds[3] || 0)),
+      ]
+    : [0, 0, 0, 0];
+  p.weaponCooldowns[weaponId] = [...p.skillCooldowns] as [number, number, number, number];
+  p.abilityCooldownTimer = p.skillCooldowns[0];
+  p.abilityReady = p.skillCooldowns[0] <= 0;
+
+  // Preserve proportional HP across weapon bonusHp swaps (prevents drop + pickup healing exploit)
+  const prevMaxHp = Math.max(1, p.maxHp);
   const targetMaxHp = rt.diffSettings.baseMaxHp + (p.bonusMaxHp || 0) + wDef.bonusHp;
-  const diff = targetMaxHp - p.maxHp;
-  p.maxHp = targetMaxHp;
-  if (diff > 0) {
-    p.hp = Math.min(p.maxHp, p.hp + diff);
-  } else {
-    p.hp = Math.min(p.maxHp, p.hp);
+  if (targetMaxHp !== prevMaxHp) {
+    const ratio = Math.max(0, Math.min(1, p.hp / prevMaxHp));
+    p.maxHp = targetMaxHp;
+    p.hp = p.state === 'alive' ? Math.max(1, Math.min(targetMaxHp, Math.round(ratio * targetMaxHp))) : 0;
   }
 
+  // Only grant passive tank shield if its recharge timer has finished (prevents shield reset exploit)
   if (weaponId === 'tank_shield') {
-    p.hasShield = true;
-    p.shieldRegenTimer = 26;
+    const ready = p.tankShieldReady !== false && p.shieldRegenTimer <= 0;
+    p.hasShield = ready || hasBoon(rt, 'aegis_core');
+    if (!ready && p.shieldRegenTimer <= 0) {
+      p.shieldRegenTimer = 26;
+    }
   } else {
-    p.shieldRegenTimer = 0;
+    p.hasShield = hasBoon(rt, 'aegis_core');
   }
 
   soundEngine.playBoonSelect();
@@ -2483,6 +2586,16 @@ export function dropEquippedWeapon(rt: GameRuntime, p: Player) {
   if (p.state !== 'alive' || p.weapon === 'none') return;
   const oldId = p.weapon;
   const wDef = WEAPONS_CATALOG.find((w) => w.id === oldId);
+
+  // Persist active cooldowns before unequipping so re-equipping keeps remaining timers
+  if (!p.weaponCooldowns) p.weaponCooldowns = {};
+  p.weaponCooldowns[oldId] = [
+    p.skillCooldowns[0] || 0,
+    p.skillCooldowns[1] || 0,
+    p.skillCooldowns[2] || 0,
+    p.skillCooldowns[3] || 0,
+  ];
+
   rt.weaponDrops.push({
     id: rt.nextUid++,
     weaponId: oldId,
@@ -2498,14 +2611,16 @@ export function dropEquippedWeapon(rt: GameRuntime, p: Player) {
   p.abilityCooldownTimer = 0;
   p.skillCooldowns = [0, 0, 0, 0];
   p.hasShield = false;
-  p.shieldRegenTimer = 0;
+  // Do NOT wipe p.shieldRegenTimer or p.tankShieldReady so broken shields cannot reset on drop
   p.frontShieldTimer = 0;
   p.fortifyTimer = 0;
   p.speed = 5.2 * (hasBoon(rt, 'twin_spark') ? 1.18 : 1.0);
   p.dashCooldown = 8.8 * (hasBoon(rt, 'phantom_step') ? 0.72 : 1.0);
+  const prevMaxHp = Math.max(1, p.maxHp);
   const baseMax = rt.diffSettings.baseMaxHp + (p.bonusMaxHp || 0);
+  const ratio = Math.max(0, Math.min(1, p.hp / prevMaxHp));
   p.maxHp = baseMax;
-  p.hp = Math.min(p.maxHp, p.hp);
+  p.hp = p.state === 'alive' ? Math.max(1, Math.min(baseMax, Math.round(ratio * baseMax))) : 0;
   soundEngine.playUiClick();
   addFloatingText(rt, p.x + p.size / 2, p.y - 16, `DROPPED ${wDef?.shortTag || 'WEAPON'}`, '#94a3b8', 1.05);
 }
@@ -3630,7 +3745,11 @@ export function transitionToStage(rt: GameRuntime, targetStage: StageKey) {
   }
 }
 
-function setupBossStage(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss') {
+function setupBossStage(
+  rt: GameRuntime,
+  stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss',
+  forcedVariantId?: BossVariantId
+) {
   rt.stage = stage;
   rt.isBossLevel = true;
   rt.arenaWidth = BOSS_ARENA_WIDTH;
@@ -3708,11 +3827,20 @@ function setupBossStage(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniB
   rt.bossHitCooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   const bx = Math.round(rt.arenaWidth / 2 - 58);
   const duoHpMult = getBossHpMult(rt);
+  const bossTypeForStage: BossType =
+    stage === 'mechaBoss' ? 'mecha' : stage === 'voidBoss' ? 'void' : stage === 'oniBoss' ? 'oni' : 'eclipse';
+  const stageVariants = BOSS_VARIANTS.filter((v) => v.bossType === bossTypeForStage);
+  const chosenVariant =
+    (forcedVariantId && stageVariants.find((v) => v.id === forcedVariantId)) ||
+    stageVariants[(rt.loopLevel + rt.bossesDefeatedCount + (rt.difficulty === 'hard' ? 1 : 0)) % Math.max(1, stageVariants.length)] ||
+    stageVariants[0];
+
   if (stage === 'mechaBoss') {
     rt.bossType = 'mecha';
     const hp = Math.round(rt.diffSettings.mechaHP * duoHpMult);
     rt.boss = {
       ...createEmptyBoss(),
+      variantId: chosenVariant?.id || 'mecha_bastion',
       x: bx,
       y: -260,
       targetX: bx,
@@ -3731,6 +3859,7 @@ function setupBossStage(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniB
     const hp = Math.round(rt.diffSettings.bossHP * duoHpMult);
     rt.boss = {
       ...createEmptyBoss(),
+      variantId: chosenVariant?.id || 'void_reaper',
       x: bx,
       y: 160,
       targetX: bx,
@@ -3751,6 +3880,7 @@ function setupBossStage(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniB
     const oniY = Math.round(rt.arenaHeight * 0.34);
     rt.boss = {
       ...createEmptyBoss(),
+      variantId: chosenVariant?.id || 'oni_shogun',
       x: bx,
       y: oniY,
       targetX: bx,
@@ -3770,6 +3900,7 @@ function setupBossStage(rt: GameRuntime, stage: 'mechaBoss' | 'voidBoss' | 'oniB
     const ecY = Math.round(rt.arenaHeight * 0.28);
     rt.boss = {
       ...createEmptyBoss(),
+      variantId: chosenVariant?.id || 'eclipse_bastion',
       x: bx - 8,
       y: ecY,
       targetX: bx - 8,
@@ -3920,6 +4051,10 @@ function damagePlayer(rt: GameRuntime, player: Player, rawDamage = 18) {
 
   if (player.hasShield) {
     player.hasShield = false;
+    if (player.weapon === 'tank_shield' || (!usesWeaponSystem(rt) && player.heroClass === 'vanguard')) {
+      player.tankShieldReady = false;
+      player.shieldRegenTimer = player.weapon === 'tank_shield' ? 26 : 24;
+    }
     player.invulnFrames = 1.0;
     rt.screenShake = Math.max(rt.screenShake, 10);
     soundEngine.playParry();
@@ -4434,6 +4569,14 @@ function purgeEnemyEffectsInRadius(
 
     // === ASSASSIN BLADES ===
     if (p.weapon === 'assassin_blades') {
+      if (
+        rt.isBossLevel &&
+        rt.boss.channelKind === 'emp_interrupt' &&
+        (rt.boss.channelTimer || 0) > 0 &&
+        Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 440
+      ) {
+        registerBossInterrupt(rt, p, 3);
+      }
       if (slot === 1) {
         soundEngine.playCloak();
         p.cloakTimer = 1.3;
@@ -5041,10 +5184,22 @@ function updatePracticeBot(rt: GameRuntime, bot: Player, dt: number) {
     const curAng = Math.atan2(bot.y - bcy, bot.x - bcx);
     targetX = bcx + Math.cos(curAng) * 420;
     targetY = bcy + Math.sin(curAng) * 420;
-  } else if (b.channelKind === 'overload_pylons' && b.channelNodes && b.channelNodes.length > 0) {
-    const pickIdx = b.channelNodes.length >= 2 ? (bot.id === 2 ? 0 : 1) : 0;
-    targetX = b.channelNodes[pickIdx].x;
-    targetY = b.channelNodes[pickIdx].y;
+  } else if (b.channelKind === 'bow_weakpoint') {
+    const awayAng = Math.atan2(bot.y + bot.size / 2 - bcy, bot.x + bot.size / 2 - bcx);
+    targetX = bcx + Math.cos(awayAng) * 280;
+    targetY = bcy + Math.sin(awayAng) * 280;
+  } else if (b.channelKind === 'emp_interrupt') {
+    if (bot.weapon === 'assassin_blades') {
+      targetX = bcx;
+      targetY = bcy + 95;
+      if (Math.hypot(bcx - (bot.x + bot.size / 2), bcy - (bot.y + bot.size / 2)) <= 260 && bot.skillCooldowns[0] <= 0) {
+        bot.skillCooldowns[0] = 4;
+        registerBossInterrupt(rt, bot, 3);
+      }
+    } else {
+      targetX = bcx + (bot.id === 2 ? -140 : 140);
+      targetY = bcy + 140;
+    }
   } else if (b.channelKind === 'abyss_tether' && b.channelTetherPair) {
     const [idA, idB] = b.channelTetherPair;
     if (bot.id === idA || bot.id === idB) {
@@ -5165,6 +5320,9 @@ function updatePlayer(
     p.abilityReady = true;
     p.abilityCooldownTimer = 0;
     p.skillCooldowns = [0, 0, 0, 0];
+    p.weaponCooldowns = {};
+    p.tankShieldReady = true;
+    p.shieldRegenTimer = 0;
   }
   if (rt.cheats.alwaysArmed) {
     p.hasKnife = true;
@@ -5176,16 +5334,21 @@ function updatePlayer(
     p.hp = Math.min(p.maxHp, p.hp + 25 * dt);
   }
 
-  // Vanguard / Tank Shield passive shield regen
+  // Vanguard / Tank Shield passive shield regen (keeps ticking even if unarmed/swapped)
   const hasShieldRegen = (!usesWeaponSystem(rt) && p.heroClass === 'vanguard') || p.weapon === 'tank_shield';
-  if (hasShieldRegen && !p.hasShield) {
+  if (!p.hasShield && p.shieldRegenTimer > 0) {
     p.shieldRegenTimer -= dt;
     if (p.shieldRegenTimer <= 0) {
-      p.hasShield = true;
-      p.shieldRegenTimer = 24;
-      soundEngine.playPowerup();
-      addFloatingText(rt, p.x + p.size / 2, p.y - 12, 'SHIELD RECHARGED', '#38bdf8', 0.95);
+      p.shieldRegenTimer = 0;
+      p.tankShieldReady = true;
+      if (hasShieldRegen) {
+        p.hasShield = true;
+        soundEngine.playPowerup();
+        addFloatingText(rt, p.x + p.size / 2, p.y - 12, 'SHIELD RECHARGED', '#38bdf8', 0.95);
+      }
     }
+  } else if (hasShieldRegen && !p.hasShield && p.shieldRegenTimer <= 0) {
+    p.shieldRegenTimer = p.weapon === 'tank_shield' ? 26 : 24;
   }
 
   const isVoidP2 = rt.bossType === 'void' && rt.isBossLevel && rt.boss.phase === 2;
@@ -5439,6 +5602,22 @@ function updatePlayer(
       p.skillCooldowns[sIdx] = Math.max(0, p.skillCooldowns[sIdx] - cdRate);
     }
   }
+  if (p.weaponCooldowns) {
+    for (const wKey of Object.keys(p.weaponCooldowns) as WeaponClassId[]) {
+      const cds = p.weaponCooldowns[wKey];
+      if (!cds) continue;
+      if (wKey === p.weapon) {
+        cds[0] = p.skillCooldowns[0];
+        cds[1] = p.skillCooldowns[1];
+        cds[2] = p.skillCooldowns[2];
+        cds[3] = p.skillCooldowns[3];
+      } else {
+        for (let i = 0; i < 4; i++) {
+          if (cds[i] > 0) cds[i] = Math.max(0, cds[i] - cdRate);
+        }
+      }
+    }
+  }
   p.abilityCooldownTimer = p.skillCooldowns[0];
   p.abilityReady = (!usesWeaponSystem(rt) || p.weapon !== 'none') && p.skillCooldowns[0] <= 0;
 
@@ -5452,7 +5631,8 @@ function handleBossHit(
   rt: GameRuntime,
   player: Player,
   consumeKnife = true,
-  bonusDamage = 0
+  bonusDamage = 0,
+  isBowAttack = false
 ): 'hit' | 'phase_transition' | 'dead' {
   const b = rt.boss;
   const cx = b.x + b.size / 2;
@@ -5466,9 +5646,26 @@ function handleBossHit(
   }
 
   const aliveCoopCount = rt.players.filter((pl) => pl.state === 'alive').length;
-  if ((b.channelKind === 'interrupt' || b.channelKind === 'hunter_mark') && (wasEmpowered || bonusDamage > 0 || aliveCoopCount <= 2)) {
+  if (
+    (b.channelKind === 'interrupt' || b.channelKind === 'hunter_mark' || b.channelKind === 'emp_interrupt') &&
+    (wasEmpowered || bonusDamage > 0 || aliveCoopCount <= 2)
+  ) {
     registerBossInterrupt(rt, player, 1);
   }
+  const bowCoreBonus = b.channelKind === 'bow_weakpoint' && isBowAttack;
+  if (b.channelKind === 'bow_weakpoint' && (b.channelTimer || 0) > 0) {
+    const coreStep = isBowAttack ? 1 : bonusDamage > 0 ? 1 : 0;
+    if (coreStep > 0) {
+      b.channelHits = Math.min(b.channelHitsNeeded || 4, (b.channelHits || 0) + coreStep);
+      if ((b.channelHits || 0) >= (b.channelHitsNeeded || 4)) {
+        b.channelKind = null;
+        b.channelTimer = 0;
+        b.channelLabel = '';
+        triggerBossExposedWindow(rt, 'AERIAL CORE SHATTERED — 2X STAGGER!');
+      }
+    }
+  }
+
   const bothAliveCoop = rt.numPlayers >= 2 && aliveCoopCount >= 2;
   let crossDetonated = false;
   if (rt.bossType === 'eclipse' && bothAliveCoop) {
@@ -5492,6 +5689,9 @@ function handleBossHit(
   }
 
   let dmg = isWeakened ? baseDmg * 2 : baseDmg;
+  if (bowCoreBonus) {
+    dmg *= 3;
+  }
   if (rt.cheats.oneHitKill) {
     dmg = Math.max(dmg, b.health);
   }
@@ -5519,6 +5719,9 @@ function handleBossHit(
     rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 420, alpha: 0.95, speed: 460, color: '#fbbf24' });
     rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 360, alpha: 0.9, speed: 390, color: '#38bdf8' });
     addFloatingText(rt, cx, cy - 52, `TWIN ECLIPSE FINISHER! -${dmg}`, '#fde047', 1.3);
+  } else if (bowCoreBonus) {
+    soundEngine.playBossDamaged();
+    addFloatingText(rt, cx + (Math.random() - 0.5) * 30, cy - 30, `BOW CORE 3X! -${dmg}`, '#34d399', 1.32);
   } else if (isWeakened) {
     soundEngine.playBossDamaged();
     addFloatingText(rt, cx + (Math.random() - 0.5) * 30, cy - 28, `WEAKENED 2X! -${dmg}`, '#22d3ee', 1.3);
@@ -5731,7 +5934,8 @@ function triggerBossVoice(rt: GameRuntime, pattern: string) {
     spirit_bomb: ['Cursed spirits, hunt!', 'Devour them!'],
     cursed_zone: ['Bleed on consecrated ground!', 'Blood sigils!'],
     soul_seal_combo: ['Your soul is bound!', 'Kneel!'],
-    twin_beacons: ['Unite Solar and Lunar seals!', 'Prove your bond!'],
+    bow_weakpoint: ['Aim true—or feel the core surge!', 'Core exposed! Keep your distance!'],
+    emp_interrupt: ['Arena EMP charging—silence me or fall!', 'Unblockable surge! Interrupt it now!'],
     eclipse_tether: ['Share one sanctuary, or burn!', 'Eclipse Judgment!'],
     twin_pylons: ['Shatter both pillars in unison!', 'One dies, the other rises!'],
     eclipse_prison: ['Save your ally before the light falls!', 'Astral Stasis!'],
@@ -7447,7 +7651,6 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
 
         const coopPoolP1 = [
           'eclipse_prison',
-          'twin_beacons',
           'eclipse_prism_beam',
           'eclipse_tether',
           'twin_pylons',
@@ -7458,7 +7661,6 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
         const coopPoolP2 = [
           'eclipse_prism_beam',
           'eclipse_prison',
-          'twin_beacons',
           'eclipse_tether',
           'twin_pylons',
           'eclipse_convergence',
@@ -7476,7 +7678,6 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
         b.attackPattern = nextPattern;
 
         const labelMap: Record<string, string> = {
-          twin_beacons: 'CO-OP: SOLAR & LUNAR SEALS',
           eclipse_tether: 'CO-OP: SOUL-LINK SANCTUARY',
           twin_pylons: bothAliveCoop ? 'CO-OP: POLARITY ECLIPSE PYLONS' : 'ECLIPSE PYLON RITUAL',
           eclipse_prison: 'CO-OP: ASTRAL STASIS RESCUE',
@@ -7539,21 +7740,7 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
         b.state = 'attacking';
         b.attackTimer = 0;
 
-        if (b.attackPattern === 'twin_beacons') {
-          if (!bothAliveCoop) {
-            b.attackPattern = 'solar_lunar_nova';
-            b.stateTimer = isP2 ? 2.8 : 3.2;
-          } else {
-            b.stateTimer = 6.5;
-            rt.eclipseSyncTimer = 0;
-            const yPos = Math.round(rt.arenaHeight * 0.65);
-            rt.eclipseBeacons = [
-              { x: 260, y: yPos, radius: 76, role: 'solar', ownerId: 1, active: true, occupied: false },
-              { x: rt.arenaWidth - 260, y: yPos, radius: 76, role: 'lunar', ownerId: 2, active: true, occupied: false },
-            ];
-            showPhaseAnnounce(rt, 'CHANNEL SOLAR & LUNAR SEALS TOGETHER!', '#fbbf24', 2.4);
-          }
-        } else if (b.attackPattern === 'eclipse_tether') {
+        if (b.attackPattern === 'eclipse_tether') {
           if (!bothAliveCoop) {
             b.attackPattern = 'eclipse_cross_sweep';
             b.stateTimer = isP2 ? 2.7 : 3.1;
@@ -7623,70 +7810,7 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
       const { spd: diffSpd, pace: diffPace } = getDiffScale(rt);
       const spd = (isP2 ? 1.24 : 1.02) * (isNightmare ? 1.18 : diffSpd);
 
-      if (b.attackPattern === 'twin_beacons') {
-        if (!bothAliveCoop) {
-          rt.eclipseBeacons = [];
-          b.state = 'idle';
-          b.stateTimer = 0.7;
-          b.attackLabel = '';
-          return;
-        }
-        const b1 = rt.eclipseBeacons[0];
-        const b2 = rt.eclipseBeacons[1];
-        if (b1 && b2) {
-          b1.occupied = aliveCoopPlayers.some(
-            (pl) => Math.hypot(pl.x + pl.size / 2 - b1.x, pl.y + pl.size / 2 - b1.y) <= b1.radius
-          );
-          b2.occupied = aliveCoopPlayers.some(
-            (pl) => Math.hypot(pl.x + pl.size / 2 - b2.x, pl.y + pl.size / 2 - b2.y) <= b2.radius
-          );
-          if (b1.occupied && b2.occupied) {
-            rt.eclipseSyncTimer += dt;
-            if (rt.eclipseSyncTimer >= 0.65) {
-              rt.eclipseBeacons = [];
-              rt.eclipseSyncTimer = 0;
-              rt.energyWaves.push({ x: b1.x, y: b1.y, radius: 10, maxRadius: 420, alpha: 0.9, speed: 340, color: '#fbbf24' });
-              rt.energyWaves.push({ x: b2.x, y: b2.y, radius: 10, maxRadius: 420, alpha: 0.9, speed: 340, color: '#38bdf8' });
-              grantCoopResonance(rt, 'SOUL RESONANCE — EXPOSED!', '#fde047');
-              triggerBossExposedWindow(rt, 'SOUL RESONANCE — 2X DAMAGE!');
-              return;
-            }
-          } else {
-            rt.eclipseSyncTimer = Math.max(0, rt.eclipseSyncTimer - dt * 0.6);
-          }
-        }
-
-        const iv = isNightmare ? 0.62 : 0.85 / diffPace;
-        if (Math.floor(b.attackTimer / iv) > Math.floor((b.attackTimer - dt) / iv)) {
-          const orbCount = isNightmare ? 14 : 10;
-          for (let i = 0; i < orbCount; i++) {
-            const ang = (i / orbCount) * Math.PI * 2 + b.attackTimer * 0.45;
-            pushBossProj(rt, {
-              uid: rt.nextUid++,
-              x: cx,
-              y: cy,
-              dx: Math.cos(ang) * 4.0 * spd,
-              dy: Math.sin(ang) * 4.0 * spd,
-              size: 14,
-              speed: 1,
-              color: i % 2 === 0 ? '#fbbf24' : '#38bdf8',
-              damage: 14,
-              shape: 'orb',
-            });
-          }
-          soundEngine.playBossAttackExecuteSfx('eclipse_nova');
-        }
-
-        if (b.stateTimer <= 0) {
-          triggerCoopPunishment(
-            rt,
-            'SEALS FAILED — ECLIPSE JUDGMENT UNLEASHED!',
-            aliveCoopPlayers,
-            isNightmare ? 26 : 20
-          );
-          return;
-        }
-      } else if (b.attackPattern === 'eclipse_tether') {
+      if (b.attackPattern === 'eclipse_tether') {
         rt.eclipseTetherTimer = Math.max(0, rt.eclipseTetherTimer - dt);
         const iv = isNightmare ? 0.68 : 0.95;
         if (Math.floor(b.attackTimer / iv) > Math.floor((b.attackTimer - dt) / iv)) {
@@ -8165,7 +8289,6 @@ function updateEclipseBoss(rt: GameRuntime, dt: number) {
       }
 
       const selfTimed =
-        b.attackPattern === 'twin_beacons' ||
         b.attackPattern === 'eclipse_tether' ||
         b.attackPattern === 'twin_pylons' ||
         b.attackPattern === 'eclipse_prison' ||
@@ -8336,7 +8459,6 @@ function updateCamera(rt: GameRuntime, dt: number) {
       activePattern === 'orbital_crosshair' ||
       activePattern === 'clone' ||
       activePattern === 'shrine_shatter' ||
-      activePattern === 'twin_beacons' ||
       activePattern === 'twin_pylons' ||
       activePattern === 'eclipse_tether' ||
       activePattern === 'celestial_guillotine' ||
@@ -8794,9 +8916,9 @@ export function stepGame(
           const bcy = rt.boss.y + rt.boss.size / 2;
           if (Math.hypot(bcx - z.x, bcy - z.y) <= z.radius + rt.boss.size / 2 && rt.bossHitCooldowns[z.ownerId] <= 0) {
             const owner = rt.players.find((pl) => pl.id === z.ownerId) || rt.players[0];
-            handleBossHit(rt, owner, false);
+            handleBossHit(rt, owner, false, 0, true);
             registerBossInterrupt(rt, owner, 1);
-            rt.bossHitCooldowns[z.ownerId] = 0.8;
+            rt.bossHitCooldowns[z.ownerId] = rt.boss.channelKind === 'bow_weakpoint' ? 0.5 : 0.8;
           }
         }
       }
@@ -8909,14 +9031,15 @@ export function stepGame(
       const bcy = rt.boss.y + rt.boss.size / 2;
       if (Math.hypot(bcx - pp.x, bcy - pp.y) < rt.boss.size / 2 + pp.radius) {
         const owner = rt.players.find((pl) => pl.id === pp.ownerId) || rt.players[0];
-        if ((rt.bossProjBurstCooldowns[pp.ownerId] || 0) <= 0) {
-          handleBossHit(rt, owner, false, Math.max(0, (pp.bossDamage || 1) - 1));
+        const isBowShot = pp.kind === 'ranger_arrow' || pp.kind === 'sniper_arrow';
+        if ((rt.bossProjBurstCooldowns[pp.ownerId] || 0) <= 0 || (rt.boss.channelKind === 'bow_weakpoint' && isBowShot)) {
+          handleBossHit(rt, owner, false, Math.max(0, (pp.bossDamage || 1) - 1), isBowShot);
           registerBossInterrupt(
             rt,
             owner,
             pp.kind === 'shadow_kunai' || pp.kind === 'sniper_arrow' || pp.kind === 'cataclysm' ? 2 : 1
           );
-          rt.bossProjBurstCooldowns[pp.ownerId] = 0.38;
+          rt.bossProjBurstCooldowns[pp.ownerId] = rt.boss.channelKind === 'bow_weakpoint' && isBowShot ? 0.18 : 0.38;
         }
         pp.pierce = 0;
       }
@@ -10258,12 +10381,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     if (rt.boss.state === 'weakened' && rt.eclipseMarkedBy) {
       coopPrompt = `CO-OP COMBO: ALLY STRIKE NOW TO DETONATE TWIN ECLIPSE FINISHER!`;
     } else if (rt.boss.state === 'attacking') {
-      if (rt.boss.attackPattern === 'twin_beacons' && rt.eclipseBeacons.length === 2) {
-        coopPrompt =
-          rt.eclipseSyncTimer > 0
-            ? `RESONANCE LOCKING... ${Math.round((rt.eclipseSyncTimer / 0.65) * 100)}%`
-            : 'CO-OP: STAND ON BOTH SOLAR (GOLD) & LUNAR (CYAN) SEALS TOGETHER!';
-      } else if (rt.boss.attackPattern === 'eclipse_tether') {
+      if (rt.boss.attackPattern === 'eclipse_tether') {
         coopPrompt = rt.eclipseSanctuaryActive
           ? `SANCTUARY LINK ACTIVE! BLOCKING ORBS (${rt.eclipseTetherTimer.toFixed(1)}s)`
           : `CO-OP: GROUP UP TO FORGE SANCTUARY BARRIER! (${rt.eclipseTetherTimer.toFixed(1)}s)`;
@@ -10342,6 +10460,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     scrollBag: pl.scrollBag.map((s) => ({ ...s })),
     potions: pl.potions,
     potionCooldown: Math.ceil(pl.potionCooldownTimer),
+    potionCooldownExact: Math.round((pl.potionCooldownTimer || 0) * 10) / 10,
     coins: pl.coins,
     color: pl.color,
     hp: Math.round(pl.hp),
@@ -10350,6 +10469,8 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     state: pl.state,
     dashReady: pl.dashReady,
     dashCooldown: Math.ceil(pl.dashCooldownTimer),
+    dashCooldownExact: Math.round((pl.dashCooldownTimer || 0) * 10) / 10,
+    dashMaxCooldown: pl.dashCooldown || 8.8,
     dash2Active: pl.dash2Active,
     dash2Ready: pl.dash2Ready,
     dash2Cooldown: Math.ceil(pl.dash2CooldownTimer),
@@ -10367,6 +10488,12 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
       Math.ceil(pl.skillCooldowns[1] || 0),
       Math.ceil(pl.skillCooldowns[2] || 0),
       Math.ceil(pl.skillCooldowns[3] || 0),
+    ],
+    skillCooldownsExact: [
+      Math.round((pl.skillCooldowns[0] || 0) * 10) / 10,
+      Math.round((pl.skillCooldowns[1] || 0) * 10) / 10,
+      Math.round((pl.skillCooldowns[2] || 0) * 10) / 10,
+      Math.round((pl.skillCooldowns[3] || 0) * 10) / 10,
     ],
     skillMaxCooldowns: [
       pl.skillMaxCooldowns[0] || 12,
@@ -10465,7 +10592,14 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     comboP2: rt.playerCombos[2]?.count || 0,
     isBossLevel: rt.isBossLevel,
     bossType: rt.bossType,
-    bossName,
+    bossVariantId: rt.boss.variantId,
+    bossVariantName: rt.isBossLevel ? getBossVariantDef(rt.bossType, rt.boss.variantId).shortName : undefined,
+    bossSuggestedWeapons: rt.isBossLevel ? getBossVariantDef(rt.bossType, rt.boss.variantId).suggestedWeapons : undefined,
+    bossSuggestionText: rt.isBossLevel ? getBossVariantDef(rt.bossType, rt.boss.variantId).mechanicSummary : undefined,
+    bossHardshipNote: rt.isBossLevel ? getBossVariantDef(rt.bossType, rt.boss.variantId).hardshipNote : undefined,
+    bossName: rt.isBossLevel
+      ? `${getBossVariantDef(rt.bossType, rt.boss.variantId).name}${rt.boss.phase === 2 ? ' [P2]' : ''}`
+      : bossName,
     bossAttackLabel: rt.boss.attackLabel,
     bossVoiceLine: rt.bossVoiceLine,
     bossHealth: rt.boss.health,

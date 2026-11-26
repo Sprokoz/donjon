@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen, Sliders, RotateCcw, Trash2, Sparkles, UserX } from 'lucide-react';
+import { Swords, Trophy, Users, User, Flame, Shield, Zap, ChevronRight, ArrowLeft, Crosshair, BookOpen, Skull, Maximize2, Minimize2, Volume2, VolumeX, Globe, Copy, Check, Link2, RefreshCw, Wifi, CheckCircle2, Clock, Compass, PackageOpen, Sliders, RotateCcw, Trash2, Sparkles, UserX, Lightbulb, Eye, EyeOff, Smartphone } from 'lucide-react';
 import {
   COLOR_OPTIONS,
   ColorOption,
@@ -22,6 +22,7 @@ import {
   OnlineConnectionStatus,
   sanitizeRoomCode,
 } from '../game/onlineSync';
+import { PublicRoomInfo } from '../game/roomDirectory';
 
 interface TitleMenuProps {
   difficulty: DifficultyKey;
@@ -33,6 +34,7 @@ interface TitleMenuProps {
   onOpenCheats: () => void;
   onOpenSettings?: () => void;
   onOpenUpdates?: () => void;
+  onOpenSuggestions?: () => void;
   onBackToSplash?: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
@@ -40,6 +42,8 @@ interface TitleMenuProps {
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  mobileMode?: boolean;
+  onToggleMobileMode?: () => void;
   leaderboard: LeaderboardEntry[];
 }
 
@@ -53,6 +57,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenCheats,
   onOpenSettings,
   onOpenUpdates,
+  onOpenSuggestions,
   onBackToSplash,
   anyCheatActive,
   isMuted,
@@ -60,6 +65,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
+  mobileMode = false,
+  onToggleMobileMode,
   leaderboard,
 }) => {
   const embers = useMemo(
@@ -168,6 +175,40 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-300" />
                 <span className="hidden sm:inline">New Updates</span>
+              </button>
+            )}
+            {onOpenSuggestions && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenSuggestions();
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors bg-amber-950/55 border-amber-500/70 text-amber-200 hover:bg-amber-900/65"
+                title="View Developer Suggestions (Password Protected)"
+              >
+                <Lightbulb className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">Suggestions</span>
+              </button>
+            )}
+            {onToggleMobileMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onToggleMobileMode();
+                }}
+                className={`min-h-[40px] px-3 py-1.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  mobileMode
+                    ? 'bg-emerald-950/70 border-emerald-400 text-emerald-200'
+                    : 'bg-[#09090e]/90 border-slate-700 text-stone-300 hover:border-amber-500/70'
+                }`}
+                title="Toggle Mobile Touch Controls & Floating Joystick"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{mobileMode ? 'Mobile: ON' : 'Mobile: OFF'}</span>
               </button>
             )}
             {onOpenSettings && (
@@ -489,7 +530,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
         {/* Version Footer */}
         <footer className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-900/90 font-mono-num text-[11px] text-slate-500">
           <span>DUNGEON BOUNCER · BY SPROKOZ</span>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {onOpenUpdates && (
               <button
                 type="button"
@@ -504,8 +545,22 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
                 <span>New Updates</span>
               </button>
             )}
+            {onOpenSuggestions && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenSuggestions();
+                }}
+                className="px-2.5 py-1 rounded bg-amber-950/55 hover:bg-amber-900/65 border border-amber-500/60 text-amber-200 font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+              >
+                <Lightbulb className="w-3 h-3 text-amber-300" />
+                <span>Suggestions</span>
+              </button>
+            )}
             <span className="text-amber-400/85 font-semibold tracking-wider uppercase">
-              beta test 0.1.2
+              beta test 0.1.5
             </span>
           </div>
         </footer>
@@ -544,6 +599,11 @@ interface HeroSetupProps {
   pingByPlayer: Record<number, number | null>;
   onHostCreateRoom: () => void;
   onGuestJoinRoom: () => void;
+  onJoinListedRoom?: (code: string) => void;
+  publicRooms?: PublicRoomInfo[];
+  onRefreshRooms?: () => void;
+  isPublicRoom?: boolean;
+  onTogglePublicRoom?: () => void;
   onDisconnectOnline: () => void;
   onKickPlayer?: (playerId: PlayerId) => void;
   difficulty: DifficultyKey;
@@ -587,6 +647,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   pingByPlayer,
   onHostCreateRoom,
   onGuestJoinRoom,
+  onJoinListedRoom,
+  publicRooms = [],
+  onRefreshRooms,
+  isPublicRoom = true,
+  onTogglePublicRoom,
   onDisconnectOnline,
   onKickPlayer,
   difficulty,
@@ -940,6 +1005,24 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       <span>{optimizeConnection ? 'Low-Ping: ON' : 'Optimize Ping'}</span>
                     </button>
                   )}
+                  {onTogglePublicRoom && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onTogglePublicRoom();
+                      }}
+                      className={`px-3 py-2 rounded border text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                        isPublicRoom
+                          ? 'bg-emerald-950/70 border-emerald-500/75 text-emerald-200 hover:bg-emerald-900/65'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-400'
+                      }`}
+                      title="List or hide your room in the Lobby Active Rooms browser"
+                    >
+                      {isPublicRoom ? <Eye className="w-3.5 h-3.5 text-emerald-300" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      <span>{isPublicRoom ? 'Room Listed' : 'Room Private'}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -954,62 +1037,146 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                <input
-                  type="text"
-                  value={joinInput}
-                  onChange={(e) => onChangeJoinInput(sanitizeRoomCode(e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && joinInput.length >= 4 && !isOnlineConnected) {
-                      soundEngine.playUiClick();
-                      onGuestJoinRoom();
-                    }
-                  }}
-                  placeholder="ROOM CODE"
-                  maxLength={8}
-                  disabled={isOnlineConnected}
-                  className="w-40 px-3 py-2 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-arcade text-sm tracking-[0.2em] text-cyan-200 uppercase text-center disabled:opacity-70"
-                />
-                {!isOnlineConnected ? (
-                  <button
-                    type="button"
-                    disabled={joinInput.length < 4 || onlineStatus === 'connecting'}
-                    onClick={() => {
-                      soundEngine.playUiClick();
-                      onGuestJoinRoom();
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <input
+                    type="text"
+                    value={joinInput}
+                    onChange={(e) => onChangeJoinInput(sanitizeRoomCode(e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && joinInput.length >= 4 && !isOnlineConnected) {
+                        soundEngine.playUiClick();
+                        onGuestJoinRoom();
+                      }
                     }}
-                    className="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
-                  >
-                    {onlineStatus === 'connecting' ? 'Connecting...' : 'Connect'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playUiClick();
-                      onDisconnectOnline();
-                    }}
-                    className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
-                  >
-                    Leave Room
-                  </button>
-                )}
-                {onToggleOptimizeConnection && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playUiClick();
-                      onToggleOptimizeConnection();
-                    }}
-                    className={`px-3 py-2 rounded border text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
-                      optimizeConnection
-                        ? 'bg-emerald-600 border-emerald-400 text-white'
-                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-emerald-300'
-                    }`}
-                  >
-                    <Wifi className="w-3.5 h-3.5" />
-                    <span>{optimizeConnection ? 'Low-Ping: ON' : 'Optimize Ping'}</span>
-                  </button>
+                    placeholder="ROOM CODE"
+                    maxLength={8}
+                    disabled={isOnlineConnected}
+                    className="w-40 px-3 py-2 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-arcade text-sm tracking-[0.2em] text-cyan-200 uppercase text-center disabled:opacity-70"
+                  />
+                  {!isOnlineConnected ? (
+                    <button
+                      type="button"
+                      disabled={joinInput.length < 4 || onlineStatus === 'connecting'}
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onGuestJoinRoom();
+                      }}
+                      className="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                    >
+                      {onlineStatus === 'connecting' ? 'Connecting...' : 'Connect'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onDisconnectOnline();
+                      }}
+                      className="px-4 py-2 rounded bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-600/70 text-slate-300 hover:text-red-200 text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                    >
+                      Leave Room
+                    </button>
+                  )}
+                  {onToggleOptimizeConnection && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onToggleOptimizeConnection();
+                      }}
+                      className={`px-3 py-2 rounded border text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors ${
+                        optimizeConnection
+                          ? 'bg-emerald-600 border-emerald-400 text-white'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-emerald-300'
+                      }`}
+                    >
+                      <Wifi className="w-3.5 h-3.5" />
+                      <span>{optimizeConnection ? 'Low-Ping: ON' : 'Optimize Ping'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Live Active Rooms List */}
+                {!isOnlineConnected && (
+                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono-num text-[11px] font-bold text-cyan-300 tracking-wider">
+                        ACTIVE ROOMS ({publicRooms.length})
+                      </span>
+                      {onRefreshRooms && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playUiClick();
+                            onRefreshRooms();
+                          }}
+                          className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-mono-num text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Refresh</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {publicRooms.length === 0 ? (
+                      <div className="rounded border border-dashed border-slate-800 bg-slate-950/50 px-3 py-3 text-center font-mono-num text-[11px] text-slate-500">
+                        No open host rooms detected yet. Host a room or enter a Room Code above.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[210px] overflow-y-auto pr-0.5">
+                        {publicRooms.map((rm) => {
+                          const isFull = rm.playersCount >= rm.maxPlayers;
+                          const diffLabel = DIFFICULTY_SETTINGS[rm.difficulty]?.label || rm.difficulty;
+                          const modeLabel =
+                            rm.mode === 'boss_rush'
+                              ? 'Boss Rush'
+                              : rm.mode === 'teamwork_practice'
+                              ? 'Practice'
+                              : 'Campaign';
+                          return (
+                            <div
+                              key={rm.code}
+                              className="rounded border border-slate-800 bg-slate-950/75 hover:border-cyan-500/60 px-3 py-2 flex items-center justify-between gap-2.5 transition-colors"
+                            >
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono-num text-xs font-extrabold text-white truncate">
+                                    {rm.hostName || 'Host'}
+                                  </span>
+                                  <span className="font-mono-num text-[10px] font-bold text-cyan-300 tracking-wider">
+                                    {rm.code}
+                                  </span>
+                                </div>
+                                <div className="font-mono-num text-[10px] text-slate-400 truncate">
+                                  {modeLabel} · {diffLabel} · {rm.playersCount}/{rm.maxPlayers}P ·{' '}
+                                  <span className={rm.inGame ? 'text-amber-300' : 'text-emerald-300'}>
+                                    {rm.inGame ? 'In Dungeon' : 'In Lobby'}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isFull || onlineStatus === 'connecting'}
+                                onClick={() => {
+                                  soundEngine.playUiClick();
+                                  onChangeJoinInput(rm.code);
+                                  onJoinListedRoom?.(rm.code);
+                                }}
+                                className={`px-3 py-1.5 rounded border font-mono-num text-[11px] font-bold shrink-0 transition-colors ${
+                                  isFull
+                                    ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
+                                    : 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400/80 text-white cursor-pointer'
+                                }`}
+                              >
+                                {isFull ? 'FULL' : 'Join'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -1606,7 +1773,7 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
               soundEngine.playBoonSelect();
               onStart();
             }}
-            className="w-full py-4 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)] whitespace-nowrap"
+            className="w-full py-3.5 px-3 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none text-white font-arcade text-xs sm:text-sm tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_0_24px_rgba(220,38,38,0.35)] text-center leading-snug"
           >
             {isOnline && !isMultiOnline && connectedCount < 2
               ? 'WAITING FOR PARTNER TO JOIN...'

@@ -12,8 +12,10 @@ import {
   PauseModal,
   ShopNpcModal,
   StageTransitionModal,
+  SuggestionsModal,
   UpdatesModal,
 } from './components/Modals';
+import { PublicRoomInfo, RoomDirectoryClient } from './game/roomDirectory';
 import { HeroSetup, TitleMenu } from './components/TitleFlow';
 import { LandingSplash, SprokozIntro } from './components/IntroSequence';
 import { TutorialModal } from './components/TutorialModal';
@@ -76,6 +78,7 @@ import { SfxSyncEvent, soundEngine } from './game/soundEngine';
 import {
   AppScreen,
   BoonDef,
+  BossVariantId,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
   CheatsConfig,
@@ -103,6 +106,19 @@ const PLAYER_NAME_STORAGE_KEY = 'dungeon_bouncer_player_name_v1';
 const P2_NAME_STORAGE_KEY = 'dungeon_bouncer_p2_name_v1';
 const NET_OPT_STORAGE_KEY = 'dungeon_bouncer_net_opt_v1';
 const HUD_SETTINGS_STORAGE_KEY = 'dungeon_bouncer_hud_settings_v1';
+const MOBILE_MODE_STORAGE_KEY = 'dungeon_bouncer_mobile_mode_v1';
+
+function loadSavedMobileMode(): boolean {
+  try {
+    const raw = localStorage.getItem(MOBILE_MODE_STORAGE_KEY);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+  } catch {
+    // ignore
+  }
+  if (typeof window === 'undefined') return false;
+  return Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+}
 
 function loadSavedName(key: string, fallback: string): string {
   try {
@@ -244,6 +260,10 @@ export default function App() {
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showShopModal, setShowShopModal] = useState(false);
   const [showUpdatesModal, setShowUpdatesModal] = useState(false);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [publicRooms, setPublicRooms] = useState<PublicRoomInfo[]>([]);
+  const [isPublicRoom, setIsPublicRoom] = useState(true);
+  const roomDirectoryRef = useRef<RoomDirectoryClient | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [musicVol, setMusicVol] = useState(0.65);
   const [sfxVol, setSfxVol] = useState(0.8);
@@ -261,10 +281,19 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenNote, setFullscreenNote] = useState<string | null>(null);
   const [menuAudioBlocked, setMenuAudioBlocked] = useState(false);
-  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return Boolean(window.matchMedia?.('(pointer: coarse)').matches);
-  });
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(loadSavedMobileMode);
+
+  const handleToggleTouchControls = useCallback(() => {
+    setShowTouchControls((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(MOBILE_MODE_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   const numPlayers: number =
     coopMode === 'solo'
@@ -285,6 +314,9 @@ export default function App() {
   const guestSnapSeqRef = useRef<number>(0);
   const guestAppliedSeqRef = useRef<number>(0);
   const remoteInputsRef = useRef<Record<number, TouchInputState>>({});
+  const remoteActionLatchRef = useRef<
+    Record<number, { dash?: boolean; ability?: boolean; skill2?: boolean; skill3?: boolean; skill4?: boolean; usePotion?: boolean }>
+  >({});
   const pendingSfxRef = useRef<SfxSyncEvent[]>([]);
 
   const keysRef = useRef<Record<string, boolean>>({});
@@ -564,6 +596,9 @@ export default function App() {
     if (onlineSessionRef.current) {
       onlineSessionRef.current.destroy();
       onlineSessionRef.current = null;
+    }
+    if (!preserveMidRun && roomCodeRef.current) {
+      roomDirectoryRef.current?.unpublishRoom(roomCodeRef.current);
     }
     soundEngine.setSfxBroadcastHook(null);
     pendingSfxRef.current = [];
@@ -1132,6 +1167,15 @@ export default function App() {
         setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
         broadcastHostLobbyState(nextGuests);
       } else if (msg.type === 'input') {
+        const prev = remoteInputsRef.current[fromPlayerId];
+        const latch = remoteActionLatchRef.current[fromPlayerId] || {};
+        if (msg.input.dash && !prev?.dash) latch.dash = true;
+        if (msg.input.ability && !prev?.ability) latch.ability = true;
+        if (msg.input.skill2 && !prev?.skill2) latch.skill2 = true;
+        if (msg.input.skill3 && !prev?.skill3) latch.skill3 = true;
+        if (msg.input.skill4 && !prev?.skill4) latch.skill4 = true;
+        if (msg.input.usePotion && !prev?.usePotion) latch.usePotion = true;
+        remoteActionLatchRef.current[fromPlayerId] = latch;
         remoteInputsRef.current[fromPlayerId] = msg.input;
       } else if (msg.type === 'cast_vote') {
         const rt = runtimeRef.current;
@@ -1204,7 +1248,7 @@ export default function App() {
         } else if (msg.action === 'switch_practice_boss') {
           const rt = runtimeRef.current;
           if (rt && fromPlayerId === 1) {
-            switchPracticeBoss(rt, msg.stage);
+            switchPracticeBoss(rt, msg.stage, msg.variantId);
             setHud(extractHudSnapshot(rt));
           }
         } else if (msg.action === 'pause') {
@@ -1489,6 +1533,7 @@ export default function App() {
 
           if (disconnectedPlayerId !== undefined) {
             delete remoteInputsRef.current[disconnectedPlayerId];
+            delete remoteActionLatchRef.current[disconnectedPlayerId];
             if (screenRef.current === 'HERO_SETUP' || screenRef.current === 'TITLE_MENU') {
               const nextGuests = { ...guestConfigsRef.current };
               delete nextGuests[disconnectedPlayerId];
@@ -1658,6 +1703,74 @@ export default function App() {
     mode,
     broadcastHostLobbyState,
     sendGuestConfig,
+  ]);
+
+  // Live Active Rooms directory lifecycle (runs while browsing lobby or hosting online room)
+  const directoryActive =
+    coopMode === 'online' &&
+    (screen === 'HERO_SETUP' || (onlineLobbyRole === 'host' && Boolean(roomCode)));
+
+  useEffect(() => {
+    if (!directoryActive) {
+      if (roomDirectoryRef.current) {
+        roomDirectoryRef.current.destroy();
+        roomDirectoryRef.current = null;
+      }
+      setPublicRooms([]);
+      return;
+    }
+    if (!roomDirectoryRef.current) {
+      roomDirectoryRef.current = new RoomDirectoryClient((rooms) => {
+        setPublicRooms(rooms);
+      });
+    }
+  }, [directoryActive]);
+
+  useEffect(() => {
+    return () => {
+      roomDirectoryRef.current?.destroy();
+      roomDirectoryRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const dir = roomDirectoryRef.current;
+    if (!dir) return;
+    const isHostActive =
+      coopMode === 'online' &&
+      onlineLobbyRole === 'host' &&
+      Boolean(roomCode) &&
+      isPublicRoom &&
+      onlineStatus !== 'error' &&
+      screen !== 'LANDING' &&
+      screen !== 'INTRO' &&
+      screen !== 'TITLE_MENU';
+    if (isHostActive) {
+      const maxPlayers = mode === 'campaign' || mode === 'teamwork_practice' ? 5 : 2;
+      dir.publishRoom({
+        code: roomCode,
+        hostName: localPlayerName || 'Host',
+        mode,
+        difficulty,
+        playersCount: 1 + connectedGuestIds.length,
+        maxPlayers,
+        inGame: screen !== 'HERO_SETUP',
+      });
+    } else if (roomCode) {
+      dir.unpublishRoom(roomCode);
+    }
+  }, [
+    directoryActive,
+    screen,
+    coopMode,
+    onlineLobbyRole,
+    roomCode,
+    isPublicRoom,
+    onlineStatus,
+    localPlayerName,
+    mode,
+    difficulty,
+    connectedGuestIds.length,
   ]);
 
   const handleSelectCoopMode = useCallback(
@@ -1879,7 +1992,15 @@ export default function App() {
             : readLocalGuestInput(keysRef.current, controlsRef.current, touchInputRef.current);
 
         if (screenRef.current === 'PLAYING') {
+          const actionRising =
+            (curInput.dash && !lastSentGuestInput.dash) ||
+            (curInput.ability && !lastSentGuestInput.ability) ||
+            (Boolean(curInput.skill2) && !Boolean(lastSentGuestInput.skill2)) ||
+            (Boolean(curInput.skill3) && !Boolean(lastSentGuestInput.skill3)) ||
+            (Boolean(curInput.skill4) && !Boolean(lastSentGuestInput.skill4)) ||
+            (Boolean(curInput.usePotion) && !Boolean(lastSentGuestInput.usePotion));
           const changed =
+            actionRising ||
             Math.abs(curInput.x - lastSentGuestInput.x) > 0.02 ||
             Math.abs(curInput.y - lastSentGuestInput.y) > 0.02 ||
             curInput.dash !== lastSentGuestInput.dash ||
@@ -1889,10 +2010,10 @@ export default function App() {
             Boolean(curInput.skill4) !== Boolean(lastSentGuestInput.skill4) ||
             Boolean(curInput.usePotion) !== Boolean(lastSentGuestInput.usePotion);
           guestInputHeartbeatAccum += dt;
-          if (changed || guestInputHeartbeatAccum >= 0.15) {
+          if (changed || guestInputHeartbeatAccum >= 0.12) {
             guestInputHeartbeatAccum = 0;
             lastSentGuestInput = curInput;
-            onlineSessionRef.current?.send({ type: 'input', input: curInput });
+            onlineSessionRef.current?.send({ type: 'input', input: curInput }, undefined, actionRising);
           }
         }
 
@@ -1934,13 +2055,38 @@ export default function App() {
         if (rt && canvas) {
           if (screenRef.current === 'PLAYING' && !showControlsModal && !showCheatsModal && !disconnectModalRef.current) {
             const hostModalOpen = showInventoryModalRef.current || showShopModalRef.current;
+            let hostRemoteInputs: Record<number, TouchInputState> | undefined;
+            if (role === 'host') {
+              const latches = remoteActionLatchRef.current;
+              const merged: Record<number, TouchInputState> = {};
+              for (const k of Object.keys(remoteInputsRef.current)) {
+                const pid = Number(k);
+                const inp = remoteInputsRef.current[pid];
+                const l = latches[pid];
+                if (inp) {
+                  merged[pid] = l
+                    ? {
+                        ...inp,
+                        dash: inp.dash || Boolean(l.dash),
+                        ability: inp.ability || Boolean(l.ability),
+                        skill2: inp.skill2 || Boolean(l.skill2),
+                        skill3: inp.skill3 || Boolean(l.skill3),
+                        skill4: inp.skill4 || Boolean(l.skill4),
+                        usePotion: inp.usePotion || Boolean(l.usePotion),
+                      }
+                    : inp;
+                }
+                if (l) delete latches[pid];
+              }
+              hostRemoteInputs = merged;
+            }
             stepGame(
               rt,
               dt,
               hostModalOpen ? {} : keysRef.current,
               controlsRef.current,
               hostModalOpen ? { x: 0, y: 0, dash: false, ability: false } : touchInputRef.current,
-              role === 'host' ? remoteInputsRef.current : undefined
+              hostRemoteInputs
             );
 
             if (rt.isOnlineCampaign && role === 'host') {
@@ -2010,20 +2156,29 @@ export default function App() {
                   }
                 }
                 const entityLoad = rt.bossProjectiles.length + rt.enemies.length + rt.playerProjectiles.length;
-                const syncInterval = optimizeConnectionRef.current
-                  ? entityLoad > 35
-                    ? 0.068
-                    : 0.056
-                  : entityLoad > 40
-                  ? 0.052
-                  : 0.044;
+                const pingValues = Object.values(pingByPlayerRef.current).filter(
+                  (v): v is number => typeof v === 'number' && Number.isFinite(v)
+                );
+                const maxGuestPingMs = pingValues.length > 0 ? Math.max(...pingValues) : 0;
+                const syncInterval =
+                  optimizeConnectionRef.current || maxGuestPingMs > 140
+                    ? entityLoad > 30
+                      ? 0.064
+                      : 0.052
+                    : maxGuestPingMs > 90
+                    ? entityLoad > 35
+                      ? 0.052
+                      : 0.042
+                    : entityLoad > 40
+                    ? 0.042
+                    : 0.033;
                 netSyncAccum += dt;
                 if (netSyncAccum >= syncInterval) {
                   netSyncAccum = 0;
                   const sfx = pendingSfxRef.current.slice(0);
                   const sent = onlineSessionRef.current.send({
                     type: 'sync',
-                    snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current),
+                    snap: serializeRuntimeForSync(rt, optimizeConnectionRef.current, maxGuestPingMs),
                     sfx,
                   });
                   if (sent) {
@@ -2254,12 +2409,16 @@ export default function App() {
           onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
+          mobileMode={showTouchControls}
+          onToggleMobileMode={handleToggleTouchControls}
           onStart={() => setScreen('TITLE_MENU')}
           onReplayIntro={() => setScreen('INTRO')}
           onOpenUpdates={() => setShowUpdatesModal(true)}
+          onOpenSuggestions={() => setShowSuggestionsModal(true)}
         />
         {fullscreenToast}
         {showUpdatesModal && <UpdatesModal onClose={() => setShowUpdatesModal(false)} />}
+        {showSuggestionsModal && <SuggestionsModal onClose={() => setShowSuggestionsModal(false)} />}
       </>
     );
   }
@@ -2277,6 +2436,7 @@ export default function App() {
           onOpenCheats={() => setShowCheatsModal(true)}
           onOpenSettings={() => setShowControlsModal(true)}
           onOpenUpdates={() => setShowUpdatesModal(true)}
+          onOpenSuggestions={() => setShowSuggestionsModal(true)}
           onBackToSplash={() => setScreen('LANDING')}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
@@ -2284,6 +2444,8 @@ export default function App() {
           onToggleMute={handleToggleMute}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
+          mobileMode={showTouchControls}
+          onToggleMobileMode={handleToggleTouchControls}
           leaderboard={leaderboard}
         />
         {fullscreenToast}
@@ -2294,6 +2456,8 @@ export default function App() {
             hudSettings={hudSettings}
             onChangeHudSettings={handleChangeHudSettings}
             onResetPartyPos={handleResetPartyPos}
+            showTouchControls={showTouchControls}
+            onToggleTouchControls={handleToggleTouchControls}
             optimizeConnection={optimizeConnection}
             onOptimizeConnection={handleOptimizeConnection}
             onChange={handleSaveControls}
@@ -2316,6 +2480,7 @@ export default function App() {
           />
         )}
         {showUpdatesModal && <UpdatesModal onClose={() => setShowUpdatesModal(false)} />}
+        {showSuggestionsModal && <SuggestionsModal onClose={() => setShowSuggestionsModal(false)} />}
       </>
     );
   }
@@ -2347,6 +2512,11 @@ export default function App() {
           pingByPlayer={pingByPlayer}
           onHostCreateRoom={createHostRoom}
           onGuestJoinRoom={() => joinGuestRoom()}
+          onJoinListedRoom={(code) => joinGuestRoom(code)}
+          publicRooms={publicRooms.filter((r) => r.code !== roomCode)}
+          onRefreshRooms={() => roomDirectoryRef.current?.refresh()}
+          isPublicRoom={isPublicRoom}
+          onTogglePublicRoom={() => setIsPublicRoom((v) => !v)}
           onDisconnectOnline={() => destroyOnlineSession()}
           onKickPlayer={handleKickPlayer}
           difficulty={difficulty}
@@ -2412,7 +2582,7 @@ export default function App() {
           onChangeHudSettings={handleChangeHudSettings}
           resetPartyPosSignal={partyResetSignal}
           onToggleFullscreen={handleToggleFullscreen}
-          onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
+          onToggleTouchControls={handleToggleTouchControls}
           onToggleMute={handleToggleMute}
           onPause={() => {
             touchInputRef.current = { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false };
@@ -2467,11 +2637,11 @@ export default function App() {
             triggerPracticeAttack(rt, attackKind);
             setHud(extractHudSnapshot(rt));
           }}
-          onSwitchPracticeBoss={(bossStage) => {
+          onSwitchPracticeBoss={(bossStage, variantId?: BossVariantId) => {
             if (activeOnlineRole === 'guest') return;
             const rt = runtimeRef.current;
             if (!rt) return;
-            switchPracticeBoss(rt, bossStage);
+            switchPracticeBoss(rt, bossStage, variantId);
             setHud(extractHudSnapshot(rt));
           }}
           onUsePotion={handleUsePotion}
@@ -2543,7 +2713,7 @@ export default function App() {
             soundEngine.setSfxVolume(v);
           }}
           onToggleFullscreen={handleToggleFullscreen}
-          onToggleTouchControls={() => setShowTouchControls((prev) => !prev)}
+          onToggleTouchControls={handleToggleTouchControls}
           onResume={() => {
             if (activeOnlineRole === 'guest') {
               onlineSessionRef.current?.send({ type: 'cmd', action: 'resume' });
@@ -2568,6 +2738,8 @@ export default function App() {
           hudSettings={hudSettings}
           onChangeHudSettings={handleChangeHudSettings}
           onResetPartyPos={handleResetPartyPos}
+          showTouchControls={showTouchControls}
+          onToggleTouchControls={handleToggleTouchControls}
           optimizeConnection={optimizeConnection}
           onOptimizeConnection={handleOptimizeConnection}
           onOptimizeAllConnections={handleOptimizeAllConnections}

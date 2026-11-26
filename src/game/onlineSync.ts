@@ -9,6 +9,7 @@ import {
   Boss,
   BossChannelKind,
   BossProjectile,
+  BossVariantId,
   CameraState,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -297,7 +298,7 @@ export type OnlineMessage =
   | { type: 'guest_config'; colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }
   | { type: 'loadout'; payload: LobbyLoadoutPayload }
   | { type: 'input'; input: TouchInputState }
-  | { type: 'sync'; snap: SyncedRuntimeSnapshot; sfx: SfxSyncEvent[] }
+  | { type: 'sync'; seq?: number; snap: SyncedRuntimeSnapshot; sfx: SfxSyncEvent[] }
   | { type: 'floor_sync'; rev: number; stage: StageKey; floorMap: FloorMapHudSnapshot }
   | { type: 'sfx'; events: SfxSyncEvent[] }
   | {
@@ -313,7 +314,7 @@ export type OnlineMessage =
   | { type: 'cmd'; action: 'buy_shop_item'; itemId: number }
   | { type: 'cmd'; action: 'switch_practice_weapon'; weaponId: WeaponId }
   | { type: 'cmd'; action: 'trigger_practice_attack'; kind?: BossChannelKind }
-  | { type: 'cmd'; action: 'switch_practice_boss'; stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss' }
+  | { type: 'cmd'; action: 'switch_practice_boss'; stage: 'mechaBoss' | 'voidBoss' | 'oniBoss' | 'eclipseBoss'; variantId?: BossVariantId }
   | { type: 'optimize_progress'; active: boolean; step: string; progress: number; initiatorId?: PlayerId }
   | { type: 'cast_vote'; choice: 'end' | 'deeper' };
 
@@ -349,7 +350,11 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = false): SyncedRuntimeSnapshot {
+export function serializeRuntimeForSync(
+  rt: GameRuntime,
+  optimizeConnection = false,
+  maxGuestPingMs = 0
+): SyncedRuntimeSnapshot {
   const playerCombos: Record<number, { count: number; timer: number }> = {};
   for (const k of Object.keys(rt.playerCombos)) {
     const id = Number(k);
@@ -360,6 +365,8 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
   }
 
   const b = rt.boss;
+  const heavyBossLoad = optimizeConnection || rt.bossProjectiles.length >= 12 || maxGuestPingMs > 110;
+  const inShopRoom = rt.roomKind === 'shop';
 
   return {
     difficulty: rt.difficulty,
@@ -396,12 +403,12 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
       bob: r2(sd.bob),
       lockTimer: r2(sd.lockTimer),
     })),
-    coinBursts: rt.coinBursts.map((b) => ({
-      id: b.id,
-      x: r0(b.x),
-      y: r0(b.y),
-      amount: b.amount,
-      ttl: r2(b.ttl),
+    coinBursts: rt.coinBursts.map((cb) => ({
+      id: cb.id,
+      x: r0(cb.x),
+      y: r0(cb.y),
+      amount: cb.amount,
+      ttl: r2(cb.ttl),
     })),
     skillZones: rt.skillZones.map((sz) => ({
       ...sz,
@@ -413,11 +420,15 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
     })),
     gates: rt.gates.map((g) => ({
       ...g,
+      x: r0(g.x),
+      y: r0(g.y),
+      width: r0(g.width),
+      height: r0(g.height),
       playersInside: [...g.playersInside],
       holdProgress: r2(g.holdProgress),
     })),
-    shopNpc: rt.shopNpc ? { ...rt.shopNpc } : null,
-    shopItems: rt.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })),
+    shopNpc: inShopRoom && rt.shopNpc ? { ...rt.shopNpc } : null,
+    shopItems: inShopRoom ? rt.shopItems.map((s) => ({ ...s, purchasedBy: [...s.purchasedBy] })) : [],
     finalVote: rt.finalVote
       ? {
           active: rt.finalVote.active,
@@ -470,7 +481,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
       dashTime: p.dashTime,
       dashCooldown: p.dashCooldown,
       dashImmune: p.dashImmune,
-      dashTrail: optimizeConnection
+      dashTrail: heavyBossLoad
         ? []
         : p.dashTrail.slice(-3).map((t) => ({
             x: r0(t.x),
@@ -527,7 +538,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
       dashDirY: r2(p.dashDirY),
       animTime: r2(p.animTime),
     })),
-    playerProjectiles: rt.playerProjectiles.map((pp) => ({
+    playerProjectiles: (heavyBossLoad ? rt.playerProjectiles.slice(-18) : rt.playerProjectiles).map((pp) => ({
       ...pp,
       x: r1(pp.x),
       y: r1(pp.y),
@@ -591,39 +602,45 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
     },
     bossProjectiles: rt.bossProjectiles.map((bp) => ({
       ...bp,
-      x: r1(bp.x),
-      y: r1(bp.y),
+      x: r0(bp.x),
+      y: r0(bp.y),
       dx: r2(bp.dx),
       dy: r2(bp.dy),
       speed: r2(bp.speed),
     })),
-    voidTentacles: rt.voidTentacles.map((vt) => ({
-      ...vt,
-      waveOffset: r2(vt.waveOffset),
-      extendFactor: r2(vt.extendFactor),
-    })),
-    oniShrines: rt.oniShrines.map((s) => ({ ...s })),
+    voidTentacles: rt.isBossLevel
+      ? rt.voidTentacles.map((vt) => ({
+          ...vt,
+          waveOffset: r2(vt.waveOffset),
+          extendFactor: r2(vt.extendFactor),
+        }))
+      : [],
+    oniShrines: rt.isBossLevel ? rt.oniShrines.map((s) => ({ ...s })) : [],
     oniCursedZones: rt.oniCursedZones.map((z) => ({
       ...z,
       x: r0(z.x),
       y: r0(z.y),
-      radius: r1(z.radius),
+      radius: r0(z.radius),
       alpha: r2(z.alpha),
     })),
-    oniSpiritBombs: rt.oniSpiritBombs.map((bm) => ({
-      ...bm,
-      x: r1(bm.x),
-      y: r1(bm.y),
-    })),
-    eclipseBeacons: rt.eclipseBeacons.map((eb) => ({ ...eb })),
-    eclipsePylons: rt.eclipsePylons.map((p) => ({ ...p })),
-    eclipsePrison: rt.eclipsePrison ? { ...rt.eclipsePrison } : null,
-    eclipseMirrors: rt.eclipseMirrors.map((m) => ({
-      ...m,
-      x: r0(m.x),
-      y: r0(m.y),
-      charge: r2(m.charge),
-    })),
+    oniSpiritBombs: rt.isBossLevel
+      ? rt.oniSpiritBombs.map((bm) => ({
+          ...bm,
+          x: r0(bm.x),
+          y: r0(bm.y),
+        }))
+      : [],
+    eclipseBeacons: [],
+    eclipsePylons: rt.isBossLevel ? rt.eclipsePylons.map((p) => ({ ...p })) : [],
+    eclipsePrison: rt.isBossLevel && rt.eclipsePrison ? { ...rt.eclipsePrison } : null,
+    eclipseMirrors: rt.isBossLevel
+      ? rt.eclipseMirrors.map((m) => ({
+          ...m,
+          x: r0(m.x),
+          y: r0(m.y),
+          charge: r2(m.charge),
+        }))
+      : [],
     eclipseMarkedBy: rt.eclipseMarkedBy,
     eclipseMarkTimer: r1(rt.eclipseMarkTimer),
     eclipseCounterFlashTimer: r2(rt.eclipseCounterFlashTimer),
@@ -632,7 +649,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
     eclipseSanctuaryActive: rt.eclipseSanctuaryActive,
     medkits: rt.medkits.map((m) => ({ ...m, x: r0(m.x), y: r0(m.y), bob: r2(m.bob) })),
     relics: rt.relics.map((r) => ({ ...r, x: r0(r.x), y: r0(r.y), bob: r2(r.bob) })),
-    dustParticles: optimizeConnection
+    dustParticles: heavyBossLoad
       ? []
       : rt.dustParticles.slice(-2).map((d) => ({
           ...d,
@@ -640,7 +657,7 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
           y: r0(d.y),
           alpha: r2(d.alpha),
         })),
-    deathEffects: optimizeConnection
+    deathEffects: heavyBossLoad
       ? []
       : rt.deathEffects.slice(-5).map((de) => ({
           ...de,
@@ -649,37 +666,37 @@ export function serializeRuntimeForSync(rt: GameRuntime, optimizeConnection = fa
           radius: de.radius !== undefined ? r0(de.radius) : undefined,
           alpha: r2(de.alpha),
         })),
-    slashArcs: optimizeConnection
+    slashArcs: heavyBossLoad
       ? []
-      : rt.slashArcs.slice(-5).map((sa) => ({
+      : rt.slashArcs.slice(-4).map((sa) => ({
           ...sa,
           x: r0(sa.x),
           y: r0(sa.y),
           alpha: r2(sa.alpha),
         })),
-    floatingTexts: rt.floatingTexts.slice(optimizeConnection ? -3 : -7).map((ft) => ({
+    floatingTexts: rt.floatingTexts.slice(heavyBossLoad ? -2 : -5).map((ft) => ({
       ...ft,
       x: r0(ft.x),
       y: r0(ft.y),
       alpha: r2(ft.alpha),
     })),
-    comicSlashes: optimizeConnection
+    comicSlashes: heavyBossLoad
       ? []
-      : rt.comicSlashes.slice(-4).map((cs) => ({
+      : rt.comicSlashes.slice(-3).map((cs) => ({
           ...cs,
           alpha: r2(cs.alpha),
         })),
-    voidRifts: optimizeConnection
+    voidRifts: heavyBossLoad
       ? []
-      : rt.voidRifts.slice(-4).map((vr) => ({
+      : rt.voidRifts.slice(-3).map((vr) => ({
           ...vr,
-          size: r1(vr.size),
+          size: r0(vr.size),
           alpha: r2(vr.alpha),
           rotation: r2(vr.rotation),
         })),
-    energyWaves: rt.energyWaves.slice(optimizeConnection ? -2 : -4).map((ew) => ({
+    energyWaves: rt.energyWaves.slice(heavyBossLoad ? -2 : -4).map((ew) => ({
       ...ew,
-      radius: r1(ew.radius),
+      radius: r0(ew.radius),
       alpha: r2(ew.alpha),
     })),
     activeBoons: [...rt.activeBoons],
@@ -824,7 +841,6 @@ function stepLocalPredictedMovement(
   input?: TouchInputState
 ) {
   if (!input || p.state !== 'alive' || p.sealed || rt.introPlaying) return;
-  if (p.dashTimeLeft > 0 || p.usingDash2 || p.chargeTimer > 0) return;
 
   let dirX = input.x;
   let dirY = input.y;
@@ -832,6 +848,58 @@ function stepLocalPredictedMovement(
   if (mag > 1) {
     dirX /= mag;
     dirY /= mag;
+  }
+  if (Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04) {
+    p.facingAngle = Math.atan2(dirY, dirX);
+    p.dashDirX = dirX;
+    p.dashDirY = dirY;
+  }
+
+  // Instant local dash prediction so non-host players feel crisp zero-delay dashes
+  const dashPressed = Boolean(input.dash);
+  if (dashPressed && !p._lastDashPressed && p.dashTimeLeft <= 0 && p.chargeTimer <= 0) {
+    if (p.dashReady || (p.dash2Active && p.dash2Ready)) {
+      const usingSecond = !p.dashReady;
+      if (usingSecond) {
+        p.dash2Ready = false;
+      } else {
+        p.dashReady = false;
+      }
+      p.usingDash2 = usingSecond;
+      p.dashImmune = true;
+      p.dashTimeLeft = p.dashTime || 0.16;
+    }
+  }
+  p._lastDashPressed = dashPressed;
+
+  if (p.chargeTimer > 0) {
+    const cs = 16.5 * (dt * 60);
+    p.vx = p.dashDirX * cs;
+    p.vy = p.dashDirY * cs;
+    p.x += p.vx;
+    p.y += p.vy;
+    clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+    return;
+  }
+
+  if (p.dashTimeLeft > 0) {
+    const ds = 18.0 * (p.overdriveTimer > 0 ? 1.15 : 1.0);
+    const moveX = Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04 ? dirX : p.dashDirX;
+    const moveY = Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04 ? dirY : p.dashDirY;
+    p.x += moveX * ds * (dt * 60);
+    p.y += moveY * ds * (dt * 60);
+    p.vx = moveX * ds;
+    p.vy = moveY * ds;
+    if (p.dashTrail.length < 8) {
+      p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.85, color: p.color, angle: p.facingAngle });
+    }
+    p.dashTimeLeft = Math.max(0, p.dashTimeLeft - dt);
+    if (p.dashTimeLeft <= 0) {
+      p.dashImmune = false;
+      p.usingDash2 = false;
+    }
+    clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+    return;
   }
 
   const speedMult =
@@ -849,7 +917,6 @@ function stepLocalPredictedMovement(
   p.y += vy;
   clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
   if (Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04) {
-    p.facingAngle = Math.atan2(dirY, dirX);
     p.animTime += dt * 1.4;
   }
 }
@@ -868,18 +935,44 @@ export function advanceGuestDisplayRuntime(
     if (localPlayerId !== undefined && p.id === localPlayerId) {
       stepLocalPredictedMovement(p, rt, clampedDt, localInput);
     } else if (!rt.introPlaying) {
-      p.x += p.vx * frameMult * 0.72;
-      p.y += p.vy * frameMult * 0.72;
+      p.x += p.vx * frameMult * 0.78;
+      p.y += p.vy * frameMult * 0.78;
+      p.vx *= Math.pow(0.9, frameMult);
+      p.vy *= Math.pow(0.9, frameMult);
       clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
       p.animTime += clampedDt;
+    }
+    for (let ti = p.dashTrail.length - 1; ti >= 0; ti--) {
+      p.dashTrail[ti].alpha -= clampedDt * 4.2;
+      if (p.dashTrail[ti].alpha <= 0) p.dashTrail.splice(ti, 1);
     }
   });
 
   if (!rt.introPlaying) {
+    if (
+      rt.isBossLevel &&
+      rt.boss.health > 0 &&
+      rt.boss.state !== 'comic_intro' &&
+      rt.boss.state !== 'dead' &&
+      rt.boss.state !== 'phase_transition'
+    ) {
+      const b = rt.boss;
+      const dxB = b.targetX - b.x;
+      const dyB = b.targetY - b.y;
+      const dB = Math.hypot(dxB, dyB);
+      if (dB > 2 && dB < 260) {
+        const moveStep = Math.min(dB, 3.2 * frameMult);
+        b.x += (dxB / dB) * moveStep;
+        b.y += (dyB / dB) * moveStep;
+      }
+      b.animationTimer += clampedDt;
+      b.rotationAngle += clampedDt * (b.phase === 2 ? 3.2 : 1.8);
+    }
+
     rt.enemies.forEach((e) => {
       if ((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph') return;
-      e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + e.dx * e.speed * frameMult * 0.85));
-      e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + e.dy * e.speed * frameMult * 0.85));
+      e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + e.dx * e.speed * frameMult * 0.88));
+      e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + e.dy * e.speed * frameMult * 0.88));
     });
 
     rt.bossProjectiles.forEach((bp) => {
@@ -1141,18 +1234,40 @@ export function applySyncedSnapshotToGuest(
     const next = hydratePlayer(sp, prev);
     const isLocalGuest = localPlayerId !== undefined && sp.id === localPlayerId;
     if (prev && prev.state === next.state) {
-      if (isLocalGuest && next.state === 'alive' && !next.sealed && !snap.introPlaying && sp.dashTimeLeft <= 0 && !sp.usingDash2 && sp.chargeTimer <= 0) {
-        const err = Math.hypot(sp.x - prev.x, sp.y - prev.y);
-        if (err > 140) {
-          next.x = sp.x;
-          next.y = sp.y;
-        } else if (err > 26) {
-          const pull = err > 72 ? 0.34 : 0.16;
-          next.x = prev.x + (sp.x - prev.x) * pull;
-          next.y = prev.y + (sp.y - prev.y) * pull;
-        } else {
+      next._lastDashPressed = prev._lastDashPressed;
+      if (isLocalGuest && next.state === 'alive' && !next.sealed && !snap.introPlaying) {
+        // Keep active local predicted dash smooth until host snapshot catches up
+        const localDashInFlight = prev.dashTimeLeft > 0 && sp.dashTimeLeft <= 0 && !sp.dashReady;
+        if (localDashInFlight) {
+          next.dashTimeLeft = prev.dashTimeLeft;
+          next.dashImmune = true;
+          next.dashTrail = prev.dashTrail.map((t) => ({ ...t }));
           next.x = prev.x;
           next.y = prev.y;
+          next.facingAngle = prev.facingAngle;
+          next.dashDirX = prev.dashDirX;
+          next.dashDirY = prev.dashDirY;
+        } else if (sp.dashTimeLeft <= 0 && !sp.usingDash2 && sp.chargeTimer <= 0) {
+          // Latency-compensated host position so moving guests aren't pulled backward by half-RTT lag
+          const oneWayFrames = Math.min(0.11, Math.max(0, (localPingMs || 50) / 2000)) * 60;
+          const compHostX = sp.x + sp.vx * oneWayFrames;
+          const compHostY = sp.y + sp.vy * oneWayFrames;
+          const err = Math.hypot(compHostX - prev.x, compHostY - prev.y);
+          if (err > 180) {
+            next.x = compHostX;
+            next.y = compHostY;
+          } else if (err > 38) {
+            const pull = err > 96 ? 0.28 : 0.12;
+            next.x = prev.x + (compHostX - prev.x) * pull;
+            next.y = prev.y + (compHostY - prev.y) * pull;
+          } else {
+            next.x = prev.x;
+            next.y = prev.y;
+          }
+        } else {
+          // Host dashing/charging: blend toward host smoothly
+          next.x = lerpNum(prev.x, sp.x, 0.72, 160);
+          next.y = lerpNum(prev.y, sp.y, 0.72, 160);
         }
         stepLocalPredictedMovement(next, displayRt, clampedDt, localInput);
       } else {
@@ -1376,6 +1491,10 @@ export class OnlineSession {
   private hostWasConnected = false;
   private hostLastHeardAt = performance.now();
   private lowBandwidth = false;
+  private syncSeq = 0;
+  private lastReceivedSyncSeq = 0;
+  private lastStreamHealAt = 0;
+  private lastCtrlSyncFallbackAt = 0;
 
   constructor(
     role: 'host' | 'guest',
@@ -1534,44 +1653,47 @@ export class OnlineSession {
     }
   }
 
-  send(msg: OnlineMessage, targetPlayerId?: PlayerId): boolean {
+  send(msg: OnlineMessage, targetPlayerId?: PlayerId, reliable = false): boolean {
     if (this.destroyed) return false;
-    const isStreamMsg = msg.type === 'sync' || msg.type === 'input';
-    const syncLimit = this.lowBandwidth ? 6144 : 14336;
-    const inputLimit = this.lowBandwidth ? 4096 : 8192;
-    const ctrlFallbackLimit = 2048;
+    const isStreamMsg = !reliable && (msg.type === 'sync' || msg.type === 'input');
+    const syncLimit = this.lowBandwidth ? 5120 : 12288;
+    const inputLimit = this.lowBandwidth ? 3072 : 6144;
+    const now = performance.now();
+
+    if (msg.type === 'sync') {
+      msg.seq = ++this.syncSeq;
+    }
 
     if (this.role === 'host') {
-      if (targetPlayerId !== undefined) {
-        const slot = this.guests.get(targetPlayerId);
-        if (slot && slot.conn.open) {
-          const hasOpenStream = Boolean(slot.streamConn?.open);
-          const targetConn = isStreamMsg && hasOpenStream ? slot.streamConn! : slot.conn;
-          const cap = !isStreamMsg ? Number.MAX_SAFE_INTEGER : hasOpenStream ? syncLimit : ctrlFallbackLimit;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > cap) return false;
-          try {
-            targetConn.send(msg);
-            return true;
-          } catch {
+      const sendToSlot = (slot: GuestSlot): boolean => {
+        if (!slot.conn.open) return false;
+        const hasOpenStream = Boolean(slot.streamConn?.open);
+        if (msg.type === 'sync' && !hasOpenStream) {
+          // Never choke reliable ctrlConn when streamConn is closed/rebuilding; throttle tiny fallback only
+          if (getBufferedAmount(slot.conn) > 256 || now - this.lastCtrlSyncFallbackAt < 180) {
             return false;
           }
+          this.lastCtrlSyncFallbackAt = now;
         }
-        return false;
+        const targetConn = isStreamMsg && hasOpenStream ? slot.streamConn! : slot.conn;
+        if (msg.type === 'sync' && hasOpenStream && getBufferedAmount(targetConn) > syncLimit) {
+          return false;
+        }
+        try {
+          targetConn.send(msg);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      if (targetPlayerId !== undefined) {
+        const slot = this.guests.get(targetPlayerId);
+        return slot ? sendToSlot(slot) : false;
       }
       let sentAny = false;
       for (const slot of this.guests.values()) {
-        if (slot.conn.open) {
-          const hasOpenStream = Boolean(slot.streamConn?.open);
-          const targetConn = isStreamMsg && hasOpenStream ? slot.streamConn! : slot.conn;
-          const cap = !isStreamMsg ? Number.MAX_SAFE_INTEGER : hasOpenStream ? syncLimit : ctrlFallbackLimit;
-          if (msg.type === 'sync' && getBufferedAmount(targetConn) > cap) continue;
-          try {
-            targetConn.send(msg);
-            sentAny = true;
-          } catch {
-            // ignore
-          }
-        }
+        if (sendToSlot(slot)) sentAny = true;
       }
       return sentAny;
     }
@@ -1579,8 +1701,8 @@ export class OnlineSession {
     const hasOpenStream = Boolean(this.hostStreamConn?.open);
     const targetConn = isStreamMsg && hasOpenStream ? this.hostStreamConn! : this.hostConn;
     if (!targetConn || !targetConn.open) return false;
-    const cap = hasOpenStream ? inputLimit : ctrlFallbackLimit;
-    if (msg.type === 'input' && getBufferedAmount(targetConn) > cap) return false;
+    const cap = hasOpenStream ? inputLimit : 1024;
+    if (!reliable && msg.type === 'input' && getBufferedAmount(targetConn) > cap) return false;
     try {
       targetConn.send(msg);
       return true;
@@ -1616,6 +1738,32 @@ export class OnlineSession {
     this.callbacks.onPartnerDisconnect(slotId);
   }
 
+  private dialGuestStream() {
+    if (this.destroyed || this.role !== 'guest' || !this.peer || this.peer.destroyed || !this.hostConn?.open) {
+      return;
+    }
+    this.lastStreamHealAt = performance.now();
+    try {
+      this.hostStreamConn?.close();
+    } catch {
+      // ignore
+    }
+    this.hostStreamConn = null;
+    const targetId = `${PEER_PREFIX}${this.roomCode}`;
+    const streamConn = this.peer.connect(targetId, {
+      label: 'stream',
+      reliable: false,
+      serialization: 'json',
+      metadata: {
+        channel: 'stream',
+        clientUid: this.guestClientUid,
+        roomToken: this.guestRoomToken,
+        playerName: this.guestPlayerName,
+      },
+    });
+    this.attachGuestToHostConnection(streamConn, true);
+  }
+
   private ensurePingLoop() {
     if (this.pingTimer !== null) return;
     if (this.role === 'host') {
@@ -1623,7 +1771,7 @@ export class OnlineSession {
         if (this.destroyed) return;
         const now = performance.now();
         for (const [slotId, slot] of Array.from(this.guests.entries())) {
-          if (now - slot.lastHeardAt > 5200) {
+          if (now - slot.lastHeardAt > 12500) {
             this.evictTimedOutGuest(slotId, slot);
             continue;
           }
@@ -1640,7 +1788,19 @@ export class OnlineSession {
       this.pingTimer = window.setInterval(() => {
         if (this.destroyed || !this.hostWasConnected) return;
         const now = performance.now();
-        if (now - this.hostLastHeardAt > 6500) {
+        // Auto-recover dropped unreliable stream channel mid-boss fight without breaking session
+        if (this.hostConn?.open && (!this.hostStreamConn || !this.hostStreamConn.open) && now - this.lastStreamHealAt > 2600) {
+          this.dialGuestStream();
+        }
+        // Proactive guest keepalive ping when silent > 2.2s so Host knows guest is alive during bursts
+        if (this.hostConn?.open && now - this.hostLastHeardAt > 2200) {
+          try {
+            this.hostConn.send({ type: 'ping', ts: now } as OnlineMessage);
+          } catch {
+            // ignore
+          }
+        }
+        if (now - this.hostLastHeardAt > 14000) {
           this.clearTimers();
           this.hostWasConnected = false;
           try {
@@ -1653,7 +1813,7 @@ export class OnlineSession {
           this.hostStreamConn = null;
           this.callbacks.onPartnerDisconnect(1);
         }
-      }, 1500);
+      }, 1000);
     }
   }
 
@@ -1845,12 +2005,16 @@ export class OnlineSession {
     });
 
     peer.on('disconnected', () => {
-      if (!this.destroyed && !this.isConnected() && peer && !peer.destroyed) {
-        try {
-          peer.reconnect();
-        } catch {
-          // ignore
-        }
+      if (!this.destroyed && peer && !peer.destroyed) {
+        window.setTimeout(() => {
+          if (!this.destroyed && peer && !peer.destroyed && peer.disconnected) {
+            try {
+              peer.reconnect();
+            } catch {
+              // ignore
+            }
+          }
+        }, 250);
       }
     });
   }
@@ -1930,6 +2094,14 @@ export class OnlineSession {
       if (this.destroyed || !raw || typeof raw !== 'object') return;
       slot.lastHeardAt = performance.now();
       const msg = raw as OnlineMessage;
+      if (msg.type === 'ping') {
+        try {
+          conn.send({ type: 'pong', ts: msg.ts } as OnlineMessage);
+        } catch {
+          // ignore
+        }
+        return;
+      }
       if (msg.type === 'pong') {
         const rawRtt = Math.max(1, Math.round(performance.now() - msg.ts));
         slot.pingMs =
@@ -1977,6 +2149,10 @@ export class OnlineSession {
         if (this.destroyed || !raw || typeof raw !== 'object') return;
         this.hostLastHeardAt = performance.now();
         const msg = raw as OnlineMessage;
+        if (msg.type === 'sync' && typeof msg.seq === 'number') {
+          if (msg.seq < this.lastReceivedSyncSeq) return;
+          this.lastReceivedSyncSeq = msg.seq;
+        }
         if ('type' in msg) {
           this.callbacks.onMessage(msg, 1);
         }
@@ -2017,6 +2193,9 @@ export class OnlineSession {
         }
         return;
       }
+      if (msg.type === 'pong') {
+        return;
+      }
       if (msg.type === 'kicked') {
         const reason = msg.reason || 'You were removed from the room by the Host.';
         this.callbacks.onKicked?.(reason);
@@ -2031,6 +2210,10 @@ export class OnlineSession {
       if (msg.type === 'welcome') {
         this.callbacks.onAssignedSlot?.(msg.playerId);
         return;
+      }
+      if (msg.type === 'sync' && typeof msg.seq === 'number') {
+        if (msg.seq < this.lastReceivedSyncSeq) return;
+        this.lastReceivedSyncSeq = msg.seq;
       }
       if ('type' in msg) {
         this.callbacks.onMessage(msg, 1);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw, SlidersHorizontal, Keyboard, Map as MapIcon, Users, Eye } from 'lucide-react';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw, SlidersHorizontal, Keyboard, Map as MapIcon, Users, Eye, Lightbulb, Lock, Smartphone } from 'lucide-react';
 import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, DEFAULT_HUD_SETTINGS, FinalVoteState, HudSettings, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
@@ -19,6 +19,8 @@ interface ControlsModalProps {
   hudSettings?: HudSettings;
   onChangeHudSettings?: (next: HudSettings) => void;
   onResetPartyPos?: () => void;
+  showTouchControls?: boolean;
+  onToggleTouchControls?: () => void;
   optimizeConnection?: boolean;
   onOptimizeConnection?: () => void;
   onOptimizeAllConnections?: () => void;
@@ -32,6 +34,8 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
   hudSettings = DEFAULT_HUD_SETTINGS,
   onChangeHudSettings,
   onResetPartyPos,
+  showTouchControls = false,
+  onToggleTouchControls,
   optimizeConnection = false,
   onOptimizeConnection,
   onOptimizeAllConnections,
@@ -142,34 +146,63 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
         </div>
 
         {activeTab === 'controls' && (
-          <div className={`grid gap-5 pt-1 ${numPlayers === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-            {([1, ...(numPlayers === 2 ? [2] : [])] as (1 | 2)[]).map((pid) => {
-              const pCtrl = pid === 1 ? controls.p1 : controls.p2;
-              return (
-                <div key={pid} className="space-y-2.5">
-                  <h3 className="font-arcade text-[10px] text-red-400">PLAYER {pid}</h3>
-                  {actions.map((act) => {
-                    const isL = listening?.player === pid && listening?.action === act.key;
-                    return (
-                      <div key={act.key} className="flex items-center justify-between text-xs">
-                        <span className="text-slate-300">{act.label}</span>
-                        <button
-                          type="button"
-                          onClick={() => setListening({ player: pid, action: act.key })}
-                          className={`min-w-[74px] py-1.5 px-2.5 rounded border font-mono-num text-xs cursor-pointer ${
-                            isL
-                              ? 'bg-amber-600 border-amber-400 text-white animate-pulse'
-                              : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-red-400'
-                          }`}
-                        >
-                          {isL ? 'KEY...' : formatKeyName(pCtrl[act.key])}
-                        </button>
-                      </div>
-                    );
-                  })}
+          <div className="space-y-4 pt-1">
+            {onToggleTouchControls && (
+              <div className="bg-black/75 border border-slate-800 rounded-md p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono-num text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                    <span>MOBILE MODE &amp; FLOATING JOYSTICK</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug mt-0.5">
+                    Touch anywhere on the left half of the screen to move/dodge with oversized touch buttons.
+                  </p>
                 </div>
-              );
-            })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playUiClick();
+                    onToggleTouchControls();
+                  }}
+                  className={`min-h-[40px] px-3 py-1.5 rounded border font-mono-num text-xs font-bold shrink-0 cursor-pointer transition-colors ${
+                    showTouchControls
+                      ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white'
+                      : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
+                  }`}
+                >
+                  {showTouchControls ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            )}
+            <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {([1, ...(numPlayers === 2 ? [2] : [])] as (1 | 2)[]).map((pid) => {
+                const pCtrl = pid === 1 ? controls.p1 : controls.p2;
+                return (
+                  <div key={pid} className="space-y-2.5">
+                    <h3 className="font-arcade text-[10px] text-red-400">PLAYER {pid}</h3>
+                    {actions.map((act) => {
+                      const isL = listening?.player === pid && listening?.action === act.key;
+                      return (
+                        <div key={act.key} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-300">{act.label}</span>
+                          <button
+                            type="button"
+                            onClick={() => setListening({ player: pid, action: act.key })}
+                            className={`min-w-[74px] py-1.5 px-2.5 rounded border font-mono-num text-xs cursor-pointer ${
+                              isL
+                                ? 'bg-amber-600 border-amber-400 text-white animate-pulse'
+                                : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-red-400'
+                            }`}
+                          >
+                            {isL ? 'KEY...' : formatKeyName(pCtrl[act.key])}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -539,7 +572,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
               }`}
             >
               <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
-              <span>{showTouchControls ? 'Touch: ON' : 'Touch: OFF'}</span>
+              <span>{showTouchControls ? 'Mobile: ON' : 'Mobile: OFF'}</span>
             </button>
           </div>
           {fullscreenNote && (
@@ -1855,19 +1888,77 @@ interface VersionUpdateEntry {
   title: string;
   tag?: 'LATEST' | 'MAJOR';
   changes: string[];
+  simpleChanges: string[];
 }
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.1.5',
+    title: 'Full Mobile Mode, Dynamic Left-Side Joystick, Ping Tuning & Boss Variant Overhaul',
+    tag: 'LATEST',
+    changes: [
+      'Added a persistent "Mobile Mode" toggle right on the Splash screen after the intro (plus Title Menu & Settings), hiding desktop footer clutter and sizing touch medallions >= 44px for effortless mobile play.',
+      'Rebuilt the movement stick into a non-fixed floating analog joystick anywhere on the left half of the screen so players can dodge smoothly without chasing a locked pad.',
+      'Added ping-adaptive sync throttling and automatic boss bullet/particle payload compression when guest latency rises above 110ms.',
+      'Revamped all 4 Boss encounters into distinct variants with Class/Weapon Recommendations shown on boss intros and below the Boss HP bar (e.g., Mecha MK-I Bastion recommends Tank+Holy for lava island barrages; Mecha MK-II Overclock has no lava and features a 3x Bow Core Weakpoint + unavoidable EMP interrupted instantly by Assassin skills). Off-meta loadouts remain playable but hit noticeably harder.',
+      'Removed "stand on pads to weaken boss" mechanics (Reactor Overload Pylons & Twin Beacons).',
+    ],
+    simpleChanges: [
+      'Added a Mobile Mode button right below Start after the intro.',
+      'You can now touch anywhere on the left half of the screen to move/dodge with a floating joystick.',
+      'Improved online ping handling during heavy boss fights.',
+      'Removed "stand on pads to weaken the boss" attacks and gave bosses variant styles with Recommended Weapons (still playable without them, just harder!).',
+    ],
+  },
+  {
+    version: 'beta test 0.1.4',
+    title: 'Boxless Clean HUD, Cooldown Flash Effects, Live Room Browser & Dev Suggestions',
+    changes: [
+      'Removed the outer container boxes around the bottom Skill Bar, Party Health overlay, and Floor Map so circular skills, names, HP bars, pings, and map nodes float transparently over the battlefield.',
+      'Added radiant ring + flash burst animations on Dash, Skills 1–4, and Crimson Flask circles the moment each cooldown finishes.',
+      'Added a live Active Rooms browser in the Online Co-op Join lobby so players can click "Join" directly on any open host room.',
+      'Added a password-locked Suggestions vault ("blink123") next to New Updates with curated gameplay ideas and an Albion Online mechanics example toggle.',
+    ],
+    simpleChanges: [
+      'Removed the boxes behind your skill circles, Party Health, and Floor Map so you can see the game clearly.',
+      'Added a bright flash burst on skills right when their cooldown finishes.',
+      'Added a clickable Active Rooms list in the lobby so you can join friends with one click.',
+      'Added a Suggestions button (password: blink123) with game ideas and an Albion Online example button.',
+    ],
+  },
+  {
+    version: 'beta test 0.1.3',
+    title: 'Albion Circular Skill Bar, Boss Connection Fix, Lag Cut & Exploit Patch',
+    changes: [
+      'Fixed weapon drop/pickup exploit: skill cooldowns now persist per weapon and continue ticking while unequipped, tank passive shields keep their break timer, and HP scales proportionally across max-HP weapons.',
+      'Fixed mid-boss-fight online disconnections by hardening ping keepalives, auto-healing dropped unreliable WebRTC data streams, preventing sync packets from choking control channels, and removing premature 5s host timeouts.',
+      'Reduced non-host lag and input delay with reliable rising-edge action delivery (Dash/Skills/Flask), instant local guest Dash prediction, latency-compensated reconciliation, smooth boss interpolation, and smaller boss snapshot payloads.',
+      'Redesigned the bottom combat bar into an Albion Online-inspired circular skill bar with bronze framing, rounded skill medallions, clockwise conic-gradient cooldown sweeps, and bottom hotkey caps.',
+      'Added a "Simple Terms" button in this Patch Notes window so players can read every update in short plain-English bullets.',
+    ],
+    simpleChanges: [
+      'Dropping and picking up weapons no longer resets skill cooldowns, shields, or gives free healing.',
+      'Fixed random disconnects during online boss fights.',
+      'Online non-host players now feel way smoother with faster dashes and less lag delay.',
+      'Skill bar is now Albion-style circles with spinning cooldown sweeps.',
+      'Added this Simple Terms button to read updates faster.',
+    ],
+  },
+  {
     version: 'beta test 0.1.2',
     title: 'Fullscreen Battlefield, Walk-Through Hallways, HUD Customizer & Connection Reset',
-    tag: 'LATEST',
     changes: [
       'Converted the game battlefield into a true edge-to-edge full-screen arena with responsive 1:1 rendering and floating translucent HUD overlays.',
       'Replaced flat doorway pads with walkable stone dungeon hallways featuring open archways, flickering torches, directional floor runes, and far mist/stair thresholds.',
       'Added a tabbed Settings & HUD Customizer (HUD Scale, Panel Opacity, Floor Map Corner Position & Opacity, Individual Toggle Switches, and Reset Party Position).',
       'Added an "Optimize All Connections" pause action that triggers a party-wide loading recalibration: flushes WebRTC queues, rebuilds unreliable peer streams, re-probes ping, and sends a fresh keyframe.',
       'Prevented sync traffic from blocking reliable ping/control channels and widened guest local movement deadzones to cut lag spikes and rubberbanding.',
+    ],
+    simpleChanges: [
+      'Made the game battlefield full-screen.',
+      'Turned dungeon doors into real stone hallways you walk through.',
+      'Added HUD settings so you can resize, fade, hide, or move UI panels.',
+      'Added a pause "Optimize All Connections" button with a loading fix for lag.',
     ],
   },
   {
@@ -1881,6 +1972,13 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
       'Enlarged the playable arena viewport and added a Hide/Show Extra UI toggle, independent Floor Map Show/Hide + Opacity slider, and a freely draggable collapsible Party Health window.',
       'Added this New Updates changelog viewer on the Landing & Main Menu screens.',
     ],
+    simpleChanges: [
+      'Disconnected players no longer stand around or duplicate when rejoining.',
+      'Stopped heals and power-ups from spawning in already-cleared rooms.',
+      'Chests now animate when opened and dropped gold flies into your gold counter.',
+      'Host can kick players, hide extra UI, fade the map, and drag/collapse Party Health.',
+      'Added the New Updates patch notes button.',
+    ],
   },
   {
     version: 'beta test 0.1.0',
@@ -1890,6 +1988,11 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
       'Hid teammates’ idle blade markers cleanly to avoid pickup confusion and enabled attacking stunned enemies.',
       'Added an Optimize Connection toggle inside Settings & Lobby to reduce packet load on high-ping networks.',
     ],
+    simpleChanges: [
+      'Online rooms auto-save floor progress so you can reconnect without losing your run.',
+      'Hid other players’ idle blades and let you hit stunned enemies.',
+      'Added an Optimize Connection toggle in Settings.',
+    ],
   },
   {
     version: 'beta test 0.0.9',
@@ -1898,12 +2001,19 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
       'Split WebRTC control and unreliable stream channels with throttled delta broadcasts to cut guest lag during heavy boss bullet patterns.',
       'Rebalanced dungeon gold drops and adjusted Merchant Broker Vex item pricing.',
     ],
+    simpleChanges: [
+      'Reduced online co-op lag during busy fights.',
+      'Reduced gold drops and made shop items cost more.',
+    ],
   },
   {
     version: 'beta test 0.0.8',
     title: 'Boss Rhythm Tuning & Breathing Room',
     changes: [
       'Smoothed boss attack cadences and added clearer recovery windows between heavy teamwork mechanics.',
+    ],
+    simpleChanges: [
+      'Slowed down boss attack speed so your team has time to breathe.',
     ],
   },
   {
@@ -1912,6 +2022,10 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
     changes: [
       'Expanded every boss encounter (Mecha, Void, Oni, and Eclipse) with 3 distinct teamwork attacks forcing tank shielding, sanctuary positioning, and co-op coordination.',
       'Activated teamwork drills reliably inside Teamwork Practice Mode.',
+    ],
+    simpleChanges: [
+      'Gave every boss at least 3 attacks that require teammates to work together.',
+      'Fixed bosses not using teamwork attacks in Practice Mode.',
     ],
   },
   {
@@ -1922,6 +2036,11 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
       'Added Stairs to descend deeper for extra loot/scrolls before challenging a boss, buffed boss HP, and capped Crimson Flasks to 2 charges (90s cooldown).',
       'Added Boss Teamwork Practice Mode with dummy AI allies.',
     ],
+    simpleChanges: [
+      'Added themed helmets/hats to show which weapon you have.',
+      'Added Stairs Down for extra loot, buffed boss HP, and capped potions to 2 (90s CD).',
+      'Added Teamwork Practice Mode with bot teammates and purple/black scrollbars.',
+    ],
   },
   {
     version: 'beta test 0.0.5',
@@ -1930,12 +2049,19 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
       'Replaced 3-weapon hoarding with single active weapon + Minecraft-style Inventory Bag [I] for storing/dropping weapon-specific skill scrolls.',
       'Rebuilt the Shop around Gilded Broker Vex NPC interaction and added multi-room Dungeon Gates + Arena Safe-Zone Teamwork attacks.',
     ],
+    simpleChanges: [
+      'Limited players to 1 weapon at a time and added an Inventory Bag [I] for skill scrolls.',
+      'Added Merchant Vex NPC in shop rooms and multi-room dungeon gates.',
+    ],
   },
   {
     version: 'beta test 0.0.4',
     title: 'Up to 5-Player Online Co-op Campaign & Dungeon Exploration',
     changes: [
       'Launched 1–5P Online Co-op Campaign with procedural connected floor rooms, Treasure Vaults, Weapon Drops, and post-Eclipse Endless Loop voting.',
+    ],
+    simpleChanges: [
+      'Added 1 to 5 player Online Co-op Dungeon Campaign with treasure rooms and endless loops.',
     ],
   },
   {
@@ -1944,12 +2070,18 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
     changes: [
       'Added Overdrive/Aegis/Magnet/Nova relics, Style Rank meter (D to SSS), Clean Dodge blade empowerment, and Local Leaderboard tracking.',
     ],
+    simpleChanges: [
+      'Added power-up relics, Style Rank score meter, dodge bonuses, and Leaderboard.',
+    ],
   },
   {
     version: 'beta test 0.0.2',
     title: '4 Hero Classes, Boss Rush, Training Grounds & Remappable Controls',
     changes: [
       'Introduced Blade Ronin, Shadow Phantom, Iron Vanguard, and Volt Arcanist heroes, Boss Rush mode, Training Drills, and Cheat Vault.',
+    ],
+    simpleChanges: [
+      'Added 4 Hero Classes, Boss Rush, Training mode, and custom keybinds.',
     ],
   },
   {
@@ -1958,14 +2090,19 @@ const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
     changes: [
       'Core arena movement, pickup-blade strike combat, dash i-frames, multi-phase bosses, and co-op revive mechanics.',
     ],
+    simpleChanges: [
+      'First playable release with dodging, blade attacks, bosses, and teammate revives.',
+    ],
   },
 ];
 
 export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [simpleTerms, setSimpleTerms] = useState(false);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-2xl max-h-[88dvh] bg-[#07070c] border border-purple-500/60 rounded-lg p-5 sm:p-6 shadow-[0_0_45px_rgba(168,85,247,0.2)] flex flex-col gap-4">
-        <div className="flex items-center justify-between border-b border-stone-800 pb-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-800 pb-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <Sparkles className="w-5 h-5 text-purple-400 shrink-0" />
             <div className="min-w-0">
@@ -1973,26 +2110,44 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.1.2
+                Every update from beta test 0.0.1 through 0.1.5
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playUiClick();
-              onClose();
-            }}
-            className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer shrink-0"
-            aria-label="Close Updates"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                setSimpleTerms((s) => !s);
+              }}
+              className={`px-3 py-1.5 rounded border font-mono-num text-[11px] font-bold cursor-pointer transition-colors ${
+                simpleTerms
+                  ? 'bg-emerald-900/70 border-emerald-400 text-emerald-100 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
+                  : 'bg-purple-950/70 hover:bg-purple-900/70 border-purple-500/70 text-purple-200'
+              }`}
+              title="Switch between detailed notes and short plain-language summaries"
+            >
+              {simpleTerms ? 'Simple Terms: ON' : 'Simple Terms'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onClose();
+              }}
+              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer shrink-0"
+              aria-label="Close Updates"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
           {VERSION_UPDATES_LOG.map((entry) => {
             const isLatest = entry.tag === 'LATEST';
+            const lines = simpleTerms ? entry.simpleChanges : entry.changes;
             return (
               <div
                 key={entry.version}
@@ -2018,7 +2173,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                   </span>
                 </div>
                 <ul className="space-y-1 text-xs text-stone-300 pl-3.5 list-disc marker:text-purple-400">
-                  {entry.changes.map((line, i) => (
+                  {lines.map((line, i) => (
                     <li key={i} className="leading-relaxed">
                       {line}
                     </li>
@@ -2045,4 +2200,325 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     </div>
   );
 };
+
+interface SuggestionEntry {
+  title: string;
+  category: string;
+  summary: string;
+  ideas: string[];
+}
+
+const GENERAL_SUGGESTIONS: SuggestionEntry[] = [
+  {
+    title: 'Cursed Shrines & Risk-Reward Dungeon Altars',
+    category: 'Dungeon Variety',
+    summary: 'Optional interactive shrines inside combat rooms that let the party gamble for bigger rewards.',
+    ideas: [
+      'Greed Altar: Summon 1 extra Elite mob wave for a guaranteed Chest + +60% Gold.',
+      'Blood Pact: Lose 25% max HP for this floor in exchange for +35% skill damage and faster cooldowns.',
+      'Sanctuary Bell: Restores party flasks once per floor if found down a side hallway.',
+    ],
+  },
+  {
+    title: 'Signature Boss Drops & Unique Weapon Charms',
+    category: 'Progression & Loot',
+    summary: 'Make every major boss drop a signature rare passive charm or weapon upgrade core.',
+    ideas: [
+      'Mecha Reactor Core: Adds lightning chain sparks to your basic blade strikes.',
+      'Void Lens: Leaves a brief shadow decoy after every Dodge Dash.',
+      'Oni Warhorn: Increases parry/stun damage against bosses by +30%.',
+    ],
+  },
+  {
+    title: 'Cross-Weapon Elemental & Co-op Skill Combos',
+    category: 'Teamwork Combat',
+    summary: 'Reward squads that time different weapon skills together inside the same window.',
+    ideas: [
+      'Shatter Combo: Hitting enemies frozen inside Frost Trap with Fire/Cataclysm triggers a bonus AOE burst.',
+      'Consecrated Iron: Shield Slamming inside Holy Sanctuary releases a healing shockwave.',
+      'Marked Execution: Shadow Mark + Sniper Shot deals crit multiplier damage and refunds 3s cooldown.',
+    ],
+  },
+  {
+    title: 'Arena Quick-Ping Wheel & Tactical Floor Callouts',
+    category: 'Co-op Quality of Life',
+    summary: 'Fast non-voice communication markers visible on the floor for 3 seconds.',
+    ideas: [
+      'Press [G] or middle-click to drop "Group Up / Safe Zone", "Focus Here", or "Need Heal" floor pings.',
+      'Automatically highlight players holding aggro or targeted by a tether mechanic.',
+    ],
+  },
+  {
+    title: 'Corrupted Endless Loop Chaos Modifiers',
+    category: 'Replayability',
+    summary: 'After defeating Eclipse Sovereign, let teams pick 1 floor modifier before starting Loop 2+.',
+    ideas: [
+      'Hyper Cooldowns (All skill CDs -35%, enemies deal +25% speed).',
+      'Double Vaults (Every floor spawns 2 Treasure Vaults + Mimic ambushes).',
+      'Glass Cannon Arena (Everyone gains +60% damage dealt and taken).',
+    ],
+  },
+];
+
+const ALBION_EXAMPLE_SUGGESTIONS: SuggestionEntry[] = [
+  {
+    title: '1. Helmet / Chest Armor / Boot Skill Swapping (Build Crafting)',
+    category: 'Albion Online Core Example',
+    summary: 'In Albion Online, your build comes from mixing Weapon (Q/W/E) + Helmet (D) + Chest (R) + Boots (F).',
+    ideas: [
+      'Let Dungeon Bouncer players pick 1 Chest Armor perk (e.g., Cleric Invulnerability Shield, Mercenary Lifesteal, or Plate Aura) and 1 Boot Sprint style (Cooldown Sprint vs. Blink Boots).',
+      'Even with the same Sword or Bow, teammates could customize Tank, Bruiser, or Support variations before entering the dungeon.',
+    ],
+  },
+  {
+    title: '2. Visible Spell Cast Bars + True Skill Interrupts',
+    category: 'Albion Online Combat Depth',
+    summary: 'Albion bosses and elites show a visible orange cast bar before big nukes so tanks and assassins can interrupt them.',
+    ideas: [
+      'Add a bright cast bar under bosses during lethal charge attacks, letting Shield Slam or Kunai Silence cancel the cast and stun the boss for 1.5s.',
+      'Creates huge clutch teamwork moments instead of only dodging bullets.',
+    ],
+  },
+  {
+    title: '3. Avalonian / Crystal Shrine Group Buffs',
+    category: 'Albion Online Group Dungeons',
+    summary: 'Group dungeons in Albion spawn rare interactive shrines granting floor-wide buff auras.',
+    ideas: [
+      'Spawn glowing Shrine pedestals after tough rooms: Cooldown Haste (+25% faster skill recovery), Energy Fountain, or Silver/Gold Magnet Aura.',
+    ],
+  },
+  {
+    title: '4. Tiered Enchanted Weapons (.1 / .2 / .3 Glowing Tiers)',
+    category: 'Albion Online Loot Thrill',
+    summary: 'Finding a weapon in Albion is exciting because chests can roll .1 Green, .2 Blue, or .3 Purple enchanted tiers.',
+    ideas: [
+      'Add .1 Uncommon, .2 Rare, and .3 Exceptional glows to Weapon Drops from Vaults & Boss Chests, giving bonus attack damage and -10% to -20% skill cooldowns.',
+    ],
+  },
+  {
+    title: '5. Destiny Board / Weapon Mastery XP Between Runs',
+    category: 'Albion Online Progression',
+    summary: 'Albion’s Destiny Board rewards sticking with your favorite weapon line by permanently leveling its Specialization.',
+    ideas: [
+      'Track local Fame earned per Weapon Class (Sword, Bow, Staff, Shield, Blades) so leveling Sword Mastery unlocks subtle permanent perks or cosmetic aura trails.',
+    ],
+  },
+  {
+    title: '6. Corrupted Dungeon Invasion / Survival Contracts',
+    category: 'Albion Online High-Stakes Mode',
+    summary: 'Optional Crystal Altar at the start of a floor that raises enemy difficulty in exchange for guaranteed top-tier loot.',
+    ideas: [
+      'Activate the "Infamy Shrine" on Floor 1 to spawn roaming Mini-Boss hunters and unlock bonus Score Rank (SSS+) rewards.',
+    ],
+  },
+];
+
+const SUGGESTIONS_UNLOCK_STORAGE_KEY = 'dungeon_bouncer_suggestions_unlocked_v1';
+
+export const SuggestionsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [unlocked, setUnlocked] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(SUGGESTIONS_UNLOCK_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [albionMode, setAlbionMode] = useState(false);
+
+  const handleUnlockSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    soundEngine.unlock();
+    if (passwordInput.trim() === 'blink123') {
+      soundEngine.playBoonSelect();
+      setUnlocked(true);
+      setPwError(null);
+      try {
+        sessionStorage.setItem(SUGGESTIONS_UNLOCK_STORAGE_KEY, '1');
+      } catch {
+        // ignore
+      }
+    } else {
+      soundEngine.playUiClick();
+      setPwError('Incorrect password. Access denied.');
+    }
+  };
+
+  if (!unlocked) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+        <form
+          onSubmit={handleUnlockSubmit}
+          className="w-full max-w-md bg-[#08070e] border border-amber-500/60 rounded-lg p-6 space-y-4 shadow-[0_0_45px_rgba(245,158,11,0.2)]"
+        >
+          <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Lock className="w-5 h-5 text-amber-400" />
+              <div>
+                <h2 className="font-arcade text-xs sm:text-sm text-amber-200 tracking-wide">
+                  SUGGESTIONS VAULT
+                </h2>
+                <p className="font-mono-num text-[11px] text-stone-400">
+                  Password required to view developer ideas
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onClose();
+              }}
+              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer"
+              aria-label="Close Suggestions"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block font-mono-num text-xs text-stone-300 font-semibold">
+              Access Password
+            </label>
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={(e) => {
+                setPasswordInput(e.target.value);
+                if (pwError) setPwError(null);
+              }}
+              placeholder="Enter password..."
+              autoFocus
+              className="w-full px-3.5 py-2.5 rounded bg-black border border-stone-700 focus:border-amber-400 outline-none font-mono-num text-sm text-white"
+            />
+            {pwError && (
+              <p className="font-mono-num text-xs text-rose-400 font-semibold">{pwError}</p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onClose();
+              }}
+              className="px-4 py-2 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 rounded bg-amber-600 hover:bg-amber-500 border border-amber-400/80 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
+            >
+              <Lightbulb className="w-3.5 h-3.5" />
+              <span>Unlock Suggestions</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  const activeList = albionMode ? ALBION_EXAMPLE_SUGGESTIONS : GENERAL_SUGGESTIONS;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl max-h-[88dvh] bg-[#08070d] border border-amber-500/60 rounded-lg p-5 sm:p-6 shadow-[0_0_45px_rgba(245,158,11,0.2)] flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-800 pb-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Lightbulb className="w-5 h-5 text-amber-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="font-arcade text-sm sm:text-base text-amber-200 tracking-wide">
+                {albionMode ? 'ALBION ONLINE EXAMPLE IDEAS' : 'GAMEPLAY SUGGESTIONS'}
+              </h2>
+              <p className="font-mono-num text-[11px] text-stone-400">
+                {albionMode
+                  ? 'Systems inspired by Albion Online to deepen Dungeon Bouncer'
+                  : 'Curated ideas to make Dungeon Bouncer combat, loot, and co-op more fun'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                setAlbionMode((m) => !m);
+              }}
+              className={`px-3 py-1.5 rounded border font-mono-num text-[11px] font-bold cursor-pointer transition-colors flex items-center gap-1.5 ${
+                albionMode
+                  ? 'bg-amber-600 border-amber-300 text-white shadow-[0_0_14px_rgba(245,158,11,0.45)]'
+                  : 'bg-amber-950/70 hover:bg-amber-900/70 border-amber-500/70 text-amber-200'
+              }`}
+              title="Switch between general Dungeon Bouncer ideas and Albion Online examples"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>{albionMode ? 'Albion Online: ON' : 'Albion Online Example'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playUiClick();
+                onClose();
+              }}
+              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer shrink-0"
+              aria-label="Close Suggestions"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+          {activeList.map((item) => (
+            <div
+              key={item.title}
+              className={`rounded-md border p-3.5 space-y-2 ${
+                albionMode
+                  ? 'bg-amber-950/20 border-amber-500/55'
+                  : 'bg-black/70 border-stone-800/90'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono-num text-xs font-extrabold text-amber-300">
+                  {item.title}
+                </span>
+                <span className="font-mono-num text-[10px] font-semibold text-stone-400">
+                  {item.category}
+                </span>
+              </div>
+              <p className="text-xs text-stone-300 leading-relaxed">{item.summary}</p>
+              <ul className="space-y-1 text-xs text-stone-300 pl-3.5 list-disc marker:text-amber-400">
+                {item.ideas.map((line, idx) => (
+                  <li key={idx} className="leading-relaxed">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div className="pt-2 border-t border-stone-800 flex items-center justify-between gap-2 shrink-0">
+          <span className="font-mono-num text-[10px] text-stone-500">
+            Click &quot;Albion Online Example&quot; above to compare systems
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              onClose();
+            }}
+            className="px-5 py-2 rounded bg-amber-600 hover:bg-amber-500 border border-amber-400/70 text-white text-xs font-semibold cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 

@@ -1,4 +1,4 @@
-import { GameRuntime, getTentacleSegments } from './engine';
+import { GameRuntime, getBossVariantDef, getTentacleSegments } from './engine';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, Enemy, getGateHallwayBounds, Player, PlayerId, WEAPONS_CATALOG } from './types';
 
 // Offscreen caches to eliminate per-frame shadowBlur and radial gradient allocations
@@ -2113,78 +2113,6 @@ function drawEclipseBoss(ctx: CanvasRenderingContext2D, rt: GameRuntime, now: nu
     });
   }
 
-  // 2P Co-op Solar & Lunar Seals (twin_beacons)
-  if (rt.eclipseBeacons.length > 0) {
-    if (rt.eclipseBeacons.length === 2) {
-      const b1 = rt.eclipseBeacons[0];
-      const b2 = rt.eclipseBeacons[1];
-      ctx.save();
-      ctx.strokeStyle = rt.eclipseSyncTimer > 0 ? '#fde047' : 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = rt.eclipseSyncTimer > 0 ? 4 : 2;
-      ctx.setLineDash([10, 8]);
-      ctx.beginPath();
-      ctx.moveTo(b1.x, b1.y);
-      ctx.lineTo(b2.x, b2.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
-
-    rt.eclipseBeacons.forEach((beacon) => {
-      if (!beacon.active) return;
-      const isSolar = beacon.role === 'solar';
-      const col = isSolar ? '#fbbf24' : '#38bdf8';
-      ctx.save();
-
-      // Resonance Beam shooting from occupied Seal into Solaris & Lunaris
-      if (beacon.occupied) {
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 3 + (rt.eclipseSyncTimer / 0.65) * 6;
-        ctx.globalAlpha = 0.45 + (rt.eclipseSyncTimer / 0.65) * 0.5;
-        ctx.beginPath();
-        ctx.moveTo(beacon.x, beacon.y);
-        ctx.lineTo(cx, cy);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-
-      ctx.fillStyle = beacon.occupied
-        ? isSolar
-          ? 'rgba(251, 191, 36, 0.3)'
-          : 'rgba(56, 189, 248, 0.3)'
-        : isSolar
-        ? 'rgba(251, 191, 36, 0.1)'
-        : 'rgba(56, 189, 248, 0.1)';
-      ctx.beginPath();
-      ctx.arc(beacon.x, beacon.y, beacon.radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = col;
-      ctx.lineWidth = beacon.occupied ? 4 : 2.5;
-      ctx.setLineDash([14, 6]);
-      ctx.lineDashOffset = -(now / 35) * (isSolar ? 1 : -1);
-      ctx.beginPath();
-      ctx.arc(beacon.x, beacon.y, beacon.radius, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      if (rt.eclipseSyncTimer > 0) {
-        const pct = Math.min(1, rt.eclipseSyncTimer / 0.65);
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(beacon.x, beacon.y, beacon.radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
-        ctx.stroke();
-      }
-
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 11px "Press Start 2P", monospace';
-      ctx.fillStyle = col;
-      ctx.fillText(isSolar ? 'P1 SOLAR SEAL' : 'P2 LUNAR SEAL', beacon.x, beacon.y + 4);
-      ctx.restore();
-    });
-  }
-
   // Synchronized Eclipse Pylons + live connecting tether
   if (rt.eclipsePylons.length === 2) {
     const py1 = rt.eclipsePylons[0];
@@ -2719,24 +2647,8 @@ function drawDirectionalIndicators(ctx: CanvasRenderingContext2D, rt: GameRuntim
     }
   }
 
-  // 5. Eclipse Co-op Seals & Pylons
+  // 5. Eclipse Co-op Pylons
   if (rt.isBossLevel && rt.bossType === 'eclipse') {
-    for (let i = 0; i < rt.eclipseBeacons.length; i++) {
-      const b = rt.eclipseBeacons[i];
-      if (!b.active) continue;
-      drawEdgeIndicator(
-        ctx,
-        b.x,
-        b.y,
-        refX,
-        refY,
-        b.role === 'lunar' ? '#38bdf8' : '#fbbf24',
-        '◎',
-        b.role === 'lunar' ? 'P2 SEAL' : 'P1 SEAL',
-        rt,
-        now
-      );
-    }
     for (let i = 0; i < rt.eclipsePylons.length; i++) {
       const py = rt.eclipsePylons[i];
       if (!py.active) continue;
@@ -3096,45 +3008,68 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
         ctx.fillStyle = '#fda4af';
         ctx.fillText(markMsg, tcx, tcy - 38);
       }
-    } else if (rt.boss.channelKind === 'overload_pylons' && rt.boss.channelNodes) {
-      rt.boss.channelNodes.forEach((node, idx) => {
-        const pulse = 0.72 + Math.sin(now / 75 + idx) * 0.25;
-        ctx.strokeStyle = node.activated ? 'rgba(52, 211, 153, 0.9)' : 'rgba(34, 211, 238, 0.75)';
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([10, 6]);
-        ctx.lineDashOffset = -(now / 22);
+    } else if (rt.boss.channelKind === 'bow_weakpoint') {
+      const shockR = 148;
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.08)';
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shockR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.72)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shockR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Target sniper lock crosshairs around boss
+      const lockR = rt.boss.size * 0.85 + Math.sin(now / 90) * 6;
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, lockR, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2 + now / 900;
         ctx.beginPath();
-        ctx.moveTo(bcx, bcy);
-        ctx.lineTo(node.x, node.y);
+        ctx.moveTo(bcx + Math.cos(a) * (lockR - 12), bcy + Math.sin(a) * (lockR - 12));
+        ctx.lineTo(bcx + Math.cos(a) * (lockR + 14), bcy + Math.sin(a) * (lockR + 14));
         ctx.stroke();
-        ctx.setLineDash([]);
+      }
 
-        ctx.fillStyle = node.activated ? 'rgba(16, 185, 129, 0.28)' : 'rgba(6, 182, 212, 0.16)';
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-        ctx.fill();
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const bwMsg = `WEAKPOINT CORE · BOW 3X DMG (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 4})`;
+      ctx.strokeText(bwMsg, bcx, bcy + shockR + 20);
+      ctx.fillStyle = '#34d399';
+      ctx.fillText(bwMsg, bcx, bcy + shockR + 20);
+    } else if (rt.boss.channelKind === 'emp_interrupt') {
+      const pulseR = 90 + frac * 420;
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, pulseR, 0, Math.PI * 2);
+      ctx.fill();
 
-        ctx.strokeStyle = node.activated ? '#34d399' : `rgba(34, 211, 238, ${pulse})`;
-        ctx.lineWidth = node.activated ? 4.5 : 3;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-        ctx.stroke();
+      ctx.strokeStyle = 'rgba(232, 121, 249, 0.78)';
+      ctx.lineWidth = 3.5;
+      ctx.setLineDash([14, 8]);
+      ctx.lineDashOffset = -(now / 18);
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, pulseR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-        ctx.strokeStyle = node.activated ? '#a7f3d0' : '#fbbf24';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, Math.max(12, node.r * (1 - frac)), 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 9px "Press Start 2P", monospace';
-        ctx.strokeStyle = '#020617';
-        ctx.lineWidth = 3.5;
-        const nLabel = node.activated ? `PYLON ${idx + 1} LOCKED!` : `STAND PYLON ${idx + 1}!`;
-        ctx.strokeText(nLabel, node.x, node.y - node.r - 10);
-        ctx.fillStyle = node.activated ? '#6ee7b7' : '#67e8f9';
-        ctx.fillText(nLabel, node.x, node.y - node.r - 10);
-      });
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const empMsg = `UNAVOIDABLE EMP · ASSASSIN INTERRUPT (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 3})`;
+      ctx.strokeText(empMsg, bcx, bcy - rt.boss.size * 0.9 - 14);
+      ctx.fillStyle = '#f0abfc';
+      ctx.fillText(empMsg, bcx, bcy - rt.boss.size * 0.9 - 14);
     } else if (rt.boss.channelKind === 'abyss_tether' && rt.boss.channelTetherPair) {
       const [idA, idB] = rt.boss.channelTetherPair;
       const pA = rt.players.find((pl) => pl.id === idA && pl.state === 'alive');
@@ -4255,8 +4190,8 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       const maxT = rt.boss.channelMaxTimer || 3.5;
       const frac = 1 - Math.max(0, Math.min(1, (rt.boss.channelTimer || 0) / maxT));
       ctx.save();
-      if (rt.boss.channelKind === 'interrupt') {
-        ctx.strokeStyle = 'rgba(192, 132, 252, 0.85)';
+      if (rt.boss.channelKind === 'interrupt' || rt.boss.channelKind === 'emp_interrupt') {
+        ctx.strokeStyle = rt.boss.channelKind === 'emp_interrupt' ? 'rgba(232, 121, 249, 0.92)' : 'rgba(192, 132, 252, 0.85)';
         ctx.lineWidth = 4;
         ctx.setLineDash([10, 6]);
         ctx.lineDashOffset = -(now / 22);
@@ -4270,8 +4205,8 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
             ? '#38bdf8'
             : rt.boss.channelKind === 'cursed_floor' || rt.boss.channelKind === 'meteor_soak'
             ? '#fbbf24'
-            : rt.boss.channelKind === 'overload_pylons'
-            ? '#22d3ee'
+            : rt.boss.channelKind === 'bow_weakpoint'
+            ? '#34d399'
             : rt.boss.channelKind === 'abyss_tether' || rt.boss.channelKind === 'gravity_storm'
             ? '#c084fc'
             : rt.boss.channelKind === 'demon_seal_purge'
@@ -4717,18 +4652,19 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        const boxTop = viewH - 178;
+        const vDef = getBossVariantDef('mecha', b.variantId);
+        const boxTop = viewH - 182;
         const padX = Math.min(40, Math.round(viewW * 0.04));
         const slant = Math.min(46, Math.round(viewW * 0.05));
         ctx.fillStyle = 'rgba(4, 12, 24, 0.92)';
         ctx.beginPath();
-        ctx.moveTo(padX, boxTop + 110);
+        ctx.moveTo(padX, boxTop + 114);
         ctx.lineTo(padX + slant, boxTop);
         ctx.lineTo(viewW - padX, boxTop);
-        ctx.lineTo(viewW - padX - slant, boxTop + 110);
+        ctx.lineTo(viewW - padX - slant, boxTop + 114);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#38bdf8';
+        ctx.strokeStyle = vDef.accent;
         ctx.lineWidth = 2.5;
         ctx.stroke();
 
@@ -4736,18 +4672,22 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
         ctx.textAlign = 'left';
         ctx.fillStyle = '#ef4444';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('UNIT-01 // PROTOCOL OMEGA · IRON DEPTHS', txLeft, boxTop + 26);
+        ctx.fillText(`UNIT-01 // ${vDef.shortName} · ${vDef.subtitle.toUpperCase()}`, txLeft, boxTop + 24);
 
         ctx.fillStyle = '#f8fafc';
-        ctx.font = `bold ${viewW < 640 ? 26 : 38}px "Cinzel", Georgia, serif`;
+        ctx.font = `bold ${viewW < 640 ? 24 : 36}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('IRON DESTROYER', txLeft, boxTop + 68);
-        ctx.fillText('IRON DESTROYER', txLeft, boxTop + 68);
+        ctx.strokeText('IRON DESTROYER', txLeft, boxTop + 62);
+        ctx.fillText('IRON DESTROYER', txLeft, boxTop + 62);
+
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`RECOMMENDED GEAR: ${vDef.suggestedLabel.toUpperCase()}`, txLeft, boxTop + 88);
 
         ctx.fillStyle = '#bae6fd';
-        ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“TARGET ACQUIRED. INITIATING ORBITAL ANNIHILATION.”', txLeft, boxTop + 94);
+        ctx.font = 'italic 11px "JetBrains Mono", monospace';
+        ctx.fillText('“TARGET ACQUIRED. INITIATING ORBITAL ANNIHILATION.”', txLeft, boxTop + 106);
       }
     } else if (rt.bossType === 'void') {
       // VOID: Reality Fracture Vignette -> Sudden Darkness Stare -> Ghostly Echo Cut-In
@@ -4773,10 +4713,11 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        const ty = viewH - 124;
+        const vDef = getBossVariantDef('void', b.variantId);
+        const ty = viewH - 132;
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(244, 63, 94, 0.35)';
-        ctx.font = `bold ${viewW < 640 ? 30 : 42}px "Cinzel", Georgia, serif`;
+        ctx.font = `bold ${viewW < 640 ? 28 : 40}px "Cinzel", Georgia, serif`;
         ctx.fillText('VOID PHANTOM', viewW / 2 - 4, ty - 2);
 
         ctx.fillStyle = '#f5d0fe';
@@ -4787,11 +4728,15 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
 
         ctx.fillStyle = '#c084fc';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('SOVEREIGN OF THE ABYSS · RIFT EMPEROR', viewW / 2, ty - 42);
+        ctx.fillText(`${vDef.shortName} · ${vDef.subtitle.toUpperCase()}`, viewW / 2, ty - 42);
+
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`RECOMMENDED GEAR: ${vDef.suggestedLabel.toUpperCase()}`, viewW / 2, ty + 24);
 
         ctx.fillStyle = '#e7e5e4';
-        ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“STEP INTO THE RIFT... AND BE UNMADE.”', viewW / 2, ty + 28);
+        ctx.font = 'italic 11px "JetBrains Mono", monospace';
+        ctx.fillText('“STEP INTO THE RIFT... AND BE UNMADE.”', viewW / 2, ty + 44);
       }
     } else if (rt.bossType === 'oni') {
       // ONI: Blood-Moon Crimson Vignette + Japanese War-Scroll Kanji Crest & Ink Ribbon
@@ -4822,40 +4767,45 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.fillRect(0, viewH - barH, viewW, barH);
 
       if (rt.bossNameReveal) {
-        const boxTop = viewH - 174;
+        const vDef = getBossVariantDef('oni', b.variantId);
+        const boxTop = viewH - 180;
         ctx.fillStyle = 'rgba(18, 4, 2, 0.92)';
-        ctx.fillRect(0, boxTop, viewW, 108);
-        ctx.strokeStyle = '#f97316';
+        ctx.fillRect(0, boxTop, viewW, 114);
+        ctx.strokeStyle = vDef.accent;
         ctx.lineWidth = 2.5;
-        ctx.strokeRect(-4, boxTop, viewW + 8, 108);
+        ctx.strokeRect(-4, boxTop, viewW + 8, 114);
 
         const stampX = Math.max(24, Math.round(viewW * 0.06));
         ctx.fillStyle = '#991b1b';
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2.5;
-        ctx.fillRect(stampX, boxTop + 16, 76, 76);
-        ctx.strokeRect(stampX, boxTop + 16, 76, 76);
+        ctx.fillRect(stampX, boxTop + 18, 76, 76);
+        ctx.strokeRect(stampX, boxTop + 18, 76, 76);
         ctx.fillStyle = '#fef08a';
         ctx.font = 'bold 34px serif';
         ctx.textAlign = 'center';
-        ctx.fillText('鬼', stampX + 38, boxTop + 66);
+        ctx.fillText('鬼', stampX + 38, boxTop + 68);
 
         const txLeft = stampX + 96;
         ctx.textAlign = 'left';
         ctx.fillStyle = '#fb923c';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('EIGHT GATES UNSEALED · DEMON SHOGUN OF THE SANCTUM', txLeft, boxTop + 26);
+        ctx.fillText(`${vDef.shortName} · ${vDef.subtitle.toUpperCase()}`, txLeft, boxTop + 24);
 
         ctx.fillStyle = '#fef3c7';
-        ctx.font = `bold ${viewW < 640 ? 28 : 40}px "Cinzel", Georgia, serif`;
+        ctx.font = `bold ${viewW < 640 ? 26 : 38}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('YAMATA-ONI', txLeft, boxTop + 69);
-        ctx.fillText('YAMATA-ONI', txLeft, boxTop + 69);
+        ctx.strokeText('YAMATA-ONI', txLeft, boxTop + 62);
+        ctx.fillText('YAMATA-ONI', txLeft, boxTop + 62);
+
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`RECOMMENDED GEAR: ${vDef.suggestedLabel.toUpperCase()}`, txLeft, boxTop + 86);
 
         ctx.fillStyle = '#fed7aa';
-        ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“EIGHT SERPENTS HUNGER. PROVE YOUR BLADE, MORTAL.”', txLeft, boxTop + 94);
+        ctx.font = 'italic 11px "JetBrains Mono", monospace';
+        ctx.fillText('“EIGHT SERPENTS HUNGER. PROVE YOUR BLADE, MORTAL.”', txLeft, boxTop + 104);
       }
     } else {
       // ECLIPSE: Twin Solar-Gold (Left) & Lunar-Cyan (Right) Aura Convergence + Royal Centerpiece
@@ -4885,10 +4835,11 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.stroke();
 
       if (rt.bossNameReveal) {
-        const boxTop = viewH - 178;
+        const vDef = getBossVariantDef('eclipse', b.variantId);
+        const boxTop = viewH - 182;
         const padX = Math.min(64, Math.round(viewW * 0.06));
         ctx.fillStyle = 'rgba(6, 5, 16, 0.9)';
-        ctx.fillRect(padX, boxTop, viewW - padX * 2, 114);
+        ctx.fillRect(padX, boxTop, viewW - padX * 2, 118);
 
         const gradBorder = ctx.createLinearGradient(padX, 0, viewW - padX, 0);
         gradBorder.addColorStop(0, '#fbbf24');
@@ -4896,23 +4847,27 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
         gradBorder.addColorStop(1, '#38bdf8');
         ctx.strokeStyle = gradBorder;
         ctx.lineWidth = 2.5;
-        ctx.strokeRect(padX, boxTop, viewW - padX * 2, 114);
+        ctx.strokeRect(padX, boxTop, viewW - padX * 2, 118);
 
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fde68a';
         ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillText('ASTRAL CONVERGENCE · TWIN SOVEREIGNS OF THE ECLIPSE', viewW / 2, boxTop + 24);
+        ctx.fillText(`${vDef.shortName} · ${vDef.subtitle.toUpperCase()}`, viewW / 2, boxTop + 22);
 
-        ctx.font = `bold ${viewW < 640 ? 26 : 38}px "Cinzel", Georgia, serif`;
+        ctx.font = `bold ${viewW < 640 ? 24 : 36}px "Cinzel", Georgia, serif`;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 5;
-        ctx.strokeText('SOLARIS & LUNARIS', viewW / 2, boxTop + 68);
+        ctx.strokeText('SOLARIS & LUNARIS', viewW / 2, boxTop + 62);
         ctx.fillStyle = gradBorder;
-        ctx.fillText('SOLARIS & LUNARIS', viewW / 2, boxTop + 68);
+        ctx.fillText('SOLARIS & LUNARIS', viewW / 2, boxTop + 62);
+
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.fillText(`RECOMMENDED GEAR: ${vDef.suggestedLabel.toUpperCase()}`, viewW / 2, boxTop + 86);
 
         ctx.fillStyle = '#e7e5e4';
-        ctx.font = 'italic 12px "JetBrains Mono", monospace';
-        ctx.fillText('“SUN AND MOON CONVERGE. ENDURE OR BE OBLITERATED.”', viewW / 2, boxTop + 96);
+        ctx.font = 'italic 11px "JetBrains Mono", monospace';
+        ctx.fillText('“SUN AND MOON CONVERGE. ENDURE OR BE OBLITERATED.”', viewW / 2, boxTop + 106);
       }
     }
   }

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FastForward, Maximize2, Minimize2, Play, RotateCcw, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { FastForward, Lightbulb, Maximize2, Minimize2, Play, RotateCcw, Smartphone, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { soundEngine } from '../game/soundEngine';
 
 const INTRO_TOTAL_SECONDS = 10.0;
@@ -552,9 +552,12 @@ interface LandingSplashProps {
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  mobileMode?: boolean;
+  onToggleMobileMode?: () => void;
   onStart: () => void;
   onReplayIntro: () => void;
   onOpenUpdates?: () => void;
+  onOpenSuggestions?: () => void;
 }
 
 export const LandingSplash: React.FC<LandingSplashProps> = ({
@@ -563,9 +566,12 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
+  mobileMode = false,
+  onToggleMobileMode,
   onStart,
   onReplayIntro,
   onOpenUpdates,
+  onOpenSuggestions,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -749,25 +755,51 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
           DUNGEON BOUNCER
         </h1>
 
-        <button
-          type="button"
-          onClick={() => {
-            soundEngine.unlock();
-            soundEngine.playBoonSelect();
-            onStart();
-          }}
-          className="min-h-[52px] px-12 py-3.5 rounded-md bg-gradient-to-r from-red-700 via-red-600 to-amber-600 hover:from-red-600 hover:to-amber-500 border border-amber-400/70 text-white font-arcade text-sm sm:text-base tracking-widest flex items-center gap-3 whitespace-nowrap cursor-pointer transition-all hover:scale-[1.03] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-amber-300 shadow-[0_0_32px_rgba(220,38,38,0.45)]"
-        >
-          <Play className="w-4 h-4 fill-current" />
-          <span>Start</span>
-        </button>
+        <div className="flex flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.unlock();
+              soundEngine.playBoonSelect();
+              onStart();
+            }}
+            className="min-h-[52px] px-12 py-3.5 rounded-md bg-gradient-to-r from-red-700 via-red-600 to-amber-600 hover:from-red-600 hover:to-amber-500 border border-amber-400/70 text-white font-arcade text-sm sm:text-base tracking-widest flex items-center gap-3 whitespace-nowrap cursor-pointer transition-all hover:scale-[1.03] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-amber-300 shadow-[0_0_32px_rgba(220,38,38,0.45)]"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>Start</span>
+          </button>
+
+          {onToggleMobileMode && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onToggleMobileMode();
+              }}
+              className={`min-h-[44px] px-5 py-2 rounded-md border font-mono-num text-xs font-bold flex items-center gap-2 whitespace-nowrap cursor-pointer transition-all ${
+                mobileMode
+                  ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.28)]'
+                  : 'bg-[#09090e]/85 hover:bg-stone-900 border-stone-700 text-stone-300 hover:border-amber-500/70 hover:text-amber-200'
+              }`}
+            >
+              <Smartphone className={`w-4 h-4 ${mobileMode ? 'text-emerald-300' : 'text-amber-300'}`} />
+              <span>Mobile Mode: {mobileMode ? 'ON' : 'OFF'}</span>
+              {mobileMode && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-black text-[9px] font-extrabold">
+                  TOUCH READY
+                </span>
+              )}
+            </button>
+          )}
+        </div>
       </main>
 
       {/* Quiet Footer */}
       <footer className="relative z-10 w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <span className="font-mono-num text-[11px] text-amber-400/85 font-semibold tracking-wider uppercase">
-            beta test 0.1.2
+            beta test 0.1.5
           </span>
           {onOpenUpdates && (
             <button
@@ -781,6 +813,20 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5 text-purple-300" />
               <span>New Updates</span>
+            </button>
+          )}
+          {onOpenSuggestions && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onOpenSuggestions();
+              }}
+              className="min-h-[34px] px-3 py-1 rounded-md bg-amber-950/55 hover:bg-amber-900/65 border border-amber-500/60 text-amber-200 font-mono-num text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <Lightbulb className="w-3.5 h-3.5 text-amber-300" />
+              <span>Suggestions</span>
             </button>
           )}
         </div>

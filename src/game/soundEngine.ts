@@ -644,10 +644,14 @@ class SoundEngine {
         this.darkBrass(98.0, 0.7, 0.28);
         this.tone(523.25, 515.0, 0.75, 'sine', 0.22, 'sfx', 0.04);
         break;
-      case 'twin_beacons':
       case 'twin_pylons':
+      case 'bow_weakpoint':
         this.darkBrass(146.83, 0.6, 0.26);
         this.tone(783.99, 1174.66, 0.35, 'sine', 0.22, 'sfx', 0.03);
+        break;
+      case 'emp_interrupt':
+        this.darkBrass(82.41, 0.72, 0.34);
+        this.tone(620, 180, 0.45, 'sawtooth', 0.28, 'sfx', 0, 1800);
         break;
       case 'eclipse_tether':
       case 'eclipse_convergence':

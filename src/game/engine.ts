@@ -5762,11 +5762,12 @@ function updatePracticeBot(rt: GameRuntime, bot: Player, dt: number) {
   const dy = targetY - (bot.y + bot.size / 2);
   const dist = Math.hypot(dx, dy);
   if (dist > 8) {
-    const step = Math.min(dist, bot.speed * 1.05 * (dt * 60));
-    bot.vx = (dx / dist) * step;
-    bot.vy = (dy / dist) * step;
-    bot.x += bot.vx;
-    bot.y += bot.vy;
+    const baseSpd = bot.speed * 1.05;
+    const step = Math.min(dist, baseSpd * (dt * 60));
+    bot.vx = (dx / dist) * Math.min(baseSpd, dist);
+    bot.vy = (dy / dist) * Math.min(baseSpd, dist);
+    bot.x += (dx / dist) * step;
+    bot.y += (dy / dist) * step;
   } else {
     bot.vx = 0;
     bot.vy = 0;
@@ -6085,10 +6086,10 @@ function updatePlayer(
 
   if (p.chargeTimer > 0) {
     const chargeSpeed = 16.5;
-    p.vx = p.dashDirX * chargeSpeed * (dt * 60);
-    p.vy = p.dashDirY * chargeSpeed * (dt * 60);
-    p.x += p.vx;
-    p.y += p.vy;
+    p.vx = p.dashDirX * chargeSpeed;
+    p.vy = p.dashDirY * chargeSpeed;
+    p.x += p.vx * (dt * 60);
+    p.y += p.vy * (dt * 60);
     if (p.dashTrail.length < 10) {
       p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.75, color: '#38bdf8', angle: p.facingAngle });
     }
@@ -6113,11 +6114,11 @@ function updatePlayer(
     if (p.dashImmune && p.dashTimeLeft <= 0) {
       p.dashImmune = false;
     }
-    const moveSpeed = p.speed * speedMult * (dt * 60);
+    const moveSpeed = p.speed * speedMult;
     p.vx = dirX * moveSpeed;
     p.vy = dirY * moveSpeed;
-    p.x += p.vx;
-    p.y += p.vy;
+    p.x += p.vx * (dt * 60);
+    p.y += p.vy * (dt * 60);
   }
 
   clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
@@ -8937,7 +8938,7 @@ function pointToSegmentDist(px: number, py: number, x1: number, y1: number, x2: 
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
-function updateCamera(rt: GameRuntime, dt: number) {
+export function updateCamera(rt: GameRuntime, dt: number) {
   if (!rt.isBossLevel && rt.arenaWidth <= CANVAS_WIDTH) {
     rt.camera.x = CANVAS_WIDTH / 2;
     rt.camera.y = CANVAS_HEIGHT / 2;

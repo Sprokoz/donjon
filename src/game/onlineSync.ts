@@ -1,5 +1,5 @@
 import Peer, { DataConnection } from 'peerjs';
-import { TouchInputState, GameRuntime, PersistedRoomState } from './engine';
+import { TouchInputState, GameRuntime, PersistedRoomState, updateCamera } from './engine';
 import { SfxSyncEvent } from './soundEngine';
 import {
   AmbientMote,
@@ -351,6 +351,10 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function r3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
 export function serializeRuntimeForSync(
   rt: GameRuntime,
   optimizeConnection = false,
@@ -448,9 +452,9 @@ export function serializeRuntimeForSync(
     arenaWidth: rt.arenaWidth,
     arenaHeight: rt.arenaHeight,
     camera: {
-      x: r1(rt.camera.x),
-      y: r1(rt.camera.y),
-      zoom: r2(rt.camera.zoom),
+      x: r2(rt.camera.x),
+      y: r2(rt.camera.y),
+      zoom: r3(rt.camera.zoom),
     },
     bossVoiceLine: rt.bossVoiceLine,
     bossVoiceTimer: r1(rt.bossVoiceTimer),
@@ -464,10 +468,10 @@ export function serializeRuntimeForSync(
       potions: p.potions,
       potionCooldownTimer: r1(p.potionCooldownTimer),
       coins: p.coins,
-      x: r1(p.x),
-      y: r1(p.y),
-      vx: r1(p.vx),
-      vy: r1(p.vy),
+      x: r2(p.x),
+      y: r2(p.y),
+      vx: r2(p.vx),
+      vy: r2(p.vy),
       facingAngle: r2(p.facingAngle),
       size: p.size,
       speed: r2(p.speed),
@@ -570,8 +574,8 @@ export function serializeRuntimeForSync(
     })),
     enemies: rt.enemies.map((e) => ({
       ...e,
-      x: r1(e.x),
-      y: r1(e.y),
+      x: r2(e.x),
+      y: r2(e.y),
       dx: r2(e.dx),
       dy: r2(e.dy),
       speed: r2(e.speed),
@@ -581,11 +585,11 @@ export function serializeRuntimeForSync(
     })),
     boss: {
       ...b,
-      x: r1(b.x),
-      y: r1(b.y),
+      x: r2(b.x),
+      y: r2(b.y),
       health: r0(b.health),
-      targetX: r1(b.targetX),
-      targetY: r1(b.targetY),
+      targetX: r2(b.targetX),
+      targetY: r2(b.targetY),
       animationTimer: r2(b.animationTimer),
       rotationAngle: r2(b.rotationAngle),
       flashIntensity: r2(b.flashIntensity),
@@ -745,10 +749,64 @@ function createGuestAmbientMotes(count = 28, width = CANVAS_WIDTH, height = CANV
   return motes;
 }
 
-function lerpNum(prev: number, target: number, alpha: number, snapThreshold = 95): number {
+function dampNum(prev: number, target: number, rate: number, dt: number, snapThreshold = 140): number {
   const diff = target - prev;
   if (Math.abs(diff) > snapThreshold) return target;
-  return prev + diff * alpha;
+  if (Math.abs(diff) < 0.001) return target;
+  return prev + diff * (1 - Math.exp(-rate * dt));
+}
+
+function dampAngle(prev: number, target: number, rate: number, dt: number): number {
+  let diff = target - prev;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return prev + diff * (1 - Math.exp(-rate * dt));
+}
+
+interface GuestNetState {
+  targetCam: CameraState;
+  playerTargets: Map<PlayerId, { x: number; y: number; vx: number; vy: number; facingAngle: number }>;
+  enemyTargets: Map<number, { x: number; y: number; dx: number; dy: number; speed: number; paused: boolean }>;
+  bossTarget: { x: number; y: number; vx: number; vy: number; lastSnapX: number; lastSnapY: number; lastSnapAt: number };
+  bossProjTargets: Map<number, { x: number; y: number; dx: number; dy: number; speed: number; staticProj: boolean }>;
+  playerProjTargets: Map<number, { x: number; y: number; dx: number; dy: number }>;
+  knifeTargets: Map<PlayerId, { x: number; y: number }>;
+  spiritBombTargets: Map<number, { x: number; y: number }>;
+  localErrX: number;
+  localErrY: number;
+  lastSnapAt: number;
+}
+
+const guestNetStates = new WeakMap<GameRuntime, GuestNetState>();
+
+function getOrCreateGuestNetState(rt: GameRuntime): GuestNetState {
+  let st = guestNetStates.get(rt);
+  if (!st) {
+    const now = performance.now();
+    st = {
+      targetCam: { ...rt.camera },
+      playerTargets: new Map(),
+      enemyTargets: new Map(),
+      bossTarget: {
+        x: rt.boss.x,
+        y: rt.boss.y,
+        vx: 0,
+        vy: 0,
+        lastSnapX: rt.boss.x,
+        lastSnapY: rt.boss.y,
+        lastSnapAt: now,
+      },
+      bossProjTargets: new Map(),
+      playerProjTargets: new Map(),
+      knifeTargets: new Map(),
+      spiritBombTargets: new Map(),
+      localErrX: 0,
+      localErrY: 0,
+      lastSnapAt: now,
+    };
+    guestNetStates.set(rt, st);
+  }
+  return st;
 }
 
 function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
@@ -836,13 +894,29 @@ export interface GuestFloorMapCache {
   floorMap: FloorMapHudSnapshot;
 }
 
+function applyEclipsePrisonClamp(p: Player, rt: GameRuntime) {
+  if (rt.eclipsePrison && rt.eclipsePrison.targetPlayerId === p.id) {
+    const px = p.x + p.size / 2;
+    const py = p.y + p.size / 2;
+    const dxC = px - rt.eclipsePrison.x;
+    const dyC = py - rt.eclipsePrison.y;
+    const dC = Math.hypot(dxC, dyC);
+    const maxR = 22;
+    if (dC > maxR && dC > 0) {
+      p.x = rt.eclipsePrison.x + (dxC / dC) * maxR - p.size / 2;
+      p.y = rt.eclipsePrison.y + (dyC / dC) * maxR - p.size / 2;
+    }
+  }
+}
+
 function stepLocalPredictedMovement(
   p: Player,
   rt: GameRuntime,
   dt: number,
-  input?: TouchInputState
+  input?: TouchInputState,
+  netState?: GuestNetState
 ) {
-  if (!input || p.state !== 'alive' || p.sealed || rt.introPlaying) return;
+  if (!input || p.state !== 'alive' || p.sealed || rt.introPlaying || rt.freezeTime > 0) return;
 
   let dirX = input.x;
   let dirY = input.y;
@@ -855,6 +929,22 @@ function stepLocalPredictedMovement(
     p.facingAngle = Math.atan2(dirY, dirX);
     p.dashDirX = dirX;
     p.dashDirY = dirY;
+  }
+
+  // Smoothly bleed any residual host reconciliation offset across frames (zero sudden jumps)
+  if (netState) {
+    const errMag = Math.hypot(netState.localErrX, netState.localErrY);
+    if (errMag > 0.05) {
+      const fixRate = errMag > 95 ? 11 : 5.5;
+      const stepFrac = 1 - Math.exp(-fixRate * dt);
+      p.x += netState.localErrX * stepFrac;
+      p.y += netState.localErrY * stepFrac;
+      netState.localErrX *= 1 - stepFrac;
+      netState.localErrY *= 1 - stepFrac;
+    } else {
+      netState.localErrX = 0;
+      netState.localErrY = 0;
+    }
   }
 
   // Instant local dash prediction so non-host players feel crisp zero-delay dashes
@@ -874,13 +964,16 @@ function stepLocalPredictedMovement(
   }
   p._lastDashPressed = dashPressed;
 
+  const stepScale = dt * 60;
+
   if (p.chargeTimer > 0) {
-    const cs = 16.5 * (dt * 60);
+    const cs = 16.5;
     p.vx = p.dashDirX * cs;
     p.vy = p.dashDirY * cs;
-    p.x += p.vx;
-    p.y += p.vy;
+    p.x += p.vx * stepScale;
+    p.y += p.vy * stepScale;
     clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+    applyEclipsePrisonClamp(p, rt);
     return;
   }
 
@@ -888,10 +981,10 @@ function stepLocalPredictedMovement(
     const ds = 18.0 * (p.overdriveTimer > 0 ? 1.15 : 1.0);
     const moveX = Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04 ? dirX : p.dashDirX;
     const moveY = Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04 ? dirY : p.dashDirY;
-    p.x += moveX * ds * (dt * 60);
-    p.y += moveY * ds * (dt * 60);
     p.vx = moveX * ds;
     p.vy = moveY * ds;
+    p.x += p.vx * stepScale;
+    p.y += p.vy * stepScale;
     if (p.dashTrail.length < 8) {
       p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.85, color: p.color, angle: p.facingAngle });
     }
@@ -901,6 +994,7 @@ function stepLocalPredictedMovement(
       p.usingDash2 = false;
     }
     clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+    applyEclipsePrisonClamp(p, rt);
     return;
   }
 
@@ -910,16 +1004,150 @@ function stepLocalPredictedMovement(
     (p.bloodlustTimer > 0 ? 1.3 : 1.0) *
     (p.fortifyTimer > 0 ? 0.88 : 1.0);
 
-  const stepScale = dt * 60;
-  const vx = dirX * p.speed * speedMult * stepScale;
-  const vy = dirY * p.speed * speedMult * stepScale;
-  p.vx = vx;
-  p.vy = vy;
-  p.x += vx;
-  p.y += vy;
+  p.vx = dirX * p.speed * speedMult;
+  p.vy = dirY * p.speed * speedMult;
+  p.x += p.vx * stepScale;
+  p.y += p.vy * stepScale;
   clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+  applyEclipsePrisonClamp(p, rt);
   if (Math.abs(dirX) > 0.04 || Math.abs(dirY) > 0.04) {
     p.animTime += dt * 1.4;
+  }
+}
+
+function stepGuestInterpolation(
+  rt: GameRuntime,
+  clampedDt: number,
+  netState: GuestNetState,
+  localPlayerId?: PlayerId,
+  localInput?: TouchInputState
+) {
+  const simDt = clampedDt * Math.max(0.15, Math.min(1.5, rt.timeScale || 1));
+  const frameMult = simDt * 60;
+  const freezePaused = rt.freezeTime > 0;
+
+  rt.players.forEach((p) => {
+    if (p.state === 'alive') {
+      if (localPlayerId !== undefined && p.id === localPlayerId) {
+        stepLocalPredictedMovement(p, rt, simDt, localInput, netState);
+      } else {
+        const tgt = netState.playerTargets.get(p.id);
+        if (tgt) {
+          if (!rt.introPlaying && !freezePaused) {
+            tgt.x += tgt.vx * frameMult * 0.72;
+            tgt.y += tgt.vy * frameMult * 0.72;
+            const decay = Math.pow(0.94, frameMult);
+            tgt.vx *= decay;
+            tgt.vy *= decay;
+          }
+          p.x = dampNum(p.x, tgt.x, 18, simDt, 160);
+          p.y = dampNum(p.y, tgt.y, 18, simDt, 160);
+          p.facingAngle = dampAngle(p.facingAngle, tgt.facingAngle, 20, simDt);
+        } else if (!rt.introPlaying && !freezePaused) {
+          p.x += p.vx * frameMult * 0.72;
+          p.y += p.vy * frameMult * 0.72;
+        }
+        clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
+        if (!rt.introPlaying && !freezePaused) {
+          p.animTime += simDt;
+        }
+      }
+    }
+    for (let ti = p.dashTrail.length - 1; ti >= 0; ti--) {
+      p.dashTrail[ti].alpha -= simDt * 4.2;
+      if (p.dashTrail[ti].alpha <= 0) p.dashTrail.splice(ti, 1);
+    }
+  });
+
+  if (!rt.introPlaying && !freezePaused) {
+    if (
+      rt.isBossLevel &&
+      rt.boss.health > 0 &&
+      rt.boss.state !== 'comic_intro' &&
+      rt.boss.state !== 'dead' &&
+      rt.boss.state !== 'phase_transition'
+    ) {
+      const b = rt.boss;
+      const bt = netState.bossTarget;
+      bt.x += bt.vx * simDt * 0.55;
+      bt.y += bt.vy * simDt * 0.55;
+      const bDecay = Math.exp(-5.5 * simDt);
+      bt.vx *= bDecay;
+      bt.vy *= bDecay;
+      b.x = dampNum(b.x, bt.x, 18, simDt, 160);
+      b.y = dampNum(b.y, bt.y, 18, simDt, 160);
+      b.animationTimer += simDt;
+      b.rotationAngle += simDt * (b.phase === 2 ? 3.2 : 1.8);
+    }
+
+    rt.enemies.forEach((e) => {
+      const et = netState.enemyTargets.get(e.id);
+      if (et) {
+        if (!et.paused) {
+          et.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, et.x + et.dx * et.speed * frameMult * 0.85));
+          et.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, et.y + et.dy * et.speed * frameMult * 0.85));
+        }
+        e.x = dampNum(e.x, et.x, 18, simDt, 120);
+        e.y = dampNum(e.y, et.y, 18, simDt, 120);
+      } else if (!((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph')) {
+        e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + e.dx * e.speed * frameMult * 0.85));
+        e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + e.dy * e.speed * frameMult * 0.85));
+      }
+    });
+
+    rt.bossProjectiles.forEach((bp) => {
+      const bpt = netState.bossProjTargets.get(bp.uid);
+      if (bpt) {
+        if (!bpt.staticProj) {
+          bpt.x += bpt.dx * bpt.speed * frameMult;
+          bpt.y += bpt.dy * bpt.speed * frameMult;
+        }
+        bp.x = dampNum(bp.x, bpt.x, 24, simDt, 130);
+        bp.y = dampNum(bp.y, bpt.y, 24, simDt, 130);
+      } else if (bp.type !== 'mine' && bp.type !== 'phantom_clone') {
+        bp.x += bp.dx * bp.speed * frameMult;
+        bp.y += bp.dy * bp.speed * frameMult;
+      }
+    });
+
+    rt.playerProjectiles.forEach((pp) => {
+      const ppt = netState.playerProjTargets.get(pp.uid);
+      if (ppt) {
+        ppt.x += ppt.dx * frameMult;
+        ppt.y += ppt.dy * frameMult;
+        pp.x = dampNum(pp.x, ppt.x, 24, simDt, 130);
+        pp.y = dampNum(pp.y, ppt.y, 24, simDt, 130);
+      } else {
+        pp.x += pp.dx * frameMult;
+        pp.y += pp.dy * frameMult;
+      }
+    });
+
+    rt.knives.forEach((k) => {
+      const kt = netState.knifeTargets.get(k.owner);
+      if (kt) {
+        k.x = dampNum(k.x, kt.x, 18, simDt, 120);
+        k.y = dampNum(k.y, kt.y, 18, simDt, 120);
+      }
+    });
+
+    rt.oniSpiritBombs.forEach((bm, idx) => {
+      const sbt = netState.spiritBombTargets.get(idx);
+      if (sbt) {
+        bm.x = dampNum(bm.x, sbt.x, 18, simDt, 110);
+        bm.y = dampNum(bm.y, sbt.y, 18, simDt, 110);
+      }
+    });
+  }
+
+  // Smooth 60/120fps Camera tracking: during active play follow Guest's predicted character + smoothed world directly
+  // so camera panning and zooming never stair-step at host snapshot rate
+  if (!rt.introPlaying && !(rt.isBossLevel && rt.boss.state === 'comic_intro')) {
+    updateCamera(rt, clampedDt);
+  } else {
+    rt.camera.x = dampNum(rt.camera.x, netState.targetCam.x, 14, clampedDt, 220);
+    rt.camera.y = dampNum(rt.camera.y, netState.targetCam.y, 14, clampedDt, 220);
+    rt.camera.zoom = dampNum(rt.camera.zoom, netState.targetCam.zoom, 14, clampedDt, 0.55);
   }
 }
 
@@ -930,64 +1158,9 @@ export function advanceGuestDisplayRuntime(
   localInput?: TouchInputState
 ) {
   const clampedDt = Math.max(0.002, Math.min(dt, 0.05));
-  const frameMult = clampedDt * 60;
+  const netState = getOrCreateGuestNetState(rt);
 
-  rt.players.forEach((p) => {
-    if (p.state !== 'alive') return;
-    if (localPlayerId !== undefined && p.id === localPlayerId) {
-      stepLocalPredictedMovement(p, rt, clampedDt, localInput);
-    } else if (!rt.introPlaying) {
-      p.x += p.vx * frameMult * 0.78;
-      p.y += p.vy * frameMult * 0.78;
-      p.vx *= Math.pow(0.9, frameMult);
-      p.vy *= Math.pow(0.9, frameMult);
-      clampPlayerToArenaAndHallways(p, rt.arenaWidth, rt.arenaHeight, rt.gates);
-      p.animTime += clampedDt;
-    }
-    for (let ti = p.dashTrail.length - 1; ti >= 0; ti--) {
-      p.dashTrail[ti].alpha -= clampedDt * 4.2;
-      if (p.dashTrail[ti].alpha <= 0) p.dashTrail.splice(ti, 1);
-    }
-  });
-
-  if (!rt.introPlaying) {
-    if (
-      rt.isBossLevel &&
-      rt.boss.health > 0 &&
-      rt.boss.state !== 'comic_intro' &&
-      rt.boss.state !== 'dead' &&
-      rt.boss.state !== 'phase_transition'
-    ) {
-      const b = rt.boss;
-      const dxB = b.targetX - b.x;
-      const dyB = b.targetY - b.y;
-      const dB = Math.hypot(dxB, dyB);
-      if (dB > 2 && dB < 260) {
-        const moveStep = Math.min(dB, 3.2 * frameMult);
-        b.x += (dxB / dB) * moveStep;
-        b.y += (dyB / dB) * moveStep;
-      }
-      b.animationTimer += clampedDt;
-      b.rotationAngle += clampedDt * (b.phase === 2 ? 3.2 : 1.8);
-    }
-
-    rt.enemies.forEach((e) => {
-      if ((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph') return;
-      e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + e.dx * e.speed * frameMult * 0.88));
-      e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + e.dy * e.speed * frameMult * 0.88));
-    });
-
-    rt.bossProjectiles.forEach((bp) => {
-      if (bp.type === 'mine' || bp.type === 'phantom_clone') return;
-      bp.x += bp.dx * bp.speed * frameMult;
-      bp.y += bp.dy * bp.speed * frameMult;
-    });
-
-    rt.playerProjectiles.forEach((pp) => {
-      pp.x += pp.dx * frameMult;
-      pp.y += pp.dy * frameMult;
-    });
-  }
+  stepGuestInterpolation(rt, clampedDt, netState, localPlayerId, localInput);
 
   rt.energyWaves.forEach((ew) => {
     ew.radius = Math.min(ew.maxRadius, ew.radius + ew.speed * clampedDt);
@@ -1027,9 +1200,9 @@ export function applySyncedSnapshotToGuest(
   localPlayerId?: PlayerId,
   localInput?: TouchInputState
 ): GameRuntime {
-  const clampedDt = Math.max(0.004, Math.min(dt, 0.05));
-  const lerpAlpha = 0.68;
-  const leadSec = Math.min(0.038, Math.max(0, (localPingMs || 0) / 2400)) * 60;
+  const clampedDt = Math.max(0.002, Math.min(dt, 0.05));
+  const leadSec = Math.min(0.04, Math.max(0, (localPingMs || 0) / 2400)) * 60;
+  const now = performance.now();
 
   if (
     !displayRt ||
@@ -1224,118 +1397,225 @@ export function applySyncedSnapshotToGuest(
   displayRt.arenaWidth = snap.arenaWidth;
   displayRt.arenaHeight = snap.arenaHeight;
 
-  displayRt.camera.x = lerpNum(displayRt.camera.x, snap.camera.x, lerpAlpha, 140);
-  displayRt.camera.y = lerpNum(displayRt.camera.y, snap.camera.y, lerpAlpha, 140);
-  displayRt.camera.zoom = lerpNum(displayRt.camera.zoom, snap.camera.zoom, lerpAlpha, 0.4);
+  const netState = getOrCreateGuestNetState(displayRt);
+  const snapElapsed = Math.max(0.016, Math.min(0.25, (now - netState.lastSnapAt) / 1000));
+  netState.lastSnapAt = now;
+  netState.targetCam = { ...snap.camera };
 
   displayRt.bossVoiceLine = snap.bossVoiceLine;
   displayRt.bossVoiceTimer = snap.bossVoiceTimer;
 
+  const activePlayerIds = new Set<PlayerId>();
+  const isMovingLocally = Boolean(
+    localInput && (Math.abs(localInput.x) > 0.04 || Math.abs(localInput.y) > 0.04)
+  );
+
   displayRt.players = snap.players.map((sp, idx) => {
-    const prev = displayRt.players[idx];
+    const prev = displayRt.players.find((pl) => pl.id === sp.id) || displayRt.players[idx];
     const next = hydratePlayer(sp, prev);
+    activePlayerIds.add(sp.id);
     const isLocalGuest = localPlayerId !== undefined && sp.id === localPlayerId;
     if (prev && prev.state === next.state) {
       next._lastDashPressed = prev._lastDashPressed;
       if (isLocalGuest && next.state === 'alive' && !next.sealed && !snap.introPlaying) {
-        // Keep active local predicted dash smooth until host snapshot catches up
-        const localDashInFlight = prev.dashTimeLeft > 0 && sp.dashTimeLeft <= 0 && !sp.dashReady;
-        if (localDashInFlight) {
+        // Preserve active local predicted dash & trail seamlessly
+        const localDashActive = prev.dashTimeLeft > 0;
+        if (localDashActive && sp.dashTimeLeft <= 0 && !sp.dashReady) {
           next.dashTimeLeft = prev.dashTimeLeft;
           next.dashImmune = true;
-          next.dashTrail = prev.dashTrail.map((t) => ({ ...t }));
-          next.x = prev.x;
-          next.y = prev.y;
+          next.usingDash2 = prev.usingDash2;
           next.facingAngle = prev.facingAngle;
           next.dashDirX = prev.dashDirX;
           next.dashDirY = prev.dashDirY;
-        } else if (sp.dashTimeLeft <= 0 && !sp.usingDash2 && sp.chargeTimer <= 0) {
-          // Latency-compensated host position so moving guests aren't pulled backward by half-RTT lag
-          const oneWayFrames = Math.min(0.11, Math.max(0, (localPingMs || 50) / 2000)) * 60;
-          const compHostX = sp.x + sp.vx * oneWayFrames;
-          const compHostY = sp.y + sp.vy * oneWayFrames;
-          const err = Math.hypot(compHostX - prev.x, compHostY - prev.y);
-          if (err > 180) {
-            next.x = compHostX;
-            next.y = compHostY;
-          } else if (err > 38) {
-            const pull = err > 96 ? 0.28 : 0.12;
-            next.x = prev.x + (compHostX - prev.x) * pull;
-            next.y = prev.y + (compHostY - prev.y) * pull;
-          } else {
-            next.x = prev.x;
-            next.y = prev.y;
-          }
-        } else {
-          // Host dashing/charging: blend toward host smoothly
-          next.x = lerpNum(prev.x, sp.x, 0.72, 160);
-          next.y = lerpNum(prev.y, sp.y, 0.72, 160);
         }
-        stepLocalPredictedMovement(next, displayRt, clampedDt, localInput);
+        if (localDashActive || prev.dashTrail.length > 0) {
+          next.dashTrail = prev.dashTrail.map((t) => ({ ...t }));
+        }
+        // Keep current predicted position (zero snap!) and queue excess drift for smooth multi-frame convergence
+        next.x = prev.x;
+        next.y = prev.y;
+        const rawOneWayFrames = Math.min(0.11, Math.max(0, (localPingMs || 50) / 2000)) * 60;
+        const oneWayFrames = isMovingLocally || localDashActive ? rawOneWayFrames : Math.min(rawOneWayFrames, 1.5);
+        const compHostX = sp.x + sp.vx * oneWayFrames;
+        const compHostY = sp.y + sp.vy * oneWayFrames;
+        const dx = compHostX - prev.x;
+        const dy = compHostY - prev.y;
+        const err = Math.hypot(dx, dy);
+        if (err > 200) {
+          next.x = compHostX;
+          next.y = compHostY;
+          netState.localErrX = 0;
+          netState.localErrY = 0;
+        } else if (err > 14 && !(localDashActive && err < 140)) {
+          // Smooth excess outside 14px comfort deadzone (no sudden 38px cliff!)
+          const excess = err - 14;
+          netState.localErrX = (dx / err) * excess;
+          netState.localErrY = (dy / err) * excess;
+        } else {
+          netState.localErrX = 0;
+          netState.localErrY = 0;
+        }
       } else {
         const leadMult = next.state === 'alive' && !snap.introPlaying ? leadSec : 0;
         const targetX = sp.x + sp.vx * leadMult;
         const targetY = sp.y + sp.vy * leadMult;
-        next.x = lerpNum(prev.x, targetX, lerpAlpha, 120);
-        next.y = lerpNum(prev.y, targetY, lerpAlpha, 120);
+        netState.playerTargets.set(sp.id, {
+          x: targetX,
+          y: targetY,
+          vx: sp.vx,
+          vy: sp.vy,
+          facingAngle: sp.facingAngle,
+        });
+        next.x = prev.x;
+        next.y = prev.y;
+        next.facingAngle = prev.facingAngle;
+      }
+    } else {
+      netState.playerTargets.set(sp.id, {
+        x: sp.x,
+        y: sp.y,
+        vx: sp.vx,
+        vy: sp.vy,
+        facingAngle: sp.facingAngle,
+      });
+      if (isLocalGuest) {
+        netState.localErrX = 0;
+        netState.localErrY = 0;
       }
     }
     return next;
   });
+  for (const pid of Array.from(netState.playerTargets.keys())) {
+    if (!activePlayerIds.has(pid)) netState.playerTargets.delete(pid);
+  }
 
+  const activeEnemyIds = new Set<number>();
   displayRt.enemies = snap.enemies.map((e) => {
+    activeEnemyIds.add(e.id);
+    const paused = Boolean((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph');
+    netState.enemyTargets.set(e.id, {
+      x: e.x,
+      y: e.y,
+      dx: e.dx,
+      dy: e.dy,
+      speed: e.speed,
+      paused,
+    });
     const prev = prevEnemiesById.get(e.id);
     if (!prev) return { ...e };
     return {
       ...e,
-      x: lerpNum(prev.x, e.x, lerpAlpha, 95),
-      y: lerpNum(prev.y, e.y, lerpAlpha, 95),
+      x: prev.x,
+      y: prev.y,
     };
   });
+  for (const eid of Array.from(netState.enemyTargets.keys())) {
+    if (!activeEnemyIds.has(eid)) netState.enemyTargets.delete(eid);
+  }
 
   const prevBoss = displayRt.boss;
+  const bt = netState.bossTarget;
+  const bossJumpDist = Math.hypot(snap.boss.x - bt.lastSnapX, snap.boss.y - bt.lastSnapY);
+  if (
+    bossJumpDist > 160 ||
+    snap.boss.state === 'comic_intro' ||
+    snap.boss.state === 'dead' ||
+    snap.boss.state !== prevBoss.state
+  ) {
+    bt.vx = 0;
+    bt.vy = 0;
+  } else {
+    const rawVx = (snap.boss.x - bt.lastSnapX) / snapElapsed;
+    const rawVy = (snap.boss.y - bt.lastSnapY) / snapElapsed;
+    const rawSpd = Math.hypot(rawVx, rawVy);
+    const maxBossExtrapolate = 650;
+    if (rawSpd > maxBossExtrapolate && rawSpd > 0) {
+      bt.vx = (rawVx / rawSpd) * maxBossExtrapolate;
+      bt.vy = (rawVy / rawSpd) * maxBossExtrapolate;
+    } else {
+      bt.vx = rawVx;
+      bt.vy = rawVy;
+    }
+  }
+  bt.lastSnapX = snap.boss.x;
+  bt.lastSnapY = snap.boss.y;
+  bt.lastSnapAt = now;
+  bt.x = snap.boss.x + bt.vx * (leadSec / 60) * 0.5;
+  bt.y = snap.boss.y + bt.vy * (leadSec / 60) * 0.5;
+
   displayRt.boss = {
     ...snap.boss,
-    channelTetherPair: snap.boss.channelTetherPair ? [...snap.boss.channelTetherPair] as [PlayerId, PlayerId] : undefined,
+    channelTetherPair: snap.boss.channelTetherPair ? ([...snap.boss.channelTetherPair] as [PlayerId, PlayerId]) : undefined,
     channelNodes: snap.boss.channelNodes ? snap.boss.channelNodes.map((n) => ({ ...n })) : undefined,
-    x: lerpNum(prevBoss.x, snap.boss.x, lerpAlpha, 140),
-    y: lerpNum(prevBoss.y, snap.boss.y, lerpAlpha, 140),
+    x: prevBoss.x,
+    y: prevBoss.y,
   };
 
+  const activeBossProjUids = new Set<number>();
   displayRt.bossProjectiles = snap.bossProjectiles.map((bp) => {
-    const prev = prevBossProjsByUid.get(bp.uid);
-    const moveLead = bp.type !== 'mine' && bp.type !== 'phantom_clone' ? leadSec : 0;
+    activeBossProjUids.add(bp.uid);
+    const staticProj = bp.type === 'mine' || bp.type === 'phantom_clone';
+    const moveLead = staticProj ? 0 : leadSec;
     const targetX = bp.x + bp.dx * bp.speed * moveLead;
     const targetY = bp.y + bp.dy * bp.speed * moveLead;
+    netState.bossProjTargets.set(bp.uid, {
+      x: targetX,
+      y: targetY,
+      dx: bp.dx,
+      dy: bp.dy,
+      speed: bp.speed,
+      staticProj,
+    });
+    const prev = prevBossProjsByUid.get(bp.uid);
     if (!prev) return { ...bp, x: targetX, y: targetY };
     return {
       ...bp,
-      x: lerpNum(prev.x, targetX, 0.72, 115),
-      y: lerpNum(prev.y, targetY, 0.72, 115),
+      x: prev.x,
+      y: prev.y,
     };
   });
+  for (const uid of Array.from(netState.bossProjTargets.keys())) {
+    if (!activeBossProjUids.has(uid)) netState.bossProjTargets.delete(uid);
+  }
 
+  const activePlayerProjUids = new Set<number>();
   displayRt.playerProjectiles = snap.playerProjectiles.map((pp) => {
-    const prev = prevPlayerProjsByUid.get(pp.uid);
+    activePlayerProjUids.add(pp.uid);
     const targetX = pp.x + pp.dx * leadSec;
     const targetY = pp.y + pp.dy * leadSec;
+    netState.playerProjTargets.set(pp.uid, {
+      x: targetX,
+      y: targetY,
+      dx: pp.dx,
+      dy: pp.dy,
+    });
+    const prev = prevPlayerProjsByUid.get(pp.uid);
     if (!prev) return { ...pp, x: targetX, y: targetY };
     return {
       ...pp,
-      x: lerpNum(prev.x, targetX, 0.72, 115),
-      y: lerpNum(prev.y, targetY, 0.72, 115),
+      x: prev.x,
+      y: prev.y,
     };
   });
+  for (const uid of Array.from(netState.playerProjTargets.keys())) {
+    if (!activePlayerProjUids.has(uid)) netState.playerProjTargets.delete(uid);
+  }
 
+  const activeKnifeOwners = new Set<PlayerId>();
   displayRt.knives = snap.knives.map((k) => {
+    activeKnifeOwners.add(k.owner);
+    netState.knifeTargets.set(k.owner, { x: k.x, y: k.y });
     const prev = prevKnivesByOwner.get(k.owner);
     if (!prev) return { ...k };
     return {
       ...k,
-      x: lerpNum(prev.x, k.x, lerpAlpha, 100),
-      y: lerpNum(prev.y, k.y, lerpAlpha, 100),
+      x: prev.x,
+      y: prev.y,
     };
   });
+  for (const owner of Array.from(netState.knifeTargets.keys())) {
+    if (!activeKnifeOwners.has(owner)) netState.knifeTargets.delete(owner);
+  }
 
   displayRt.voidDecoys = snap.voidDecoys.map((v) => ({ ...v }));
   displayRt.telegraphLines = snap.telegraphLines.map((t) => ({ ...t }));
@@ -1343,15 +1623,20 @@ export function applySyncedSnapshotToGuest(
   displayRt.oniShrines = snap.oniShrines.map((s) => ({ ...s }));
   displayRt.oniCursedZones = snap.oniCursedZones.map((z) => ({ ...z }));
 
+  const prevSpiritBombs = displayRt.oniSpiritBombs;
   displayRt.oniSpiritBombs = snap.oniSpiritBombs.map((b, idx) => {
-    const prev = displayRt.oniSpiritBombs[idx];
+    netState.spiritBombTargets.set(idx, { x: b.x, y: b.y });
+    const prev = prevSpiritBombs[idx];
     if (!prev) return { ...b };
     return {
       ...b,
-      x: lerpNum(prev.x, b.x, lerpAlpha, 95),
-      y: lerpNum(prev.y, b.y, lerpAlpha, 95),
+      x: prev.x,
+      y: prev.y,
     };
   });
+  for (const idx of Array.from(netState.spiritBombTargets.keys())) {
+    if (idx >= snap.oniSpiritBombs.length) netState.spiritBombTargets.delete(idx);
+  }
 
   displayRt.eclipseBeacons = snap.eclipseBeacons.map((b) => ({ ...b }));
   displayRt.eclipsePylons = snap.eclipsePylons.map((p) => ({ ...p }));
@@ -1410,6 +1695,8 @@ export function applySyncedSnapshotToGuest(
   displayRt.p1SafeZone = { ...snap.p1SafeZone };
   displayRt.p2SafeZone = { ...snap.p2SafeZone };
   displayRt.cheatsUsed = snap.cheatsUsed;
+
+  stepGuestInterpolation(displayRt, clampedDt, netState, localPlayerId, localInput);
 
   return displayRt;
 }

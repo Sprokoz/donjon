@@ -5046,8 +5046,8 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       }
     } else if (rt.bossType === 'void') {
       // VOID: Reality Fracture Vignette -> Sudden Darkness Stare -> Ghostly Echo Cut-In
-      const blackoutAlpha = b.entryPhase === 2 ? 0.86 : 0.62;
-      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.44, b.entryPhase === 2 ? 68 : 130, viewW / 2, viewH * 0.46, Math.max(viewW, viewH) * 0.72);
+      const blackoutAlpha = b.entryPhase === 2 ? 0.54 : 0.36;
+      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.44, b.entryPhase === 2 ? 95 : 145, viewW / 2, viewH * 0.46, Math.max(viewW, viewH) * 0.74);
       vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
       vig.addColorStop(1, `rgba(6, 1, 14, ${blackoutAlpha})`);
       ctx.fillStyle = vig;
@@ -5095,9 +5095,9 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       }
     } else if (rt.bossType === 'oni') {
       // ONI: Blood-Moon Crimson Vignette + Japanese War-Scroll Kanji Crest & Ink Ribbon
-      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.45, 120, viewW / 2, viewH * 0.48, Math.max(viewW, viewH) * 0.72);
+      const vig = ctx.createRadialGradient(viewW / 2, viewH * 0.45, 140, viewW / 2, viewH * 0.48, Math.max(viewW, viewH) * 0.74);
       vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
-      vig.addColorStop(1, 'rgba(24, 3, 2, 0.68)');
+      vig.addColorStop(1, 'rgba(24, 3, 2, 0.42)');
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, viewW, viewH);
 

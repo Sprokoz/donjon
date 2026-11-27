@@ -1893,9 +1893,22 @@ interface VersionUpdateEntry {
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.2.0',
+    title: 'Boss Intro Darkness Fix & Split Build Bundles for GitHub Sync',
+    tag: 'LATEST',
+    changes: [
+      'Fixed the boss darkness bug where letting the boss cinematic intro finish without clicking Skip left a permanent 55% black fade overlay over the entire boss fight.',
+      'Softened Void and Oni intro edge vignettes so boss entrance animations remain vivid and clearly visible.',
+      'Split oversized single-file build bundles into smaller hashed chunks (< 500 KB each) with cache-busting asset URLs for smoother GitHub Pages updates.',
+    ],
+    simpleChanges: [
+      'Fixed the game staying super dark whenever you watch the full boss intro instead of skipping it.',
+      'Split large build files into smaller cache-busted chunks so GitHub updates cleanly.',
+    ],
+  },
+  {
     version: 'beta test 0.1.9',
     title: 'Color-Coded Boss Sanctum Doors & Boxless Transparent Boss Health Bar',
-    tag: 'LATEST',
     changes: [
       'Enlarged Boss Sanctum hallway door text and added color-coded role tags for every suggested weapon (Tank cyan, Holy Staff gold, Bow emerald, Assassin violet, Greatsword crimson) with edge-safe clamping.',
       'Removed the opaque dark outer box around the Boss Health Bar on both desktop and mobile and made the bar track, chips, and warning strip ultra-transparent for clear arena visibility.',
@@ -2172,7 +2185,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.1.9
+                Every update from beta test 0.0.1 through 0.2.0
               </p>
             </div>
           </div>

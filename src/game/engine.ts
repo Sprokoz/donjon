@@ -9306,9 +9306,12 @@ export function stepGame(
 
   const dtS = dt * rt.timeScale;
 
+  if (rt.fadeOpacity > 0) {
+    rt.fadeOpacity = Math.max(0, rt.fadeOpacity - dt * 1.4);
+  }
+
   if (rt.introPlaying) {
     rt.introTimer += dt;
-    if (rt.fadeOpacity > 0) rt.fadeOpacity = Math.max(0, rt.fadeOpacity - dt * 0.75);
     let landedNow = false;
     const landTarget = rt.isBossLevel ? Math.round(rt.arenaHeight * 0.7) : LANDING_TARGET_Y;
     rt.players.forEach((p) => {
@@ -9336,6 +9339,7 @@ export function stepGame(
     }
     if (rt.introTimer >= (rt.isBossLevel ? 0.6 : INTRO_DURATION)) {
       rt.introPlaying = false;
+      rt.fadeOpacity = 0;
       rt.warningFlash = 0;
       rt.players.forEach((p) => {
         if (p.state !== 'spectator') p.invulnerable = false;

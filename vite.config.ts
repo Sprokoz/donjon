@@ -47,13 +47,19 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
-          entryFileNames: 'assets/app.js',
-          chunkFileNames: 'assets/[name].js',
-          assetFileNames: 'assets/[name][extname]',
+          entryFileNames: 'assets/app-[hash].js',
+          chunkFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash][extname]',
           manualChunks(id: string) {
             if (id.includes('node_modules')) {
+              if (id.includes('peerjs')) return 'vendor-net';
+              if (id.includes('lucide-react')) return 'vendor-icons';
               return 'vendor';
             }
+            if (id.includes('/src/game/engine')) return 'game-engine';
+            if (id.includes('/src/game/renderer')) return 'game-renderer';
+            if (id.includes('/src/game/onlineSync')) return 'game-sync';
+            if (id.includes('/src/components/Modals')) return 'ui-modals';
           },
         },
       },

@@ -47,16 +47,7 @@
 
         if (window.location.hostname && /\.github\.io$/i.test(window.location.hostname)) {
           checkBootAndFallback();
-        } else if (document.readyState === 'complete') {
-          setTimeout(checkBootAndFallback, 1200);
-        } else {
-          window.addEventListener('load', function () {
-            setTimeout(checkBootAndFallback, 1200);
-          });
         }
-        setTimeout(function () {
-          if (window.__VITE_ENTRY_ERR__) checkBootAndFallback();
-        }, 100);
       })();
     </script>
   </body>

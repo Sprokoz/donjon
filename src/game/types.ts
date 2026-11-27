@@ -956,6 +956,8 @@ export interface DungeonGate {
   clearedTarget?: boolean;
   label: string;
   subLabel: string;
+  bossVariantLabel?: string;
+  suggestedRoles?: WeaponId[];
   accent: string;
   playersInside: number[];
   holdProgress: number;

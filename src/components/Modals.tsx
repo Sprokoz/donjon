@@ -1893,9 +1893,21 @@ interface VersionUpdateEntry {
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.1.9',
+    title: 'Color-Coded Boss Sanctum Doors & Boxless Transparent Boss Health Bar',
+    tag: 'LATEST',
+    changes: [
+      'Enlarged Boss Sanctum hallway door text and added color-coded role tags for every suggested weapon (Tank cyan, Holy Staff gold, Bow emerald, Assassin violet, Greatsword crimson) with edge-safe clamping.',
+      'Removed the opaque dark outer box around the Boss Health Bar on both desktop and mobile and made the bar track, chips, and warning strip ultra-transparent for clear arena visibility.',
+    ],
+    simpleChanges: [
+      'Made Boss Sanctum door text bigger with color-coded role tags (Tank, Holy Staff, Bow, Assassin, Greatsword).',
+      'Removed the dark box around the Boss Health bar and made it transparent so you can see behind it.',
+    ],
+  },
+  {
     version: 'beta test 0.1.8',
     title: 'Freeze Crash Fix, Mecha Boss MP3 & Normal Dungeon MP3 Soundtracks',
-    tag: 'LATEST',
     changes: [
       'Fixed the mid-combat Blade Orb cleave crash/freeze bug where killing multiple dungeon monsters in one splash corrupted array indices and stalled the frame loop; also hardened frame timing, reverse enemy loops, canvas arc radii, and loop error recovery.',
       'Replaced Mecha Boss music with the uploaded Industrial Mecha Warlord MP3 track (plays seamlessly across Phase 1 & Phase 2).',
@@ -2160,7 +2172,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.1.8
+                Every update from beta test 0.0.1 through 0.1.9
               </p>
             </div>
           </div>

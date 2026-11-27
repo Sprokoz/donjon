@@ -799,7 +799,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       <footer className="relative z-10 w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400">
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <span className="font-mono-num text-[11px] text-amber-400/85 font-semibold tracking-wider uppercase">
-            beta test 0.1.8
+            beta test 0.1.9
           </span>
           {onOpenUpdates && (
             <button

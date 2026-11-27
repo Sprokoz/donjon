@@ -3749,26 +3749,14 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
 
         // Destination Label & Party Readiness Count (clearly visible at archway mouth)
         const isVert = g.dir === 'left' || g.dir === 'right';
-        const tx = g.isNextFloorPortal
+        let tx = g.isNextFloorPortal
           ? gcx
           : g.dir === 'left'
-          ? 74
+          ? 90
           : g.dir === 'right'
-          ? rt.arenaWidth - 74
+          ? rt.arenaWidth - 90
           : gcx;
-        const ty = g.isNextFloorPortal
-          ? g.y - 14
-          : g.dir === 'top'
-          ? 34
-          : g.dir === 'bottom'
-          ? rt.arenaHeight - 28
-          : gcy - 4;
-
-        ctx.textAlign = 'center';
-        ctx.globalAlpha = 1;
-        ctx.font = 'bold 9px "Press Start 2P", monospace';
-        ctx.strokeStyle = '#020617';
-        ctx.lineWidth = 4;
+        const isBossDoor = g.roomType === 'boss' && !g.isNextFloorPortal;
         const tagSuffix = g.isStairsDown
           ? ' [STAIRS]'
           : g.clearedTarget
@@ -3777,15 +3765,141 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
           ? ' [•]'
           : '';
         const titleTxt = `${g.label}${tagSuffix}`;
-        ctx.strokeText(titleTxt, tx, ty);
-        ctx.fillStyle = g.accent;
-        ctx.fillText(titleTxt, tx, ty);
 
-        ctx.font = 'bold 7.2px "JetBrains Mono", monospace';
-        const subLine = `${g.subLabel} (${g.playersInside.length}/${aliveTotal})`;
-        ctx.strokeText(subLine, tx, ty + (isVert ? 13 : 12));
-        ctx.fillStyle = g.playersInside.length > 0 ? '#fde047' : '#cbd5e1';
-        ctx.fillText(subLine, tx, ty + (isVert ? 13 : 12));
+        if (isBossDoor) {
+          const ROLE_STYLE: Record<string, { label: string; color: string }> = {
+            tank_shield: { label: 'TANK', color: '#38bdf8' },
+            holy_staff: { label: 'HOLY STAFF', color: '#fde047' },
+            ranger_bow: { label: 'BOW', color: '#34d399' },
+            assassin_blades: { label: 'ASSASSIN', color: '#c084fc' },
+            warrior_greatsword: { label: 'GREATSWORD', color: '#f87171' },
+          };
+
+          const resolvedRoles: { label: string; color: string }[] = [];
+          if (g.suggestedRoles && g.suggestedRoles.length > 0) {
+            g.suggestedRoles.forEach((wid) => {
+              const st = ROLE_STYLE[wid];
+              if (st) resolvedRoles.push(st);
+            });
+          } else if (g.subLabel.includes('·')) {
+            const rawRoles = g.subLabel.split('·')[1] || '';
+            rawRoles.split('+').forEach((part) => {
+              const p = part.trim().toLowerCase();
+              if (p.includes('tank')) resolvedRoles.push(ROLE_STYLE.tank_shield);
+              else if (p.includes('staff')) resolvedRoles.push(ROLE_STYLE.holy_staff);
+              else if (p.includes('bow')) resolvedRoles.push(ROLE_STYLE.ranger_bow);
+              else if (p.includes('assassin')) resolvedRoles.push(ROLE_STYLE.assassin_blades);
+              else if (p.includes('sword')) resolvedRoles.push(ROLE_STYLE.warrior_greatsword);
+            });
+          }
+
+          const variantPart = g.bossVariantLabel
+            ? g.bossVariantLabel
+            : g.subLabel.includes('·')
+            ? g.subLabel.split('·')[0].trim()
+            : g.subLabel;
+          const variantLine = `${variantPart} (${g.playersInside.length}/${aliveTotal})`;
+
+          ctx.font = 'bold 11.5px "Press Start 2P", monospace';
+          const titleW = ctx.measureText(titleTxt).width;
+          ctx.font = 'bold 10.5px "JetBrains Mono", monospace';
+          const varW = ctx.measureText(variantLine).width;
+          ctx.font = 'bold 11px "JetBrains Mono", monospace';
+          const chipPadX = 7;
+          const chipGap = 6;
+          const chipWidths = resolvedRoles.map((r) => ctx.measureText(r.label).width + chipPadX * 2);
+          const rolesRowW =
+            chipWidths.length > 0
+              ? chipWidths.reduce((a, b) => a + b, 0) + chipGap * (chipWidths.length - 1)
+              : 0;
+          const maxBlockW = Math.max(titleW, varW, rolesRowW);
+          const halfW = maxBlockW / 2 + 12;
+
+          if (g.dir === 'left') {
+            tx = Math.max(halfW, 96);
+          } else if (g.dir === 'right') {
+            tx = Math.min(rt.arenaWidth - halfW, rt.arenaWidth - 96);
+          } else {
+            tx = Math.max(halfW, Math.min(rt.arenaWidth - halfW, tx));
+          }
+
+          const hasRolesRow = resolvedRoles.length > 0;
+          const ty =
+            g.dir === 'top'
+              ? 24
+              : g.dir === 'bottom'
+              ? rt.arenaHeight - (hasRolesRow ? 54 : 36)
+              : gcy - (hasRolesRow ? 18 : 8);
+
+          ctx.textAlign = 'center';
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = '#020617';
+          ctx.lineWidth = 4.5;
+
+          // Line 1: BOSS SANCTUM (larger & crisp)
+          ctx.font = 'bold 11.5px "Press Start 2P", monospace';
+          ctx.strokeText(titleTxt, tx, ty);
+          ctx.fillStyle = '#fb7185';
+          ctx.fillText(titleTxt, tx, ty);
+
+          // Line 2: Variant name + readiness count
+          ctx.font = 'bold 10.5px "JetBrains Mono", monospace';
+          ctx.lineWidth = 3.8;
+          ctx.strokeText(variantLine, tx, ty + 16);
+          ctx.fillStyle = g.playersInside.length > 0 ? '#fde047' : '#f1f5f9';
+          ctx.fillText(variantLine, tx, ty + 16);
+
+          // Line 3: Color-coded suggested roles
+          if (hasRolesRow) {
+            ctx.font = 'bold 11px "JetBrains Mono", monospace';
+            let curX = tx - rolesRowW / 2;
+            const chipY = ty + 21;
+            const chipH = 18;
+            for (let ri = 0; ri < resolvedRoles.length; ri++) {
+              const role = resolvedRoles[ri];
+              const cw = chipWidths[ri];
+              ctx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+              ctx.strokeStyle = role.color;
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.roundRect(curX, chipY, cw, chipH, 4);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.textAlign = 'center';
+              ctx.strokeStyle = '#020617';
+              ctx.lineWidth = 3;
+              ctx.strokeText(role.label, curX + cw / 2, chipY + 13);
+              ctx.fillStyle = role.color;
+              ctx.fillText(role.label, curX + cw / 2, chipY + 13);
+
+              curX += cw + chipGap;
+            }
+          }
+        } else {
+          const ty = g.isNextFloorPortal
+            ? g.y - 14
+            : g.dir === 'top'
+            ? 34
+            : g.dir === 'bottom'
+            ? rt.arenaHeight - 28
+            : gcy - 4;
+
+          ctx.textAlign = 'center';
+          ctx.globalAlpha = 1;
+          ctx.font = 'bold 10px "Press Start 2P", monospace';
+          ctx.strokeStyle = '#020617';
+          ctx.lineWidth = 4;
+          ctx.strokeText(titleTxt, tx, ty);
+          ctx.fillStyle = g.accent;
+          ctx.fillText(titleTxt, tx, ty);
+
+          ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+          const subLine = `${g.subLabel} (${g.playersInside.length}/${aliveTotal})`;
+          ctx.strokeText(subLine, tx, ty + (isVert ? 14 : 13));
+          ctx.fillStyle = g.playersInside.length > 0 ? '#fde047' : '#cbd5e1';
+          ctx.fillText(subLine, tx, ty + (isVert ? 14 : 13));
+        }
         ctx.restore();
       });
     }

@@ -1106,12 +1106,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             className={
               isMobileHud
                 ? 'w-full max-w-[330px] sm:max-w-[440px] px-1.5 py-0 bg-transparent border-0 shadow-none'
-                : 'w-full max-w-[780px] border border-stone-700/80 rounded px-3 py-1 backdrop-blur-sm shadow-lg'
+                : 'w-full max-w-[740px] px-2 py-0.5 bg-transparent border-0 shadow-none'
             }
-            style={isMobileHud ? undefined : panelStyle}
           >
             <div className={`flex items-center justify-between gap-1.5 ${isMobileHud ? 'text-[9px]' : 'text-[11px]'}`}>
-              <span className="font-souls font-bold text-stone-100 tracking-wider truncate [text-shadow:0_1px_4px_rgba(0,0,0,0.98)]">
+              <span className="font-souls font-bold text-stone-100 tracking-wider truncate [text-shadow:0_1px_4px_rgba(0,0,0,0.98),0_0_8px_rgba(0,0,0,0.85)]">
                 {isMobileHud ? hud.bossVariantName || hud.bossName : hud.bossName}
                 {hud.loopLevel > 1 ? ` · L${hud.loopLevel}` : ''}
               </span>
@@ -1123,7 +1122,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     return (
                       <span
                         key={wid}
-                        className="px-1 rounded border font-mono-num text-[8px] font-bold bg-black/35 [text-shadow:0_1px_3px_rgba(0,0,0,0.98)]"
+                        className="px-1 rounded border font-mono-num text-[8px] font-bold bg-black/20 [text-shadow:0_1px_3px_rgba(0,0,0,0.98)]"
                         style={{
                           borderColor: playerHas ? '#34d399' : wDef?.accent || '#57534e',
                           color: playerHas ? '#6ee7b7' : wDef?.accent || '#e7e5e4',
@@ -1136,17 +1135,17 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
               )}
               {!isMobileHud && hud.bossAttackLabel && (
-                <span className="font-mono-num text-[10px] font-bold text-amber-300 animate-pulse truncate">
+                <span className="font-mono-num text-[10px] font-bold text-amber-300 animate-pulse truncate [text-shadow:0_1px_4px_rgba(0,0,0,0.98)]">
                   ▲ {hud.bossAttackLabel} ▲
                 </span>
               )}
-              <span className="font-mono-num text-[10px] sm:text-[11px] text-stone-100 shrink-0 tabular-nums [text-shadow:0_1px_4px_rgba(0,0,0,0.98)]">
+              <span className="font-mono-num text-[10px] sm:text-[11px] text-stone-100 shrink-0 tabular-nums [text-shadow:0_1px_4px_rgba(0,0,0,0.98),0_0_8px_rgba(0,0,0,0.85)]">
                 {hud.bossHealth}/{hud.bossMaxHealth}
               </span>
             </div>
             <div
-              className={`relative w-full overflow-hidden mt-0.5 ${
-                isMobileHud ? 'h-1.5 bg-black/50 border border-white/25 rounded-full' : 'h-2 bg-stone-950 border border-stone-700/90'
+              className={`relative w-full overflow-hidden mt-0.5 rounded-full ${
+                isMobileHud ? 'h-1.5 bg-black/25 border border-white/25' : 'h-2 bg-black/25 border border-white/25'
               }`}
             >
               <div
@@ -1159,8 +1158,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                   width: `${bossPct}%`,
                   background:
                     hud.bossPhase === 2
-                      ? 'linear-gradient(90deg, #92400e, #dc2626, #f59e0b)'
-                      : 'linear-gradient(90deg, #5c0a0a, #991b1b, #dc2626)',
+                      ? 'linear-gradient(90deg, rgba(146,64,14,0.9), rgba(220,38,38,0.92), rgba(245,158,11,0.95))'
+                      : 'linear-gradient(90deg, rgba(92,10,10,0.88), rgba(153,27,27,0.92), rgba(220,38,38,0.94))',
                 }}
               />
             </div>
@@ -1169,14 +1168,14 @@ export const GameHud: React.FC<GameHudProps> = ({
               const suggested = hud.bossSuggestedWeapons;
               const isMatched = localPlayer.weapon !== 'none' && suggested.includes(localPlayer.weapon);
               return (
-                <div className="mt-1 pt-1 border-t border-stone-800/75 flex flex-wrap items-center justify-between gap-1.5 font-mono-num text-[9px] sm:text-[10px]">
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-1.5 font-mono-num text-[9px] sm:text-[10px] [text-shadow:0_1px_4px_rgba(0,0,0,0.98),0_0_6px_rgba(0,0,0,0.85)]">
                   <div className="flex flex-wrap items-center gap-1">
                     {hud.bossVariantName && (
-                      <span className="px-1.5 py-0.5 rounded bg-stone-900/90 border border-stone-700/80 text-stone-200 font-bold">
+                      <span className="px-1.5 py-0.5 rounded bg-black/25 border border-white/15 text-stone-100 font-bold">
                         {hud.bossVariantName}
                       </span>
                     )}
-                    <span className="text-amber-300/90 font-bold uppercase tracking-wide">
+                    <span className="text-amber-300 font-bold uppercase tracking-wide">
                       Suggested:
                     </span>
                     {suggested.map((wid) => {
@@ -1186,7 +1185,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                         <span
                           key={wid}
                           className={`px-1.5 py-0.5 rounded border font-bold ${
-                            playerHas ? 'bg-emerald-950/75' : 'bg-black/60'
+                            playerHas ? 'bg-emerald-950/35' : 'bg-black/25'
                           }`}
                           style={{
                             borderColor: playerHas ? '#34d399' : wDef?.accent || '#57534e',
@@ -1200,7 +1199,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   </div>
                   <span
                     className={`truncate max-w-full sm:max-w-[360px] ${
-                      isMatched ? 'text-emerald-300/90 font-semibold' : 'text-amber-200/85'
+                      isMatched ? 'text-emerald-300 font-semibold' : 'text-amber-200'
                     }`}
                     title={isMatched ? hud.bossSuggestionText : hud.bossHardshipNote}
                   >
@@ -1215,9 +1214,8 @@ export const GameHud: React.FC<GameHudProps> = ({
         ) : (
           <div
             className={`border rounded-full flex items-center gap-2.5 font-mono-num text-[10px] text-stone-100 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)] ${
-              isMobileHud ? 'px-2.5 py-0 border-white/15 bg-black/20' : 'px-3.5 py-0.5 border-stone-800/80 backdrop-blur-sm shadow'
+              isMobileHud ? 'px-2.5 py-0 border-white/15 bg-black/20' : 'px-3.5 py-0.5 border-white/15 bg-black/20'
             }`}
-            style={isMobileHud ? undefined : panelStyle}
           >
             <span className="font-souls text-amber-400 tracking-wider truncate max-w-[260px]">
               {hud.stageLabel}
@@ -1237,24 +1235,24 @@ export const GameHud: React.FC<GameHudProps> = ({
         {hud.bossChannel && (
           <div
             className={`w-full rounded px-2.5 border flex items-center justify-between gap-2 font-mono-num font-bold animate-pulse [text-shadow:0_1px_3px_rgba(0,0,0,0.98)] ${
-              isMobileHud ? 'max-w-[380px] py-0.5 text-[9px]' : 'max-w-[780px] py-1 text-[11px] shadow-lg'
+              isMobileHud ? 'max-w-[380px] py-0.5 text-[9px]' : 'max-w-[740px] py-0.5 text-[11px]'
             } ${
               hud.bossChannel.kind === 'siege_beam'
-                ? 'bg-sky-950/35 border-sky-400/80 text-sky-100'
+                ? 'bg-sky-950/20 border-sky-400/75 text-sky-100'
                 : hud.bossChannel.kind === 'bow_weakpoint' || hud.bossChannel.kind === 'sky_battery'
-                ? 'bg-emerald-950/35 border-emerald-400/80 text-emerald-100'
+                ? 'bg-emerald-950/20 border-emerald-400/75 text-emerald-100'
                 : hud.bossChannel.kind === 'cursed_miasma'
-                ? 'bg-lime-950/35 border-lime-400/80 text-lime-100'
+                ? 'bg-lime-950/20 border-lime-400/75 text-lime-100'
                 : hud.bossChannel.kind === 'cursed_floor' ||
                   hud.bossChannel.kind === 'meteor_soak' ||
                   hud.bossChannel.kind === 'demon_seal_purge'
-                ? 'bg-orange-950/35 border-amber-400/80 text-amber-100'
+                ? 'bg-orange-950/20 border-amber-400/75 text-amber-100'
                 : hud.bossChannel.kind === 'hunter_mark' ||
                   hud.bossChannel.kind === 'iron_carapace' ||
                   hud.bossChannel.kind === 'obsidian_phalanx' ||
                   hud.bossChannel.kind === 'blood_curse'
-                ? 'bg-rose-950/35 border-rose-400/80 text-rose-100'
-                : 'bg-purple-950/35 border-purple-400/80 text-purple-100'
+                ? 'bg-rose-950/20 border-rose-400/75 text-rose-100'
+                : 'bg-purple-950/20 border-purple-400/75 text-purple-100'
             }`}
           >
             <div className="flex items-center gap-1.5 min-w-0">

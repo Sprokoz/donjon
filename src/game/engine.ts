@@ -3457,7 +3457,13 @@ function saveCurrentRoomState(rt: GameRuntime) {
   room.relics = [...rt.relics];
 }
 
-function getRoomGateMeta(target: PersistedRoomState): { label: string; subLabel: string; accent: string } {
+function getRoomGateMeta(target: PersistedRoomState): {
+  label: string;
+  subLabel: string;
+  accent: string;
+  bossVariantLabel?: string;
+  suggestedRoles?: WeaponId[];
+} {
   if (!target.revealed && !target.visited) {
     return { label: 'UNKNOWN', subLabel: 'UNEXPLORED ROOM', accent: '#94a3b8' };
   }
@@ -3475,6 +3481,8 @@ function getRoomGateMeta(target: PersistedRoomState): { label: string; subLabel:
       return {
         label: 'BOSS SANCTUM',
         subLabel: `${vDef.shortName} · ${vDef.suggestedLabel}`,
+        bossVariantLabel: vDef.shortName,
+        suggestedRoles: [...vDef.suggestedWeapons],
         accent: '#f43f5e',
       };
     }
@@ -3543,6 +3551,8 @@ function spawnConnectedGates(rt: GameRuntime, room: PersistedRoomState) {
       targetStage: target.stage,
       label: meta.label,
       subLabel: meta.subLabel,
+      bossVariantLabel: meta.bossVariantLabel,
+      suggestedRoles: meta.suggestedRoles,
       accent: meta.accent,
       playersInside: [],
       holdProgress: 0,

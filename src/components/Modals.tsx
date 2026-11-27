@@ -1893,9 +1893,59 @@ interface VersionUpdateEntry {
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.1.8',
+    title: 'Freeze Crash Fix, Mecha Boss MP3 & Normal Dungeon MP3 Soundtracks',
+    tag: 'LATEST',
+    changes: [
+      'Fixed the mid-combat Blade Orb cleave crash/freeze bug where killing multiple dungeon monsters in one splash corrupted array indices and stalled the frame loop; also hardened frame timing, reverse enemy loops, canvas arc radii, and loop error recovery.',
+      'Replaced Mecha Boss music with the uploaded Industrial Mecha Warlord MP3 track (plays seamlessly across Phase 1 & Phase 2).',
+      'Replaced Normal Dungeon music (Iron Citadel, Void Bastion, and Oni Sanctum rooms) with the uploaded Dark Dungeon Crawl MP3 soundtrack.',
+    ],
+    simpleChanges: [
+      'Fixed the game-freezing bug when Blade Orb splash kills multiple monsters at once.',
+      'Added the new Mecha Warlord MP3 music for the Mecha Boss fight.',
+      'Added the new Dark Dungeon Crawl MP3 music for normal dungeon rooms.',
+    ],
+  },
+  {
+    version: 'beta test 0.1.7',
+    title: 'Blade Orb Buff & Cleave, Full Boss Attack Rotation, Anti-Cheese Interrupts & Transparent Mobile HUD',
+    changes: [
+      'Buffed Basic Attack Blade Orbs: doubled base orb damage (2 DMG + +2 Empowered), added a 58px AoE cleave splash on dungeon mob hits, enlarged orbs (26px), raised lucky nearby drop rate (48%), shortened pickup cooldown (0.30s), and added smooth close-range magnetism.',
+      'Fixed the single-attack boss loop bug where bosses repeated only one unique channel forever—now every Boss Variant cleanly rotates all 4–5 signature patterns in its pool.',
+      'Added 4 new class-counter mechanics (Sky Battery Pylons for Bow, Shadow Counter Dome for Assassin/Skills, Blood Curse Bleed for Holy Staff, and Obsidian Phalanx 75% Armor for Greatsword) so every weapon role has 2+ unique attacks.',
+      'Removed basic-attack boss cheese: picking up basic Blade Orbs can no longer interrupt EMPs, Shadow Counters, Rift Shatters, Weakpoint Cores, Miasmas, Blood Curses, or Heavy Carapaces—weapon skills and role counters are now required.',
+      'Rebuilt Mobile UI transparency & boss framing: stripped dark opaque boxes from the Mobile HUD, Joystick, and Skill Circles, compacted the top bar into 1 translucent row, slimmed the Boss HP strip without its tall footer on mobile, and shifted camera framing up during boss fights so the HP bar never covers the boss.',
+    ],
+    simpleChanges: [
+      'Basic Blade Orbs hit harder (2 DMG), splash nearby dungeon monsters, drop closer, and magnet-pull right to you.',
+      'Fixed a bug where bosses only repeated 1 special attack—every boss now cycles through 4–5 unique attacks.',
+      'Added 4 brand-new boss attacks (Sky Pylons, Shadow Counter Parry, Blood Curse, and Obsidian Phalanx) so every class has 2+ unique attacks.',
+      'Basic blade pickups can no longer cheat boss interrupts—you need real weapon skills & recommended roles!',
+      'Mobile UI and touch buttons are now transparent, and the Boss HP bar is super slim at the top so it never covers the boss.',
+    ],
+  },
+  {
+    version: 'beta test 0.1.6',
+    title: '16 Boss Variants, Full-Party Counters, Tempest Longbow Buff & Easier Difficulty Scaling',
+    changes: [
+      'Expanded to 16 attack-aligned Boss Variants (4 per boss: Mecha, Void, Oni, Eclipse) scaled for up to 5-player parties—each boss now strictly executes teamwork patterns tailored to its Suggested Weapons.',
+      'Added two dedicated weapon counter mechanics: Cursed Miasma (Holy Staff purifies in 1 Holy skill cast) and Iron Carapace (50% non-Greatsword armor shattered 3x faster by Greatsword slashes/skills).',
+      'Previewed the Boss Variant & Suggested Roles right on the Boss Sanctum hallway gate and revealed Floor Map—take the Stairs Down sub-floor to reroll a different boss variant that matches your squad!',
+      'Enabled all Boss Variants & teamwork mechanics on Easy and Medium difficulties with friendlier damage, slower telegraphs, and lower break thresholds.',
+      'Buffed Tempest Longbow (4-arrow Storm Volley, Dash Snap-Arrow, stronger Frost Snare Trap, 4-DMG Piercing Railshot, multi-target Arrow Rain, and fixed burst volley boss hits) and boosted Dungeon Mob HP.',
+    ],
+    simpleChanges: [
+      'Each boss now has 4 variants (16 total) whose attacks match the weapons shown on their door.',
+      'Holy Staff cleanses new Plague Miasma in 1 cast, and Greatsword breaks Iron Carapace armor 3x faster.',
+      'You can now see which Boss Variant awaits on the Boss Door and Map, and use Stairs Down to reroll it.',
+      'Boss variants and teamwork attacks now work on Easy and Medium too (tuned easier!).',
+      'Tempest Bow is way stronger across every skill, and dungeon monsters now have more HP.',
+    ],
+  },
+  {
     version: 'beta test 0.1.5',
     title: 'Full Mobile Mode, Dynamic Left-Side Joystick, Ping Tuning & Boss Variant Overhaul',
-    tag: 'LATEST',
     changes: [
       'Added a persistent "Mobile Mode" toggle right on the Splash screen after the intro (plus Title Menu & Settings), hiding desktop footer clutter and sizing touch medallions >= 44px for effortless mobile play.',
       'Rebuilt the movement stick into a non-fixed floating analog joystick anywhere on the left half of the screen so players can dodge smoothly without chasing a locked pad.',
@@ -2110,7 +2160,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.1.5
+                Every update from beta test 0.0.1 through 0.1.8
               </p>
             </div>
           </div>

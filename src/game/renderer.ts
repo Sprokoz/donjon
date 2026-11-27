@@ -2859,7 +2859,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.fillStyle = `rgba(251, 113, 133, ${0.22 * pulse})`;
       ctx.beginPath();
       ctx.moveTo(bcx, bcy);
-      ctx.arc(bcx, bcy, range * frac, coneAng - halfCone, coneAng + halfCone);
+      ctx.arc(bcx, bcy, Math.max(1, range * frac), coneAng - halfCone, coneAng + halfCone);
       ctx.closePath();
       ctx.fill();
 
@@ -2994,7 +2994,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
         ctx.strokeStyle = `rgba(251, 113, 133, ${pulse})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(tcx, tcy, 30 - frac * 8, 0, Math.PI * 2);
+        ctx.arc(tcx, tcy, Math.max(1, 30 - frac * 8), 0, Math.PI * 2);
         ctx.stroke();
 
         ctx.textAlign = 'center';
@@ -3070,6 +3070,110 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.strokeText(empMsg, bcx, bcy - rt.boss.size * 0.9 - 14);
       ctx.fillStyle = '#f0abfc';
       ctx.fillText(empMsg, bcx, bcy - rt.boss.size * 0.9 - 14);
+    } else if (rt.boss.channelKind === 'sky_battery') {
+      const shockR = 148;
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shockR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(52, 211, 153, 0.65)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shockR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const nodes = rt.boss.channelNodes || [];
+      let aliveCount = 0;
+      for (const nd of nodes) {
+        if (nd.activated) continue;
+        aliveCount++;
+        const pulse = 0.72 + Math.sin(now / 75 + nd.x) * 0.25;
+        // Energy tether from node to boss
+        ctx.strokeStyle = `rgba(52, 211, 153, ${0.32 + frac * 0.35})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 6]);
+        ctx.lineDashOffset = -(now / 22);
+        ctx.beginPath();
+        ctx.moveTo(nd.x, nd.y);
+        ctx.lineTo(bcx, bcy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Turret pylon node
+        ctx.fillStyle = `rgba(16, 185, 129, ${0.28 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, Math.max(1, nd.r || 26), 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#34d399';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, Math.max(1, 20 + Math.sin(now / 95) * 2.5), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#a7f3d0';
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Status above pylon
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 8px "Press Start 2P", monospace';
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 3;
+        const pLabel = 'TURRET · SHOOT!';
+        ctx.strokeText(pLabel, nd.x, nd.y - 28);
+        ctx.fillStyle = '#6ee7b7';
+        ctx.fillText(pLabel, nd.x, nd.y - 28);
+      }
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const skyMsg = `SKY BATTERIES (${aliveCount} UP) · BOW / RANGED DESTROY!`;
+      ctx.strokeText(skyMsg, bcx, bcy + shockR + 20);
+      ctx.fillStyle = '#34d399';
+      ctx.fillText(skyMsg, bcx, bcy + shockR + 20);
+    } else if (rt.boss.channelKind === 'mirage_ambush') {
+      const domeR = rt.boss.size * 0.92;
+      const pulse = 0.7 + Math.sin(now / 65) * 0.3;
+      ctx.fillStyle = `rgba(168, 85, 247, ${0.14 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, domeR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(216, 180, 254, ${0.85 * pulse})`;
+      ctx.lineWidth = 3.5;
+      ctx.setLineDash([10, 6]);
+      ctx.lineDashOffset = -(now / 16);
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, domeR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Spinning shadow dagger ticks
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2 + now / 450;
+        ctx.strokeStyle = '#f0abfc';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(bcx + Math.cos(a) * (domeR - 10), bcy + Math.sin(a) * (domeR - 10));
+        ctx.lineTo(bcx + Math.cos(a) * (domeR + 14), bcy + Math.sin(a) * (domeR + 14));
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const mirMsg = `SHADOW COUNTER · SKILLS BREAK (BASIC PARRIED! ${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 3})`;
+      ctx.strokeText(mirMsg, bcx, bcy - domeR - 14);
+      ctx.fillStyle = '#e9d5ff';
+      ctx.fillText(mirMsg, bcx, bcy - domeR - 14);
     } else if (rt.boss.channelKind === 'abyss_tether' && rt.boss.channelTetherPair) {
       const [idA, idB] = rt.boss.channelTetherPair;
       const pA = rt.players.find((pl) => pl.id === idA && pl.state === 'alive');
@@ -3195,6 +3299,128 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.strokeText(soakText, sx, sy - sr - 12);
       ctx.fillStyle = hasAegisInside ? '#7dd3fc' : insidePlayers.length >= 2 ? '#fde047' : '#fda4af';
       ctx.fillText(soakText, sx, sy - sr - 12);
+    } else if (rt.boss.channelKind === 'cursed_miasma') {
+      const bcx = rt.boss.x + rt.boss.size / 2;
+      const bcy = rt.boss.y + rt.boss.size / 2;
+      const pulse = 0.72 + Math.sin(now / 110) * 0.25;
+      const outerR = Math.min(rt.arenaWidth, rt.arenaHeight) * 0.44;
+
+      const miasmaGrad = ctx.createRadialGradient(bcx, bcy, 24, bcx, bcy, outerR);
+      miasmaGrad.addColorStop(0, `rgba(163, 230, 53, ${0.24 * pulse})`);
+      miasmaGrad.addColorStop(0.55, `rgba(126, 34, 206, ${0.18 * pulse})`);
+      miasmaGrad.addColorStop(1, 'rgba(101, 163, 13, 0)');
+      ctx.fillStyle = miasmaGrad;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, outerR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(163, 230, 53, ${0.7 * pulse})`;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([12, 8]);
+      ctx.lineDashOffset = -(now / 28);
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, Math.max(1, outerR * (0.45 + 0.55 * frac)), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const mTxt = `PLAGUE MIASMA · HOLY STAFF [E] PURIFIES (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 1})`;
+      ctx.strokeText(mTxt, bcx, bcy - rt.boss.size * 0.65 - 16);
+      ctx.fillStyle = '#bef264';
+      ctx.fillText(mTxt, bcx, bcy - rt.boss.size * 0.65 - 16);
+    } else if (rt.boss.channelKind === 'iron_carapace') {
+      const bcx = rt.boss.x + rt.boss.size / 2;
+      const bcy = rt.boss.y + rt.boss.size / 2;
+      const shellR = rt.boss.size * 0.68;
+      const plates = 6;
+      const rot = now / 900;
+
+      ctx.fillStyle = 'rgba(225, 29, 72, 0.14)';
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shellR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#fb7185';
+      ctx.lineWidth = 4;
+      for (let pi = 0; pi < plates; pi++) {
+        const a0 = rot + (pi / plates) * Math.PI * 2 + 0.08;
+        const a1 = rot + ((pi + 1) / plates) * Math.PI * 2 - 0.08;
+        ctx.beginPath();
+        ctx.arc(bcx, bcy, shellR, a0, a1);
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const cTxt = `IRON CARAPACE (50% ARMOR) · GREATSWORD BREAK (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 5})`;
+      ctx.strokeText(cTxt, bcx, bcy - shellR - 14);
+      ctx.fillStyle = '#fda4af';
+      ctx.fillText(cTxt, bcx, bcy - shellR - 14);
+    } else if (rt.boss.channelKind === 'blood_curse') {
+      const pulse = 0.72 + Math.sin(now / 95) * 0.25;
+      const outerR = Math.min(rt.arenaWidth, rt.arenaHeight) * 0.45;
+      const bloodGrad = ctx.createRadialGradient(bcx, bcy, 20, bcx, bcy, outerR);
+      bloodGrad.addColorStop(0, `rgba(244, 63, 94, ${0.26 * pulse})`);
+      bloodGrad.addColorStop(0.6, `rgba(159, 18, 57, ${0.16 * pulse})`);
+      bloodGrad.addColorStop(1, 'rgba(136, 19, 55, 0)');
+      ctx.fillStyle = bloodGrad;
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, outerR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bleed rings around alive players
+      for (const pl of rt.players) {
+        if (pl.state !== 'alive') continue;
+        const px = pl.x + pl.size / 2;
+        const py = pl.y + pl.size / 2;
+        ctx.strokeStyle = `rgba(251, 113, 133, ${0.72 * pulse})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(px, py, 26 + Math.sin(now / 85) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const bTxt = `BLOOD CURSE BLEED · HOLY STAFF CLEANSES (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 1})`;
+      ctx.strokeText(bTxt, bcx, bcy - rt.boss.size * 0.65 - 16);
+      ctx.fillStyle = '#fda4af';
+      ctx.fillText(bTxt, bcx, bcy - rt.boss.size * 0.65 - 16);
+    } else if (rt.boss.channelKind === 'obsidian_phalanx') {
+      const shellR = rt.boss.size * 0.72;
+      const plates = 8;
+      const rot = -(now / 720);
+
+      ctx.fillStyle = 'rgba(225, 29, 72, 0.18)';
+      ctx.beginPath();
+      ctx.arc(bcx, bcy, shellR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 5;
+      for (let pi = 0; pi < plates; pi++) {
+        const a0 = rot + (pi / plates) * Math.PI * 2 + 0.06;
+        const a1 = rot + ((pi + 1) / plates) * Math.PI * 2 - 0.06;
+        ctx.beginPath();
+        ctx.arc(bcx, bcy, shellR, a0, a1);
+        ctx.stroke();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 9px "Press Start 2P", monospace';
+      ctx.strokeStyle = '#020617';
+      ctx.lineWidth = 3.5;
+      const oTxt = `OBSIDIAN PHALANX (75% ARMOR) · GREATSWORD BREAK (${rt.boss.channelHits || 0}/${rt.boss.channelHitsNeeded || 5})`;
+      ctx.strokeText(oTxt, bcx, bcy - shellR - 14);
+      ctx.fillStyle = '#fda4af';
+      ctx.fillText(oTxt, bcx, bcy - shellR - 14);
     }
     ctx.restore();
   }
@@ -3257,7 +3483,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       ctx.setLineDash([10, 8]);
       ctx.lineDashOffset = -(now / 28);
       ctx.beginPath();
-      ctx.arc(sz.x, sz.y, sz.radius - 10, 0, Math.PI * 2);
+      ctx.arc(sz.x, sz.y, Math.max(1, sz.radius - 10), 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -3555,7 +3781,7 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
         ctx.fillStyle = g.accent;
         ctx.fillText(titleTxt, tx, ty);
 
-        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.font = 'bold 7.2px "JetBrains Mono", monospace';
         const subLine = `${g.subLabel} (${g.playersInside.length}/${aliveTotal})`;
         ctx.strokeText(subLine, tx, ty + (isVert ? 13 : 12));
         ctx.fillStyle = g.playersInside.length > 0 ? '#fde047' : '#cbd5e1';
@@ -4038,11 +4264,11 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
   // Void Decoys (Phantom passive)
   for (let i = 0; i < rt.voidDecoys.length; i++) {
     const vd = rt.voidDecoys[i];
-    const frac = Math.max(0, vd.timer / vd.maxTimer);
+    const frac = Math.max(0, Math.min(1, vd.timer / (vd.maxTimer || 1)));
     ctx.strokeStyle = vd.color;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(vd.x, vd.y, 16 + (1 - frac) * 26, 0, Math.PI * 2);
+    ctx.arc(vd.x, vd.y, Math.max(1, 16 + (1 - frac) * 26), 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = '#a855f7';
@@ -4190,8 +4416,17 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
       const maxT = rt.boss.channelMaxTimer || 3.5;
       const frac = 1 - Math.max(0, Math.min(1, (rt.boss.channelTimer || 0) / maxT));
       ctx.save();
-      if (rt.boss.channelKind === 'interrupt' || rt.boss.channelKind === 'emp_interrupt') {
-        ctx.strokeStyle = rt.boss.channelKind === 'emp_interrupt' ? 'rgba(232, 121, 249, 0.92)' : 'rgba(192, 132, 252, 0.85)';
+      if (
+        rt.boss.channelKind === 'interrupt' ||
+        rt.boss.channelKind === 'emp_interrupt' ||
+        rt.boss.channelKind === 'mirage_ambush'
+      ) {
+        ctx.strokeStyle =
+          rt.boss.channelKind === 'emp_interrupt'
+            ? 'rgba(232, 121, 249, 0.92)'
+            : rt.boss.channelKind === 'mirage_ambush'
+            ? 'rgba(192, 132, 252, 0.94)'
+            : 'rgba(192, 132, 252, 0.85)';
         ctx.lineWidth = 4;
         ctx.setLineDash([10, 6]);
         ctx.lineDashOffset = -(now / 22);
@@ -4205,8 +4440,14 @@ export function renderGame(ctx: CanvasRenderingContext2D, rt: GameRuntime, viewe
             ? '#38bdf8'
             : rt.boss.channelKind === 'cursed_floor' || rt.boss.channelKind === 'meteor_soak'
             ? '#fbbf24'
-            : rt.boss.channelKind === 'bow_weakpoint'
+            : rt.boss.channelKind === 'bow_weakpoint' || rt.boss.channelKind === 'sky_battery'
             ? '#34d399'
+            : rt.boss.channelKind === 'cursed_miasma'
+            ? '#a3e635'
+            : rt.boss.channelKind === 'iron_carapace' || rt.boss.channelKind === 'obsidian_phalanx'
+            ? '#f43f5e'
+            : rt.boss.channelKind === 'blood_curse'
+            ? '#fb7185'
             : rt.boss.channelKind === 'abyss_tether' || rt.boss.channelKind === 'gravity_storm'
             ? '#c084fc'
             : rt.boss.channelKind === 'demon_seal_purge'

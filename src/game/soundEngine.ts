@@ -6,27 +6,29 @@ export interface SfxSyncEvent {
 }
 
 const MENU_MP3_FILENAME = 'music-for-a-defeated-kingdom-valor-is-dead_2QD3KK3E_713e37c4.mp3';
+const MECHA_BOSS_MP3_FILENAME = 'Industrial_Boss_Theme_Dark_Battle_Music_-_MECHA_WARLORD_86d29383.mp3';
+const DUNGEON_MP3_FILENAME = 'Dark_Dungeon_Crawl_Music__Tabletop_RPG_D___D_Fantasy_Music_Soundtrack__7fe3aade.mp3';
 
-function getMenuMusicCandidates(): string[] {
+function getAudioCandidates(filename: string): string[] {
   const candidates: string[] = [];
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     try {
       const moduleScript = document.querySelector('script[type="module"][src*="assets/"]') as HTMLScriptElement | null;
       if (moduleScript?.src) {
-        candidates.push(new URL(`./aistudio/${MENU_MP3_FILENAME}`, moduleScript.src).href);
+        candidates.push(new URL(`./aistudio/${filename}`, moduleScript.src).href);
       }
     } catch {
       // ignore URL error
     }
     try {
-      candidates.push(new URL(`./assets/aistudio/${MENU_MP3_FILENAME}`, document.baseURI || window.location.href).href);
+      candidates.push(new URL(`./assets/aistudio/${filename}`, document.baseURI || window.location.href).href);
     } catch {
       // ignore
     }
   }
-  candidates.push(`./assets/aistudio/${MENU_MP3_FILENAME}`);
-  candidates.push(`/assets/aistudio/${MENU_MP3_FILENAME}`);
-  candidates.push(`./docs/assets/aistudio/${MENU_MP3_FILENAME}`);
+  candidates.push(`./assets/aistudio/${filename}`);
+  candidates.push(`/assets/aistudio/${filename}`);
+  candidates.push(`./docs/assets/aistudio/${filename}`);
   return Array.from(new Set(candidates));
 }
 
@@ -48,6 +50,11 @@ class SoundEngine {
   private menuCandidateIndex = 0;
   private menuCandidates: string[] = [];
   private menuListeners = new Set<(blocked: boolean) => void>();
+
+  private ingameAudio: HTMLAudioElement | null = null;
+  private ingameMp3Key: 'mechaBoss' | 'dungeon' | null = null;
+  private ingameCandidateIndex = 0;
+  private ingameCandidates: string[] = [];
 
   private bgmTimer: number | null = null;
   private bgmStep = 0;
@@ -218,7 +225,7 @@ class SoundEngine {
   private ensureMenuAudio(): HTMLAudioElement | null {
     if (typeof window === 'undefined') return null;
     if (!this.menuAudio) {
-      this.menuCandidates = getMenuMusicCandidates();
+      this.menuCandidates = getAudioCandidates(MENU_MP3_FILENAME);
       this.menuCandidateIndex = 0;
       const audio = new Audio(this.menuCandidates[0]);
       audio.loop = true;
@@ -267,15 +274,87 @@ class SoundEngine {
     }
   }
 
+  private syncIngameAudioState() {
+    if (!this.ingameAudio) return;
+    this.ingameAudio.muted = this.muted;
+    this.ingameAudio.volume = this.muted ? 0 : Math.max(0, Math.min(1, this.musicVolume * 0.72));
+  }
+
+  private ensureIngameAudio(): HTMLAudioElement | null {
+    if (typeof window === 'undefined') return null;
+    if (!this.ingameAudio) {
+      const audio = new Audio();
+      audio.loop = true;
+      audio.preload = 'auto';
+      audio.addEventListener('error', () => {
+        if (this.ingameMp3Key && this.ingameCandidateIndex + 1 < this.ingameCandidates.length) {
+          this.ingameCandidateIndex += 1;
+          audio.src = this.ingameCandidates[this.ingameCandidateIndex];
+          audio.load();
+          this.syncIngameAudioState();
+          audio.play().catch(() => {});
+        }
+      });
+      this.ingameAudio = audio;
+    }
+    return this.ingameAudio;
+  }
+
+  private startIngameMp3(key: 'mechaBoss' | 'dungeon') {
+    if (typeof window === 'undefined') return;
+    const audio = this.ensureIngameAudio();
+    if (!audio) return;
+    const sameTrack = this.ingameMp3Key === key;
+    this.ingameMp3Key = key;
+    if (!sameTrack) {
+      const filename = key === 'mechaBoss' ? MECHA_BOSS_MP3_FILENAME : DUNGEON_MP3_FILENAME;
+      this.ingameCandidates = getAudioCandidates(filename);
+      this.ingameCandidateIndex = 0;
+      audio.pause();
+      audio.src = this.ingameCandidates[0];
+      audio.load();
+      try {
+        audio.currentTime = 0;
+      } catch {
+        // ignore seek before metadata
+      }
+    }
+    this.syncIngameAudioState();
+    if (audio.paused) {
+      audio.play().catch(() => {});
+    }
+  }
+
+  private stopIngameMp3(reset = true) {
+    this.ingameMp3Key = null;
+    if (!this.ingameAudio) return;
+    this.ingameAudio.pause();
+    if (reset) {
+      try {
+        this.ingameAudio.currentTime = 0;
+      } catch {
+        // ignore seek errors before metadata loads
+      }
+    }
+  }
+
   public unlock() {
     this.ensureContext();
     if (this.menuMusicActive && (!this.menuAudio || this.menuAudio.paused)) {
       this.attemptMenuPlay();
     }
+    if (this.ingameMp3Key && this.ingameAudio && this.ingameAudio.paused && !this.muted) {
+      this.syncIngameAudioState();
+      this.ingameAudio.play().catch(() => {});
+    }
   }
 
   public playMenuMusic() {
     if (typeof window === 'undefined') return;
+    this.currentTrack = 'none';
+    this.phase2Intensity = false;
+    this.stopMusicLoop();
+    this.stopIngameMp3(true);
     this.menuMusicActive = true;
     this.ensureMenuAudio();
     this.attemptMenuPlay();
@@ -298,6 +377,7 @@ class SoundEngine {
   public setMusicVolume(v: number) {
     this.musicVolume = Math.max(0, Math.min(1, v));
     this.syncMenuAudioState();
+    this.syncIngameAudioState();
     if (this.musicGain && this.ctx) {
       this.musicGain.gain.setTargetAtTime(this.muted ? 0 : this.musicVolume * 0.3, this.ctx.currentTime, 0.04);
     }
@@ -313,6 +393,7 @@ class SoundEngine {
   public setMuted(m: boolean) {
     this.muted = m;
     this.syncMenuAudioState();
+    this.syncIngameAudioState();
     if (this.ctx && this.musicGain && this.sfxGain) {
       this.musicGain.gain.setTargetAtTime(m ? 0 : this.musicVolume * 0.3, this.ctx.currentTime, 0.04);
       this.sfxGain.gain.setTargetAtTime(m ? 0 : this.sfxVolume * 0.58, this.ctx.currentTime, 0.04);
@@ -646,12 +727,26 @@ class SoundEngine {
         break;
       case 'twin_pylons':
       case 'bow_weakpoint':
+      case 'sky_battery':
         this.darkBrass(146.83, 0.6, 0.26);
         this.tone(783.99, 1174.66, 0.35, 'sine', 0.22, 'sfx', 0.03);
         break;
       case 'emp_interrupt':
+      case 'mirage_ambush':
         this.darkBrass(82.41, 0.72, 0.34);
         this.tone(620, 180, 0.45, 'sawtooth', 0.28, 'sfx', 0, 1800);
+        break;
+      case 'cursed_miasma':
+      case 'blood_curse':
+        this.darkBrass(92.5, 0.65, 0.28);
+        this.tone(240, 110, 0.42, 'triangle', 0.24, 'sfx', 0.02);
+        this.noise(0.28, 0.26, 900, 'bandpass');
+        break;
+      case 'iron_carapace':
+      case 'obsidian_phalanx':
+        this.darkBrass(73.42, 0.7, 0.32);
+        this.tone(440, 160, 0.32, 'sawtooth', 0.28, 'sfx', 0, 1600);
+        this.noise(0.18, 0.34, 2100, 'bandpass');
         break;
       case 'eclipse_tether':
       case 'eclipse_convergence':
@@ -1027,14 +1122,24 @@ class SoundEngine {
     this.currentTrack = track;
     this.phase2Intensity = isPhase2;
     this.stopMusicLoop();
-    if (track !== 'none') {
-      this.startMusicLoop();
+
+    if (track === 'mechaBoss') {
+      this.startIngameMp3('mechaBoss');
+    } else if (track === 'iron' || track === 'void' || track === 'oni') {
+      this.startIngameMp3('dungeon');
+    } else {
+      this.stopIngameMp3(true);
+      if (track !== 'none') {
+        this.startMusicLoop();
+      }
     }
   }
 
   public stopMusic() {
     this.currentTrack = 'none';
+    this.phase2Intensity = false;
     this.stopMusicLoop();
+    this.stopIngameMp3(true);
   }
 
   private stopMusicLoop() {

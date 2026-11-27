@@ -333,6 +333,7 @@ export function buildFloorMapSnapshot(rt: GameRuntime): FloorMapHudSnapshot | nu
       visited: r.visited,
       cleared: r.cleared,
       revealed: r.revealed,
+      bossVariantId: r.bossVariantId,
       connections: { ...r.connections },
     })),
   };
@@ -801,6 +802,7 @@ function hydrateFloorGrid(floorMap: FloorMapHudSnapshot | null | undefined, stag
       visited: n.visited,
       cleared: n.cleared,
       revealed: n.revealed,
+      bossVariantId: n.bossVariantId,
       enemies: [],
       chests: [],
       weaponDrops: [],
@@ -1026,8 +1028,8 @@ export function applySyncedSnapshotToGuest(
   localInput?: TouchInputState
 ): GameRuntime {
   const clampedDt = Math.max(0.004, Math.min(dt, 0.05));
-  const lerpAlpha = 0.62;
-  const leadSec = Math.min(0.035, Math.max(0, (localPingMs || 0) / 2500)) * 60;
+  const lerpAlpha = 0.68;
+  const leadSec = Math.min(0.038, Math.max(0, (localPingMs || 0) / 2400)) * 60;
 
   if (
     !displayRt ||
@@ -1308,8 +1310,8 @@ export function applySyncedSnapshotToGuest(
     if (!prev) return { ...bp, x: targetX, y: targetY };
     return {
       ...bp,
-      x: lerpNum(prev.x, targetX, 0.65, 105),
-      y: lerpNum(prev.y, targetY, 0.65, 105),
+      x: lerpNum(prev.x, targetX, 0.72, 115),
+      y: lerpNum(prev.y, targetY, 0.72, 115),
     };
   });
 
@@ -1320,8 +1322,8 @@ export function applySyncedSnapshotToGuest(
     if (!prev) return { ...pp, x: targetX, y: targetY };
     return {
       ...pp,
-      x: lerpNum(prev.x, targetX, 0.65, 105),
-      y: lerpNum(prev.y, targetY, 0.65, 105),
+      x: lerpNum(prev.x, targetX, 0.72, 115),
+      y: lerpNum(prev.y, targetY, 0.72, 115),
     };
   });
 

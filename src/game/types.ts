@@ -342,19 +342,33 @@ export type BossChannelKind =
   | 'hunter_mark'
   | 'bow_weakpoint'
   | 'emp_interrupt'
+  | 'cursed_miasma'
+  | 'iron_carapace'
   | 'abyss_tether'
   | 'demon_seal_purge'
-  | 'meteor_soak';
+  | 'meteor_soak'
+  | 'obsidian_phalanx'
+  | 'mirage_ambush'
+  | 'sky_battery'
+  | 'blood_curse';
 
 export type BossVariantId =
   | 'mecha_bastion'
   | 'mecha_overclock'
+  | 'mecha_breaker'
+  | 'mecha_triad'
   | 'void_reaper'
   | 'void_snare'
+  | 'void_blight'
+  | 'void_choir'
   | 'oni_shogun'
   | 'oni_tempest'
+  | 'oni_huntsman'
+  | 'oni_warlord'
   | 'eclipse_bastion'
-  | 'eclipse_twilight';
+  | 'eclipse_twilight'
+  | 'eclipse_judgement'
+  | 'eclipse_cataclysm';
 
 export interface BossVariantDef {
   id: BossVariantId;
@@ -372,18 +386,19 @@ export interface BossVariantDef {
 }
 
 export const BOSS_VARIANTS: BossVariantDef[] = [
+  // === MECHA VARIANTS (4) ===
   {
     id: 'mecha_bastion',
     bossType: 'mecha',
     stage: 'mechaBoss',
     name: 'IRON DESTROYER · BASTION MK-I',
     shortName: 'MK-I BASTION',
-    subtitle: 'Molten Siege Protocol',
+    subtitle: 'Molten Siege, Blood Curse & Miasma',
     suggestedWeapons: ['tank_shield', 'holy_staff'],
-    suggestedLabel: 'Tank Shield + Holy Staff',
-    mechanicSummary: 'Floods floor in lava except 1 tiny island while barraging it — Tank Shield blocks salvoes while Holy Staff sustains.',
-    hardshipNote: 'Without Tank Shield, island barrages hit hard and require tight dodge timing.',
-    channelPool: ['cursed_floor', 'siege_beam'],
+    suggestedLabel: 'Tank + Holy Staff',
+    mechanicSummary: 'Floods floor in lava except 1 safe island & fires Apocalypse Cones for Tank Shield while Holy Staff purifies Miasma & Blood Curse.',
+    hardshipNote: 'Without Tank/Holy Staff, barrage cones, Blood Curse, and plague ticks overwhelm fast.',
+    channelPool: ['cursed_floor', 'cursed_miasma', 'siege_beam', 'blood_curse'],
     accent: '#38bdf8',
   },
   {
@@ -392,26 +407,55 @@ export const BOSS_VARIANTS: BossVariantDef[] = [
     stage: 'mechaBoss',
     name: 'IRON DESTROYER · OVERCLOCK MK-II',
     shortName: 'MK-II OVERCLOCK',
-    subtitle: 'Aerial Core & Unavoidable EMP',
+    subtitle: 'Sky Battery, Core & Shadow EMP',
     suggestedWeapons: ['ranger_bow', 'assassin_blades'],
-    suggestedLabel: 'Ranger Bow + Assassin Blades',
-    mechanicSummary: 'No lava! Exposes an Overheated Core for 3x Bow damage & charges an unavoidable EMP blast broken instantly by Assassin skills.',
-    hardshipNote: 'Without Bow/Assassin, core exposure takes longer and EMP requires 3 multi-hits to interrupt.',
-    channelPool: ['bow_weakpoint', 'emp_interrupt'],
+    suggestedLabel: 'Bow + Assassin',
+    mechanicSummary: 'Exposes an Overheated Core & Sky Batteries for 3x Bow damage while firing EMP & Mirage Counter phases broken by Assassin skills.',
+    hardshipNote: 'Without Bow/Assassin, melee shocks punish close hits and EMP requires heavy skill bursts.',
+    channelPool: ['bow_weakpoint', 'emp_interrupt', 'sky_battery', 'mirage_ambush'],
     accent: '#34d399',
   },
+  {
+    id: 'mecha_breaker',
+    bossType: 'mecha',
+    stage: 'mechaBoss',
+    name: 'IRON DESTROYER · SIEGEBREAKER MK-III',
+    shortName: 'MK-III BREAKER',
+    subtitle: 'Obsidian Phalanx, Carapace & Sniper Lock',
+    suggestedWeapons: ['warrior_greatsword', 'tank_shield'],
+    suggestedLabel: 'Greatsword + Tank',
+    mechanicSummary: 'Cycles Iron Carapace & 75%-armor Obsidian Phalanx shattered 3x faster by Greatsword while Tank guards Siege Cones & Sniper Locks.',
+    hardshipNote: 'Without Greatsword/Tank, basic blades bounce off Phalanx armor and beams hit hard.',
+    channelPool: ['iron_carapace', 'siege_beam', 'obsidian_phalanx', 'hunter_mark'],
+    accent: '#ef4444',
+  },
+  {
+    id: 'mecha_triad',
+    bossType: 'mecha',
+    stage: 'mechaBoss',
+    name: 'IRON DESTROYER · TITAN TRIAD MK-IV',
+    shortName: 'MK-IV TRIAD',
+    subtitle: 'Full Squad Fortress Protocol',
+    suggestedWeapons: ['tank_shield', 'ranger_bow', 'holy_staff'],
+    suggestedLabel: 'Tank + Bow + Staff',
+    mechanicSummary: '3-role encounter! Tank guards Safe Island, Bow snipes Core & Sky Batteries (3x), and Holy Staff purifies Miasma & Blood Curse.',
+    hardshipNote: 'Designed for full parties — missing Tank, Bow, or Staff makes phases much more punishing.',
+    channelPool: ['cursed_floor', 'bow_weakpoint', 'cursed_miasma', 'sky_battery', 'blood_curse'],
+    accent: '#fbbf24',
+  },
+  // === VOID VARIANTS (4) ===
   {
     id: 'void_reaper',
     bossType: 'void',
     stage: 'voidBoss',
     name: 'VOID PHANTOM · REAPER',
     shortName: 'REAPER PROTOCOL',
-    subtitle: 'Execution Lock & Unavoidable Rift Pulse',
+    subtitle: 'Execution Lock, Mirage & Rift Pulse',
     suggestedWeapons: ['tank_shield', 'assassin_blades'],
-    suggestedLabel: 'Tank Shield + Assassin Blades',
-    mechanicSummary: 'Targets allies with Sniper Execution Beams intercepted by Tank Shield and pulses Rift EMPs interrupted by Assassin.',
-    hardshipNote: 'Without Tank/Assassin, marked allies must stagger quickly or burn dashes to survive.',
-    channelPool: ['hunter_mark', 'emp_interrupt', 'gravity_storm'],
+    suggestedLabel: 'Tank + Assassin',
+    mechanicSummary: 'Fires Execution Locks & Gravity Storms guarded by Tank Shield while unleashing Void EMP & Mirage Counters broken by Assassin skills.',
+    hardshipNote: 'Without Tank/Assassin, basic hits get parried on Mirage and EMP hits the whole squad.',
+    channelPool: ['hunter_mark', 'emp_interrupt', 'gravity_storm', 'mirage_ambush'],
     accent: '#a855f7',
   },
   {
@@ -420,26 +464,55 @@ export const BOSS_VARIANTS: BossVariantDef[] = [
     stage: 'voidBoss',
     name: 'VOID PHANTOM · SNARE',
     shortName: 'SNARE PROTOCOL',
-    subtitle: 'Rift Core & Soul Tether',
+    subtitle: 'Rift Battery, Phalanx & Carapace',
     suggestedWeapons: ['ranger_bow', 'warrior_greatsword'],
-    suggestedLabel: 'Ranger Bow + Greatsword',
-    mechanicSummary: 'Exposes a distant Rift Core weak to Bow 3x volleys and binds allies with Abyss Tethers snapped cleanly by mobility & heavy waves.',
-    hardshipNote: 'Without Bow/Greatsword, core burn and tether pressure drag out the phase.',
-    channelPool: ['bow_weakpoint', 'abyss_tether', 'interrupt'],
+    suggestedLabel: 'Bow + Greatsword',
+    mechanicSummary: 'Alternates distant Rift Core & Sky Batteries (3x Bow) with Void Carapace & Obsidian Phalanx shattered by Greatsword cleaves.',
+    hardshipNote: 'Without Bow/Greatsword, 75%-armor Phalanx & Shock Cores stall party damage.',
+    channelPool: ['bow_weakpoint', 'iron_carapace', 'sky_battery', 'obsidian_phalanx'],
     accent: '#c084fc',
   },
+  {
+    id: 'void_blight',
+    bossType: 'void',
+    stage: 'voidBoss',
+    name: 'VOID PHANTOM · BLIGHTWEAVER',
+    shortName: 'BLIGHT PROTOCOL',
+    subtitle: 'Abyssal Curse, Miasma & Mirage EMP',
+    suggestedWeapons: ['holy_staff', 'assassin_blades'],
+    suggestedLabel: 'Holy Staff + Assassin',
+    mechanicSummary: 'Spreads Abyssal Miasma & Blood Curse purified by Holy Staff while Assassin skills break Void EMP & Mirage Ambush counters.',
+    hardshipNote: 'Without Holy Staff/Assassin, curses tick relentlessly and basic hits trigger Mirage parries.',
+    channelPool: ['cursed_miasma', 'emp_interrupt', 'blood_curse', 'mirage_ambush'],
+    accent: '#e879f9',
+  },
+  {
+    id: 'void_choir',
+    bossType: 'void',
+    stage: 'voidBoss',
+    name: 'VOID PHANTOM · ABYSSAL CHOIR',
+    shortName: 'CHOIR PROTOCOL',
+    subtitle: '3-Role Execution, Battery & Mirage',
+    suggestedWeapons: ['tank_shield', 'ranger_bow', 'assassin_blades'],
+    suggestedLabel: 'Tank + Bow + Assassin',
+    mechanicSummary: '3-role assault! Tank intercepts Execution Lock, Bow burns Core & Sky Batteries (3x), and Assassin cancels EMP & Mirage Ambush.',
+    hardshipNote: 'Missing a suggested role increases pressure during overlapped execution phases.',
+    channelPool: ['hunter_mark', 'bow_weakpoint', 'emp_interrupt', 'sky_battery', 'mirage_ambush'],
+    accent: '#38bdf8',
+  },
+  // === ONI VARIANTS (4) ===
   {
     id: 'oni_shogun',
     bossType: 'oni',
     stage: 'oniBoss',
     name: 'YAMATA-ONI · SHOGUN',
     shortName: 'CRIMSON SHOGUN',
-    subtitle: 'Molten Arena & Meteor Soak',
+    subtitle: 'Molten Arena, Meteor & Blood Curse',
     suggestedWeapons: ['tank_shield', 'holy_staff'],
-    suggestedLabel: 'Tank Shield + Holy Staff',
-    mechanicSummary: 'Scorches the sanctum around 1 safe island and drops party Meteor Soaks neutralized by Tank Aegis & Staff Sanctum.',
-    hardshipNote: 'Without Tank/Holy Staff, island fires and 68 DMG meteor splits punish missteps severely.',
-    channelPool: ['cursed_floor', 'meteor_soak', 'demon_seal_purge'],
+    suggestedLabel: 'Tank + Holy Staff',
+    mechanicSummary: 'Scorches the floor around 1 safe island & drops Meteor Soaks for Tank Aegis while Holy Staff purifies Demon Miasma & Blood Curse.',
+    hardshipNote: 'Without Tank/Holy Staff, Blood Curse drain and 68 DMG meteors punish mistakes heavily.',
+    channelPool: ['cursed_floor', 'cursed_miasma', 'meteor_soak', 'blood_curse'],
     accent: '#f97316',
   },
   {
@@ -448,26 +521,55 @@ export const BOSS_VARIANTS: BossVariantDef[] = [
     stage: 'oniBoss',
     name: 'YAMATA-ONI · TEMPEST',
     shortName: 'TEMPEST BLADE',
-    subtitle: 'Demon Seals & Unavoidable Calamity',
+    subtitle: 'Demon Phalanx, Mirage & Calamity EMP',
     suggestedWeapons: ['assassin_blades', 'warrior_greatsword'],
-    suggestedLabel: 'Assassin Blades + Greatsword',
-    mechanicSummary: 'Casts unavoidable Demon Calamity blasts broken in 1 hit by Assassin skills while Greatsword cleaves through Soul Seals.',
-    hardshipNote: 'Without Assassin/Greatsword, calamity blasts demand fast multi-hit focus to interrupt.',
-    channelPool: ['emp_interrupt', 'demon_seal_purge', 'abyss_tether'],
+    suggestedLabel: 'Assassin + Greatsword',
+    mechanicSummary: 'Fires Demon EMP & Mirage Counters broken by Assassin skills while Greatsword shatters Oni Carapace & Obsidian Phalanx.',
+    hardshipNote: 'Without Assassin/Greatsword, armored shells deflect basic hits and Mirage parries melee.',
+    channelPool: ['emp_interrupt', 'iron_carapace', 'mirage_ambush', 'obsidian_phalanx'],
     accent: '#ef4444',
   },
+  {
+    id: 'oni_huntsman',
+    bossType: 'oni',
+    stage: 'oniBoss',
+    name: 'YAMATA-ONI · IRONBOW SHINOBI',
+    shortName: 'ONI HUNTSMAN',
+    subtitle: 'Third-Eye Core, Sky Battery & Siege',
+    suggestedWeapons: ['ranger_bow', 'tank_shield'],
+    suggestedLabel: 'Bow + Tank',
+    mechanicSummary: 'Opens Third-Eye Core & Sky Batteries for 3x Bow snipes between Hellfire Siege Cones & Sniper Locks guarded by Tank Shield.',
+    hardshipNote: 'Without Bow/Tank, dodging dense siege lanes while shattering batteries is tough.',
+    channelPool: ['bow_weakpoint', 'siege_beam', 'sky_battery', 'hunter_mark'],
+    accent: '#34d399',
+  },
+  {
+    id: 'oni_warlord',
+    bossType: 'oni',
+    stage: 'oniBoss',
+    name: 'YAMATA-ONI · DEMON WARLORD',
+    shortName: 'ONI WARLORD',
+    subtitle: '3-Role Heavy Brawl',
+    suggestedWeapons: ['tank_shield', 'warrior_greatsword', 'holy_staff'],
+    suggestedLabel: 'Tank + Sword + Staff',
+    mechanicSummary: '3-role war! Tank neutralizes Meteor Soaks, Greatsword cracks Carapace & Phalanx (3x), and Holy Staff purges Miasma & Blood Curse.',
+    hardshipNote: 'Built for multi-player squads — missing sustain or armor break stretches the fight.',
+    channelPool: ['meteor_soak', 'iron_carapace', 'cursed_miasma', 'obsidian_phalanx', 'blood_curse'],
+    accent: '#fb923c',
+  },
+  // === ECLIPSE VARIANTS (4) ===
   {
     id: 'eclipse_bastion',
     bossType: 'eclipse',
     stage: 'eclipseBoss',
     name: 'SOLARIS & LUNARIS · AEGIS',
     shortName: 'ECLIPSE AEGIS',
-    subtitle: 'Astral Siege & Solar Meteor',
+    subtitle: 'Astral Siege, Meteor & Blood Curse',
     suggestedWeapons: ['tank_shield', 'holy_staff'],
-    suggestedLabel: 'Tank Shield + Holy Staff',
-    mechanicSummary: 'Unleashes wide Astral Siege Cones & Meteor Soaks designed for Tank Aegis deflection and Holy Staff party sustain.',
-    hardshipNote: 'Without Tank/Holy Staff, navigating dense cone lanes and meteor splits is unforgiving.',
-    channelPool: ['siege_beam', 'meteor_soak', 'cursed_floor'],
+    suggestedLabel: 'Tank + Holy Staff',
+    mechanicSummary: 'Unleashes Solar Siege Cones & Meteor Soaks blocked by Tank Aegis while Holy Staff heals & cleanses Miasma & Blood Curse.',
+    hardshipNote: 'Without Tank/Holy Staff, dense astral salvoes and Blood Curse drain test survivability.',
+    channelPool: ['siege_beam', 'cursed_miasma', 'meteor_soak', 'blood_curse'],
     accent: '#fbbf24',
   },
   {
@@ -476,13 +578,41 @@ export const BOSS_VARIANTS: BossVariantDef[] = [
     stage: 'eclipseBoss',
     name: 'SOLARIS & LUNARIS · TWILIGHT',
     shortName: 'TWILIGHT CORE',
-    subtitle: 'Astral Core & Supernova Pulse',
+    subtitle: 'Astral Battery, Mirage & Supernova',
     suggestedWeapons: ['ranger_bow', 'assassin_blades'],
-    suggestedLabel: 'Ranger Bow + Assassin Blades',
-    mechanicSummary: 'Opens an Astral Core vulnerable to Bow 3x precision arrows while Assassin skills snap unavoidable Twilight Supernovas.',
-    hardshipNote: 'Without Bow/Assassin, Twilight Supernovas require triple skill hits to cancel.',
-    channelPool: ['bow_weakpoint', 'emp_interrupt', 'interrupt'],
+    suggestedLabel: 'Bow + Assassin',
+    mechanicSummary: 'Opens Astral Core & Sky Batteries weak to Bow 3x arrows while Assassin skills break Supernovas & Shadow Mirage Counters.',
+    hardshipNote: 'Without Bow/Assassin, Supernovas & Mirage Ambush demand multi-hit skill bursts.',
+    channelPool: ['bow_weakpoint', 'emp_interrupt', 'sky_battery', 'mirage_ambush'],
     accent: '#38bdf8',
+  },
+  {
+    id: 'eclipse_judgement',
+    bossType: 'eclipse',
+    stage: 'eclipseBoss',
+    name: 'SOLARIS & LUNARIS · JUDGEMENT',
+    shortName: 'JUDGEMENT',
+    subtitle: 'Obsidian Phalanx, Carapace & Blight',
+    suggestedWeapons: ['warrior_greatsword', 'holy_staff'],
+    suggestedLabel: 'Greatsword + Staff',
+    mechanicSummary: 'Forges Celestial Carapace & Obsidian Phalanx broken 3x faster by Greatsword while Holy Staff purifies Miasma & Blood Curse.',
+    hardshipNote: 'Without Greatsword/Staff, 75%-armor Phalanx shrugs off light hits while curses tick.',
+    channelPool: ['iron_carapace', 'cursed_miasma', 'obsidian_phalanx', 'blood_curse'],
+    accent: '#f43f5e',
+  },
+  {
+    id: 'eclipse_cataclysm',
+    bossType: 'eclipse',
+    stage: 'eclipseBoss',
+    name: 'SOLARIS & LUNARIS · CATACLYSM',
+    shortName: 'CATACLYSM',
+    subtitle: '3-Role Final Sovereign Trial',
+    suggestedWeapons: ['tank_shield', 'ranger_bow', 'assassin_blades'],
+    suggestedLabel: 'Tank + Bow + Assassin',
+    mechanicSummary: '3-role finale! Tank shields Meteor Soaks, Bow obliterates Core & Sky Batteries (3x), and Assassin cancels Supernova & Mirage.',
+    hardshipNote: 'All-star finale — without suggested counters, coordination and skill timing must be sharp.',
+    channelPool: ['meteor_soak', 'bow_weakpoint', 'emp_interrupt', 'sky_battery', 'mirage_ambush'],
+    accent: '#fde047',
   },
 ];
 
@@ -530,6 +660,7 @@ export interface Boss {
   channelTargetPlayerId?: PlayerId;
   channelTetherPair?: [PlayerId, PlayerId];
   channelNodes?: { x: number; y: number; r: number; activated: boolean }[];
+  channelSeqCount?: number;
 }
 
 export interface BossProjectile {
@@ -989,6 +1120,7 @@ export interface FloorMapNodeHud {
   gx: number;
   gy: number;
   kind: RoomKind;
+  bossVariantId?: BossVariantId;
   visited: boolean;
   cleared: boolean;
   revealed: boolean;
@@ -1434,7 +1566,7 @@ export const DIFFICULTY_SETTINGS: Record<DifficultyKey, DifficultyConfig> = {
     cadenceMult: 1.12,
     color: '#34d399',
     borderColor: '#059669',
-    summary: '100 Base HP · 0.90x DMG · Tanky Bosses & Balanced Pace · Free Co-op Revive',
+    summary: '100 Base HP · Easier Boss Variants & Teamwork · 0.90x DMG · Free Co-op Revive',
   },
   medium: {
     key: 'medium',
@@ -1454,7 +1586,7 @@ export const DIFFICULTY_SETTINGS: Record<DifficultyKey, DifficultyConfig> = {
     cadenceMult: 1.26,
     color: '#fbbf24',
     borderColor: '#b45309',
-    summary: '100 Base HP · 1.20x DMG · +50% Intensity & Buffed Boss HP · 1.5x Score',
+    summary: '100 Base HP · Balanced Boss Variants & Teamwork · 1.20x DMG · 1.5x Score',
   },
   hard: {
     key: 'hard',
@@ -1727,11 +1859,11 @@ export const WEAPONS_CATALOG: WeaponDef[] = [
     name: 'TEMPEST LONGBOW',
     roleLabel: 'RANGED SNIPER',
     skillName: 'Storm Volley',
-    skillDesc: '3 piercing Storm Arrows + 3.2s Overdrive & Blade recall.',
-    passiveDesc: '+15% Move Speed while wielding the bow.',
-    skillCooldown: 13.0,
-    dashCooldown: 8.2,
-    speedMult: 1.15,
+    skillDesc: '4 piercing Storm Arrows + 3.8s Overdrive & Blade recall.',
+    passiveDesc: '+18% Move Speed & Dash fires a piercing Snap-Arrow forward.',
+    skillCooldown: 9.5,
+    dashCooldown: 7.4,
+    speedMult: 1.18,
     bonusHp: 0,
     accent: '#34d399',
     shortTag: 'BOW',
@@ -1740,32 +1872,32 @@ export const WEAPONS_CATALOG: WeaponDef[] = [
         slot: 1,
         name: 'Storm Volley',
         shortName: 'VOLLEY',
-        desc: '3 piercing Storm Arrows + 3.2s Overdrive + recalls Blade.',
-        cooldown: 13.0,
+        desc: '4 piercing Storm Arrows (2 DMG/mob) + 3.8s Overdrive + recalls Blade.',
+        cooldown: 9.5,
         keyLabel: 'E',
       },
       {
         slot: 2,
         name: 'Frost Snare Trap',
         shortName: 'TRAP',
-        desc: 'Drops a 5.5s icy snare freezing mobs inside & pulsing frost shards.',
-        cooldown: 15.0,
+        desc: '5.8s icy trap dealing rapid AoE frost DMG, slowing mobs & firing shards.',
+        cooldown: 11.5,
         keyLabel: 'Q',
       },
       {
         slot: 3,
         name: 'Piercing Railshot',
         shortName: 'SNIPE',
-        desc: 'Hyper-velocity golden arrow piercing unlimited foes & boss (3x hit).',
-        cooldown: 18.0,
+        desc: 'Hyper-velocity golden rail-arrow piercing unlimited foes & boss (4x hit).',
+        cooldown: 13.5,
         keyLabel: 'R',
       },
       {
         slot: 4,
         name: 'Tempest Arrow Rain',
         shortName: 'BARRAGE',
-        desc: 'Summons a 3.8s emerald arrow storm ahead shredding packs & bosses.',
-        cooldown: 24.0,
+        desc: 'Summons a 4.2s emerald arrow storm rapidly shredding packs & bosses.',
+        cooldown: 18.5,
         keyLabel: 'F',
       },
     ],

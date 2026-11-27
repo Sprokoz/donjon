@@ -291,43 +291,43 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
       >
         {stickOrigin ? (
           <div
-            className="pointer-events-none fixed rounded-full bg-black/50 border-2 backdrop-blur-sm shadow-[0_0_24px_rgba(0,0,0,0.65)] flex items-center justify-center"
+            className="pointer-events-none fixed rounded-full bg-black/15 border-2 flex items-center justify-center"
             style={{
               width: padSizePx,
               height: padSizePx,
               left: stickOrigin.x - padRadius,
               top: stickOrigin.y - padRadius,
               borderColor:
-                knobOffset.x !== 0 || knobOffset.y !== 0 ? `${playerColor}dd` : 'rgba(120,113,108,0.8)',
+                knobOffset.x !== 0 || knobOffset.y !== 0 ? `${playerColor}cc` : 'rgba(214,211,209,0.45)',
             }}
           >
-            <div className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-stone-600/55" />
-            <div className="pointer-events-none absolute w-full h-[1px] bg-stone-700/60" />
-            <div className="pointer-events-none absolute h-full w-[1px] bg-stone-700/60" />
+            <div className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-stone-400/35" />
+            <div className="pointer-events-none absolute w-full h-[1px] bg-stone-400/25" />
+            <div className="pointer-events-none absolute h-full w-[1px] bg-stone-400/25" />
             <div
-              className={`${knobSizeClass} pointer-events-none rounded-full border-2 shadow-lg flex items-center justify-center`}
+              className={`${knobSizeClass} pointer-events-none rounded-full border-2 flex items-center justify-center`}
               style={{
                 transform: `translate3d(${knobOffset.x}px, ${knobOffset.y}px, 0)`,
-                background: `radial-gradient(circle at 35% 35%, ${playerColor}dd, #111118 85%)`,
-                borderColor: playerColor,
-                boxShadow: `0 0 18px ${playerColor}66`,
+                background: `radial-gradient(circle at 35% 35%, ${playerColor}77, rgba(10,12,18,0.28) 85%)`,
+                borderColor: `${playerColor}cc`,
+                boxShadow: `0 0 12px ${playerColor}44`,
               }}
             >
-              <div className="w-3 h-3 rounded-full bg-white/85" />
+              <div className="w-2.5 h-2.5 rounded-full bg-white/75" />
             </div>
           </div>
         ) : (
-          <div className="pointer-events-none fixed left-4 bottom-4 flex flex-col items-center gap-1 opacity-40">
-            <div className="w-24 h-24 rounded-full border-2 border-dashed border-stone-500/75 bg-black/25 flex items-center justify-center">
+          <div className="pointer-events-none fixed left-3 bottom-3 flex flex-col items-center gap-0.5 opacity-25">
+            <div className="w-16 h-16 rounded-full border border-dashed border-stone-400/65 bg-black/10 flex items-center justify-center">
               <div
-                className="w-10 h-10 rounded-full border border-stone-400/70 flex items-center justify-center"
-                style={{ borderColor: `${playerColor}88` }}
+                className="w-7 h-7 rounded-full border border-stone-300/60 flex items-center justify-center"
+                style={{ borderColor: `${playerColor}77` }}
               >
-                <div className="w-2 h-2 rounded-full bg-white/70" />
+                <div className="w-1.5 h-1.5 rounded-full bg-white/70" />
               </div>
             </div>
-            <span className="font-mono-num text-[9px] text-stone-300 tracking-wider bg-black/45 px-1.5 py-0.5 rounded">
-              TOUCH ANYWHERE (LEFT)
+            <span className="font-mono-num text-[8px] text-stone-200 tracking-wider [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">
+              MOVE (LEFT)
             </span>
           </div>
         )}
@@ -350,7 +350,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
 
       {/* Right Bottom Action Dock: Shop / Bag / Flask + Skills 1..4 + Dash */}
       <div
-        className="pointer-events-auto fixed right-2.5 sm:right-4 bottom-2.5 sm:bottom-3 z-25 flex flex-col items-end gap-1.5 select-none touch-none"
+        className="pointer-events-auto fixed right-2 sm:right-4 bottom-2 sm:bottom-3 z-25 flex flex-col items-end gap-1.5 select-none touch-none"
         style={{ touchAction: 'none' }}
       >
         {(onUsePotion || (isOnlineCampaign && onOpenInventory) || (isOnlineCampaign && p1.nearMerchant && onOpenShop)) && (
@@ -363,7 +363,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   soundEngine.unlock();
                   onOpenShop();
                 }}
-                className="min-h-[44px] min-w-[44px] px-3 rounded-lg bg-amber-950/90 border border-amber-400 text-amber-200 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer animate-pulse"
+                className="min-h-[42px] min-w-[44px] px-2.5 rounded-full bg-amber-950/35 border border-amber-400/80 text-amber-100 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer animate-pulse [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]"
                 style={{ touchAction: 'none' }}
               >
                 <Store className="w-4 h-4 text-amber-300" />
@@ -378,10 +378,10 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   soundEngine.unlock();
                   onOpenInventory();
                 }}
-                className="min-h-[44px] min-w-[44px] px-2.5 rounded-lg bg-black/85 border border-stone-500/80 text-stone-200 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer"
+                className="min-h-[42px] min-w-[44px] px-2.5 rounded-full bg-black/25 border border-stone-400/50 text-stone-100 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]"
                 style={{ touchAction: 'none' }}
               >
-                <Briefcase className="w-3.5 h-3.5 text-amber-400" />
+                <Briefcase className="w-3.5 h-3.5 text-amber-300" />
                 <span>{(p1.scrollBag || []).length}/8</span>
               </button>
             )}
@@ -394,7 +394,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   soundEngine.unlock();
                   onUsePotion();
                 }}
-                className="min-h-[44px] min-w-[44px] px-2.5 rounded-lg bg-rose-950/80 disabled:bg-black/60 border border-rose-500/75 disabled:border-stone-700 text-rose-200 disabled:text-stone-500 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer"
+                className="min-h-[42px] min-w-[44px] px-2.5 rounded-full bg-rose-950/30 disabled:bg-black/15 border border-rose-400/65 disabled:border-stone-600/45 text-rose-100 disabled:text-stone-400 font-mono-num text-[10px] font-bold flex items-center justify-center gap-1 touch-none cursor-pointer [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]"
                 style={{ touchAction: 'none' }}
               >
                 <FlaskConical className="w-3.5 h-3.5" />
@@ -426,15 +426,15 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   onPointerUp={handleSlotUp(slotNum)}
                   onPointerCancel={handleSlotUp(slotNum)}
                   aria-label={sDef ? sDef.name : `Skill ${slotNum}`}
-                  className={`relative min-w-[46px] min-h-[46px] px-1.5 rounded-full border-2 flex flex-col items-center justify-center overflow-hidden transition-transform touch-none cursor-pointer ${
+                  className={`relative min-w-[44px] min-h-[44px] px-1.5 rounded-full border-2 flex flex-col items-center justify-center overflow-hidden transition-transform touch-none cursor-pointer ${
                     pressedSlots[slotNum] ? 'scale-95' : 'scale-100'
-                  } ${!unlocked ? 'opacity-45' : ready ? 'shadow-md' : 'opacity-90'}`}
+                  } ${!unlocked ? 'opacity-40' : ready ? '' : 'opacity-80'}`}
                   style={{
                     touchAction: 'none',
                     background: ready
-                      ? `radial-gradient(circle at 35% 30%, ${skillColor}44, #0d0c12 85%)`
-                      : 'rgba(10, 10, 14, 0.85)',
-                    borderColor: isFlashing ? '#ffffff' : ready ? skillColor : '#4b4550',
+                      ? `radial-gradient(circle at 35% 30%, ${skillColor}33, rgba(8, 10, 16, 0.22) 85%)`
+                      : 'rgba(8, 10, 16, 0.18)',
+                    borderColor: isFlashing ? '#ffffff' : ready ? `${skillColor}dd` : 'rgba(120, 113, 108, 0.45)',
                     boxShadow: isFlashing ? `0 0 18px ${skillColor}` : undefined,
                   }}
                 >
@@ -442,7 +442,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                     <div
                       className="pointer-events-none absolute inset-0 rounded-full"
                       style={{
-                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.84) ${sweepDeg}deg, transparent ${sweepDeg}deg)`,
+                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.58) ${sweepDeg}deg, transparent ${sweepDeg}deg)`,
                       }}
                     />
                   )}
@@ -453,16 +453,16 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                     />
                   )}
                   {!unlocked ? (
-                    <Lock className="w-3.5 h-3.5 text-stone-500 relative z-10" />
+                    <Lock className="w-3.5 h-3.5 text-stone-400 relative z-10 drop-shadow" />
                   ) : (
                     <span
-                      className="relative z-10 font-mono-num text-[9px] font-bold leading-none tabular-nums"
+                      className="relative z-10 font-mono-num text-[9px] font-bold leading-none tabular-nums [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]"
                       style={{ color: ready ? '#fafaf9' : '#fde68a' }}
                     >
                       {ready ? sDef?.keyLabel || `S${slotNum}` : `${Math.ceil(cdExact)}s`}
                     </span>
                   )}
-                  <span className="relative z-10 font-mono-num text-[8px] text-stone-400 leading-none mt-0.5 truncate max-w-[38px]">
+                  <span className="relative z-10 font-mono-num text-[8px] text-stone-200 leading-none mt-0.5 truncate max-w-[38px] [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">
                     {unlocked ? sDef?.shortName.slice(0, 5) : 'SCRL'}
                   </span>
                 </button>
@@ -486,19 +486,19 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   onPointerUp={handleAbilityUp}
                   onPointerCancel={handleAbilityUp}
                   aria-label="Hero Skill 1"
-                  className={`${skillBtnSizeClass} relative min-w-[50px] min-h-[50px] rounded-full border-2 flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-transform touch-none cursor-pointer ${
+                  className={`${skillBtnSizeClass} relative min-w-[48px] min-h-[48px] rounded-full border-2 flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-transform touch-none cursor-pointer ${
                     abilityPressed ? 'scale-95' : 'scale-100'
-                  } ${p1.abilityReady || (isOnlineCampaign && p1.weapon === 'none') ? 'shadow-lg' : 'opacity-90'}`}
+                  } ${p1.abilityReady || (isOnlineCampaign && p1.weapon === 'none') ? '' : 'opacity-80'}`}
                   style={{
                     touchAction: 'none',
                     background: p1.abilityReady
-                      ? `radial-gradient(circle at 35% 30%, ${skillColor}55, #0d0c12 85%)`
-                      : 'rgba(10, 10, 14, 0.82)',
-                    borderColor: s1Flashing ? '#ffffff' : p1.abilityReady ? skillColor : '#4b4550',
+                      ? `radial-gradient(circle at 35% 30%, ${skillColor}38, rgba(8, 10, 16, 0.22) 85%)`
+                      : 'rgba(8, 10, 16, 0.18)',
+                    borderColor: s1Flashing ? '#ffffff' : p1.abilityReady ? `${skillColor}dd` : 'rgba(120, 113, 108, 0.45)',
                     boxShadow: s1Flashing
                       ? `0 0 22px ${skillColor}`
                       : p1.abilityReady
-                      ? `0 0 18px ${skillColor}44`
+                      ? `0 0 14px ${skillColor}33`
                       : undefined,
                   }}
                 >
@@ -506,7 +506,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                     <div
                       className="pointer-events-none absolute inset-0 rounded-full"
                       style={{
-                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.84) ${s1Deg}deg, transparent ${s1Deg}deg)`,
+                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.58) ${s1Deg}deg, transparent ${s1Deg}deg)`,
                       }}
                     />
                   )}
@@ -517,11 +517,11 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                     />
                   )}
                   <Sparkles
-                    className="w-4 h-4 relative z-10"
-                    style={{ color: p1.abilityReady ? skillColor : '#71717a' }}
+                    className="w-4 h-4 relative z-10 drop-shadow"
+                    style={{ color: p1.abilityReady ? skillColor : '#a1a1aa' }}
                   />
                   <span
-                    className="relative z-10 font-mono-num text-[10px] font-bold leading-none tabular-nums"
+                    className="relative z-10 font-mono-num text-[10px] font-bold leading-none tabular-nums [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]"
                     style={{ color: p1.abilityReady ? '#fafaf9' : '#fde68a' }}
                   >
                     {isOnlineCampaign && p1.weapon === 'none'
@@ -532,7 +532,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   </span>
                 </button>
                 {!compact && (
-                  <span className="font-mono-num text-[9px] text-stone-400 truncate max-w-[68px]">
+                  <span className="font-mono-num text-[9px] text-stone-300 truncate max-w-[68px] [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">
                     {skillCaption}
                   </span>
                 )}
@@ -553,19 +553,19 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   onPointerUp={handleDashUp}
                   onPointerCancel={handleDashUp}
                   aria-label="Dash"
-                  className={`${dashBtnSizeClass} relative min-w-[54px] min-h-[54px] rounded-full border-2 flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-transform touch-none cursor-pointer ${
+                  className={`${dashBtnSizeClass} relative min-w-[52px] min-h-[52px] rounded-full border-2 flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-transform touch-none cursor-pointer ${
                     dashPressed ? 'scale-95' : 'scale-100'
-                  } ${dashAvailable ? 'shadow-lg' : 'opacity-90'}`}
+                  } ${dashAvailable ? '' : 'opacity-80'}`}
                   style={{
                     touchAction: 'none',
                     background: dashAvailable
-                      ? 'radial-gradient(circle at 35% 30%, rgba(16, 185, 129, 0.42), #091210 85%)'
-                      : 'rgba(10, 10, 14, 0.82)',
-                    borderColor: dashFlashing ? '#ffffff' : dashAvailable ? '#34d399' : '#4b4550',
+                      ? 'radial-gradient(circle at 35% 30%, rgba(16, 185, 129, 0.32), rgba(8, 14, 12, 0.22) 85%)'
+                      : 'rgba(8, 10, 16, 0.18)',
+                    borderColor: dashFlashing ? '#ffffff' : dashAvailable ? 'rgba(52, 211, 153, 0.85)' : 'rgba(120, 113, 108, 0.45)',
                     boxShadow: dashFlashing
                       ? '0 0 22px rgba(110, 231, 183, 0.9)'
                       : dashAvailable
-                      ? '0 0 20px rgba(52, 211, 153, 0.35)'
+                      ? '0 0 14px rgba(52, 211, 153, 0.28)'
                       : undefined,
                   }}
                 >
@@ -573,7 +573,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                     <div
                       className="pointer-events-none absolute inset-0 rounded-full"
                       style={{
-                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.84) ${dashDeg}deg, transparent ${dashDeg}deg)`,
+                        background: `conic-gradient(from 0deg, rgba(3, 4, 9, 0.58) ${dashDeg}deg, transparent ${dashDeg}deg)`,
                       }}
                     />
                   )}
@@ -583,9 +583,9 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                       className="pointer-events-none absolute inset-0 rounded-full bg-white/80 animate-skill-ready-flash"
                     />
                   )}
-                  <Wind className={`w-5 h-5 relative z-10 ${dashAvailable ? 'text-emerald-300' : 'text-stone-500'}`} />
+                  <Wind className={`w-5 h-5 relative z-10 drop-shadow ${dashAvailable ? 'text-emerald-300' : 'text-stone-400'}`} />
                   <span
-                    className={`relative z-10 font-mono-num text-[10px] font-bold leading-none tabular-nums ${
+                    className={`relative z-10 font-mono-num text-[10px] font-bold leading-none tabular-nums [text-shadow:0_1px_3px_rgba(0,0,0,0.95)] ${
                       dashAvailable ? 'text-emerald-100' : 'text-amber-200'
                     }`}
                   >
@@ -597,7 +597,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   </span>
                 </button>
                 {!compact && (
-                  <span className="font-mono-num text-[9px] text-stone-400 tracking-wider">DODGE</span>
+                  <span className="font-mono-num text-[9px] text-stone-300 tracking-wider [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">DODGE</span>
                 )}
               </div>
             );

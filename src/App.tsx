@@ -1977,8 +1977,10 @@ export default function App() {
     let guestInputHeartbeatAccum = 0;
 
     const loop = (now: number) => {
-      const dt = Math.min((now - lastTs) / 1000, 0.05);
+      const rawSec = (now - lastTs) / 1000;
+      const dt = Math.max(0, Math.min(Number.isFinite(rawSec) ? rawSec : 0.016, 0.05));
       lastTs = now;
+      try {
       const canvas = canvasRef.current;
       const ctx = canvas ? canvas.getContext('2d') : null;
       const role = activeOnlineRoleRef.current;
@@ -2199,6 +2201,9 @@ export default function App() {
             renderGame(ctx, rt, viewerId);
           }
         }
+      }
+      } catch (err) {
+        console.error('[GameLoop Error]', err);
       }
 
       rafId = requestAnimationFrame(loop);

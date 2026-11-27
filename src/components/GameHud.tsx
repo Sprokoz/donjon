@@ -39,6 +39,7 @@ import {
   BOONS_CATALOG,
   BOSS_VARIANTS,
   BossChannelKind,
+  BossType,
   BossVariantId,
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -189,16 +190,19 @@ function getRoomSymbol(node: FloorMapNodeHud): string {
 const FloorMinimapCard: React.FC<{
   floorMap: FloorMapHudSnapshot;
   opacity: number;
+  compactMobile?: boolean;
   onChangeOpacity: (next: number) => void;
   onHideMap: () => void;
-}> = React.memo(({ floorMap, opacity, onChangeOpacity, onHideMap }) => {
+}> = React.memo(({ floorMap, opacity, compactMobile = false, onChangeOpacity, onHideMap }) => {
   const nodeMap = new Map<string, FloorMapNodeHud>();
   floorMap.nodes.forEach((n) => nodeMap.set(`${n.gx},${n.gy}`, n));
   const size = floorMap.gridSize || 5;
 
   return (
     <div
-      className="bg-transparent border-0 shadow-none p-1 space-y-1 w-[192px] sm:w-[208px] drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]"
+      className={`bg-transparent border-0 shadow-none p-1 space-y-1 drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)] ${
+        compactMobile ? 'w-[144px] sm:w-[196px]' : 'w-[192px] sm:w-[208px]'
+      }`}
       style={{ opacity }}
     >
       <div className="flex items-center justify-between gap-1.5 px-0.5">
@@ -312,6 +316,21 @@ const FloorMinimapCard: React.FC<{
           <span className="text-rose-300">☠ Boss</span>
           <span className="text-emerald-300">✓ Clear</span>
         </div>
+        {(() => {
+          const bossNode = floorMap.nodes.find((n) => n.kind === 'boss' && n.revealed && n.bossVariantId);
+          const vDef = bossNode?.bossVariantId ? BOSS_VARIANTS.find((v) => v.id === bossNode.bossVariantId) : null;
+          if (!vDef) return null;
+          return (
+            <div className="pt-0.5 border-t border-white/15 flex items-center justify-between gap-1 text-[8px] font-mono-num">
+              <span className="font-bold truncate" style={{ color: vDef.accent }}>
+                ☠ {vDef.shortName}
+              </span>
+              <span className="text-amber-200 font-bold truncate shrink-0">
+                {vDef.suggestedLabel}
+              </span>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -576,6 +595,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [partyOpen, setPartyOpen] = useState<boolean>(() => loadBoolPref(PARTY_OPEN_KEY, true));
   const [partyPos, setPartyPos] = useState<{ x: number; y: number }>(() => loadPartyPos());
   const [goldPulseTick, setGoldPulseTick] = useState(0);
+  const [practiceBossTab, setPracticeBossTab] = useState<BossType>(() => hud.bossType || 'mecha');
 
   const dragStateRef = useRef<{
     active: boolean;
@@ -774,17 +794,24 @@ export const GameHud: React.FC<GameHudProps> = ({
   const showBossBar =
     hudSettings.showBossBar && hud.isBossLevel && hud.bossHealth > 0 && hud.bossState !== 'comic_intro';
 
-  const panelBgAlpha = Math.max(0.25, Math.min(0.96, hudSettings.opacity * 0.88));
+  const isMobileHud = showTouchControls || isLandscapeMobile;
+  const panelBgAlpha = isMobileHud
+    ? Math.max(0.12, Math.min(0.32, hudSettings.opacity * 0.3))
+    : Math.max(0.25, Math.min(0.96, hudSettings.opacity * 0.88));
   const panelStyle: React.CSSProperties = {
-    backgroundColor: `rgba(10, 9, 14, ${panelBgAlpha})`,
+    backgroundColor: isMobileHud ? `rgba(10, 9, 14, ${panelBgAlpha})` : `rgba(10, 9, 14, ${panelBgAlpha})`,
   };
   const hudScale = Math.max(0.75, Math.min(1.2, hudSettings.scale || 1));
 
   const mapAnchorClass =
     hudSettings.mapPosition === 'top-left'
-      ? 'top-[86px] left-2.5 sm:left-3'
+      ? isMobileHud
+        ? 'top-[54px] left-2'
+        : 'top-[86px] left-2.5 sm:left-3'
       : hudSettings.mapPosition === 'bottom-right'
       ? 'bottom-[68px] right-2.5 sm:right-3'
+      : isMobileHud
+      ? 'top-[54px] right-2'
       : 'top-[86px] right-2.5 sm:right-3';
 
   const mapOccupyingTopRight =
@@ -847,9 +874,17 @@ export const GameHud: React.FC<GameHudProps> = ({
       </div>
 
       {/* ── FLOATING TOP HUD STACK (Health, Gold, Ping, Toggles, Settings, Boss Bar) ── */}
-      <div className="pointer-events-none fixed top-0 inset-x-0 z-25 px-2 sm:px-3 pt-1.5 flex flex-col items-center gap-1">
+      <div
+        className={`pointer-events-none fixed top-0 inset-x-0 z-25 flex flex-col items-center ${
+          isMobileHud ? 'px-1.5 pt-1 gap-0.5' : 'px-2 sm:px-3 pt-1.5 gap-1'
+        }`}
+      >
         <header
-          className="pointer-events-auto w-full max-w-[1380px] border border-stone-700/85 rounded-md px-2.5 py-1 flex flex-wrap items-center justify-between gap-2 backdrop-blur-md shadow-xl transition-transform"
+          className={`pointer-events-auto w-full max-w-[1380px] flex items-center justify-between transition-transform ${
+            isMobileHud
+              ? 'flex-nowrap gap-1 px-1.5 py-0.5 rounded border border-white/10 shadow-none'
+              : 'flex-wrap gap-2 px-2.5 py-1 rounded-md border border-stone-700/85 backdrop-blur-md shadow-xl'
+          }`}
           style={{
             ...panelStyle,
             transform: hudScale !== 1 ? `scale(${hudScale})` : undefined,
@@ -857,18 +892,18 @@ export const GameHud: React.FC<GameHudProps> = ({
           }}
         >
           {/* Left: My Health + Stage Tag */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-1 max-w-[440px]">
-            <div className="min-w-[135px] flex-1 max-w-[230px] space-y-0.5">
-              <div className="flex items-center justify-between gap-1.5 font-mono-num text-[10px]">
-                <span className="font-bold truncate" style={{ color: myColor }}>
+          <div className={`flex items-center gap-2 min-w-0 flex-1 ${isMobileHud ? 'max-w-[180px]' : 'max-w-[440px]'}`}>
+            <div className={`${isMobileHud ? 'min-w-[92px] max-w-[165px]' : 'min-w-[135px] max-w-[230px]'} flex-1 space-y-0.5`}>
+              <div className={`flex items-center justify-between gap-1 font-mono-num ${isMobileHud ? 'text-[9px]' : 'text-[10px]'}`}>
+                <span className="font-bold truncate [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]" style={{ color: myColor }}>
                   {localPlayer.name || `P${localPlayer.id}`}
                   {wpnDefLocal ? ` · ${wpnDefLocal.shortTag}` : usesWeapons ? ' · UNARMED' : ''}
                 </span>
-                <span className="font-bold text-stone-100 shrink-0 tabular-nums">
+                <span className="font-bold text-stone-100 shrink-0 tabular-nums [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]">
                   {localPlayer.state === 'down' ? 'DOWN' : `${localPlayer.hp}/${localPlayer.maxHp}`}
                 </span>
               </div>
-              <div className="relative w-full h-2.5 bg-stone-950 border border-stone-700/90 rounded-sm overflow-hidden">
+              <div className={`relative w-full ${isMobileHud ? 'h-1.5 bg-black/45 border-white/20' : 'h-2.5 bg-stone-950 border-stone-700/90'} border rounded-sm overflow-hidden`}>
                 <div
                   className="absolute inset-y-0 left-0 bg-amber-400/75 transition-all duration-500 ease-out"
                   style={{ width: `${myHpPct}%` }}
@@ -908,19 +943,23 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
 
           {/* Center/Right: Gold Target, Ping, Map Toggle, Show/Hide Extra UI, Settings & Pause */}
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          <div className={`flex items-center shrink-0 justify-end ${isMobileHud ? 'gap-1 flex-nowrap' : 'gap-1.5 flex-wrap'}`}>
             {hudSettings.showGoldCounter && (
               <div
                 key={`gold-${goldPulseTick > 0 ? 'pulse' : 'base'}`}
                 data-gold-target="true"
-                className={`px-2.5 py-1 rounded border font-mono-num text-xs font-extrabold flex items-center gap-1.5 transition-transform duration-150 tabular-nums ${
+                className={`rounded border font-mono-num font-extrabold flex items-center gap-1 transition-transform duration-150 tabular-nums ${
+                  isMobileHud ? 'px-1.5 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs gap-1.5'
+                } ${
                   goldPulseTick > 0
-                    ? 'bg-amber-950/80 border-amber-400 text-amber-200 scale-105 shadow-[0_0_16px_rgba(251,191,36,0.45)]'
+                    ? 'bg-amber-950/70 border-amber-400 text-amber-200 scale-105 shadow-[0_0_16px_rgba(251,191,36,0.45)]'
+                    : isMobileHud
+                    ? 'bg-black/25 border-amber-500/45 text-amber-300 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]'
                     : 'bg-black/75 border-amber-600/60 text-amber-300'
                 }`}
                 title={hud.isOnlineCampaign ? 'Your Gold Coins' : 'Run Score'}
               >
-                <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <Coins className={`${isMobileHud ? 'w-3 h-3' : 'w-3.5 h-3.5'} text-amber-400 shrink-0`} />
                 <span>
                   {hud.isOnlineCampaign ? `${localPlayer.coins}g` : hud.score.toLocaleString()}
                 </span>
@@ -929,9 +968,11 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {isOnline && hudSettings.showPing && (
               <div
-                className={`px-2 py-1 rounded border border-stone-800 bg-black/75 font-mono-num text-[11px] font-bold flex items-center gap-1 tabular-nums ${pingTextColor(
-                  myPingMs
-                )}`}
+                className={`rounded border font-mono-num font-bold flex items-center gap-1 tabular-nums ${
+                  isMobileHud
+                    ? 'px-1.5 py-0.5 text-[10px] border-white/15 bg-black/25 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)]'
+                    : 'px-2 py-1 text-[11px] border-stone-800 bg-black/75'
+                } ${pingTextColor(myPingMs)}`}
                 title="Network Latency"
               >
                 <Wifi className="w-3 h-3 shrink-0" />
@@ -943,9 +984,15 @@ export const GameHud: React.FC<GameHudProps> = ({
               <button
                 type="button"
                 onClick={() => updateHudSettings({ showMap: !showMap })}
-                className={`px-2.5 py-1 rounded border font-mono-num text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                className={`rounded border font-mono-num font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                  isMobileHud ? 'p-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+                } ${
                   showMap
-                    ? 'bg-cyan-950/70 border-cyan-500/75 text-cyan-200'
+                    ? isMobileHud
+                      ? 'bg-cyan-950/35 border-cyan-400/65 text-cyan-200'
+                      : 'bg-cyan-950/70 border-cyan-500/75 text-cyan-200'
+                    : isMobileHud
+                    ? 'bg-black/25 border-white/15 text-stone-300'
                     : 'bg-stone-900 border-stone-700 text-stone-400 hover:text-stone-200'
                 }`}
                 title={showMap ? 'Hide Floor Map' : 'Show Floor Map'}
@@ -958,9 +1005,15 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={() => updateHudSettings({ showExtraUi: !showExtraUi })}
-              className={`px-2.5 py-1 rounded border font-mono-num text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+              className={`rounded border font-mono-num font-semibold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                isMobileHud ? 'p-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+              } ${
                 showExtraUi
-                  ? 'bg-purple-950/70 border-purple-500/75 text-purple-200'
+                  ? isMobileHud
+                    ? 'bg-purple-950/35 border-purple-400/65 text-purple-200'
+                    : 'bg-purple-950/70 border-purple-500/75 text-purple-200'
+                  : isMobileHud
+                  ? 'bg-black/25 border-white/15 text-stone-300'
                   : 'bg-stone-900 border-stone-700 text-stone-300 hover:border-stone-500'
               }`}
               title={showExtraUi ? 'Hide Extra UI Panels' : 'Show Extra UI Panels'}
@@ -972,7 +1025,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onOpenControls}
-              className="px-2 py-1 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-[11px] text-stone-200 flex items-center gap-1 cursor-pointer"
+              className={`rounded border text-[11px] text-stone-200 flex items-center gap-1 cursor-pointer ${
+                isMobileHud
+                  ? 'p-1 bg-black/25 border-white/15'
+                  : 'px-2 py-1 bg-stone-900 hover:bg-stone-800 border-stone-700'
+              }`}
               title="HUD & Control Settings"
             >
               <Keyboard className="w-3.5 h-3.5 text-emerald-300" />
@@ -982,9 +1039,13 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onToggleTouchControls}
-              className={`p-1.5 rounded border cursor-pointer flex items-center justify-center ${
+              className={`rounded border cursor-pointer flex items-center justify-center ${
+                isMobileHud ? 'p-1' : 'p-1.5'
+              } ${
                 showTouchControls
-                  ? 'bg-emerald-950/65 border-emerald-500/80 text-emerald-300'
+                  ? isMobileHud
+                    ? 'bg-emerald-950/35 border-emerald-400/70 text-emerald-300'
+                    : 'bg-emerald-950/65 border-emerald-500/80 text-emerald-300'
                   : 'bg-stone-900 border-stone-700 text-stone-400 hover:text-stone-200'
               }`}
               title={showTouchControls ? 'Mobile Mode: ON (Click to switch to Keyboard HUD)' : 'Mobile Mode: OFF (Click for Touch Joystick)'}
@@ -996,7 +1057,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onToggleMute}
-              className="p-1.5 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-300 cursor-pointer"
+              className={`rounded border text-stone-300 cursor-pointer ${
+                isMobileHud
+                  ? 'p-1 bg-black/25 border-white/15'
+                  : 'p-1.5 bg-stone-900 hover:bg-stone-800 border-stone-700'
+              }`}
               aria-label={isMuted ? 'Unmute Audio' : 'Mute Audio'}
             >
               {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-amber-400" />}
@@ -1004,9 +1069,15 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className={`hidden sm:flex p-1.5 rounded border cursor-pointer ${
+              className={`hidden sm:flex rounded border cursor-pointer ${
+                isMobileHud ? 'p-1' : 'p-1.5'
+              } ${
                 isFullscreen
-                  ? 'bg-cyan-950/60 border-cyan-500/70 text-cyan-300'
+                  ? isMobileHud
+                    ? 'bg-cyan-950/35 border-cyan-400/65 text-cyan-300'
+                    : 'bg-cyan-950/60 border-cyan-500/70 text-cyan-300'
+                  : isMobileHud
+                  ? 'bg-black/25 border-white/15 text-stone-300'
                   : 'bg-stone-900 hover:bg-stone-800 border-stone-700 text-stone-300'
               }`}
               aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1017,7 +1088,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onPause}
-              className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-800 border border-stone-700 text-[11px] font-semibold text-stone-100 flex items-center gap-1 cursor-pointer"
+              className={`rounded border text-[11px] font-semibold text-stone-100 flex items-center gap-1 cursor-pointer ${
+                isMobileHud
+                  ? 'px-1.5 py-1 bg-black/25 border-white/15'
+                  : 'px-2.5 py-1 bg-stone-900 hover:bg-stone-800 border-stone-700'
+              }`}
             >
               <Pause className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Pause</span>
@@ -1028,24 +1103,52 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Floating Boss Health Bar / Compact Stage Strip */}
         {showBossBar ? (
           <div
-            className="w-full max-w-[780px] border border-stone-700/80 rounded px-3 py-1 backdrop-blur-sm shadow-lg"
-            style={panelStyle}
+            className={
+              isMobileHud
+                ? 'w-full max-w-[330px] sm:max-w-[440px] px-1.5 py-0 bg-transparent border-0 shadow-none'
+                : 'w-full max-w-[780px] border border-stone-700/80 rounded px-3 py-1 backdrop-blur-sm shadow-lg'
+            }
+            style={isMobileHud ? undefined : panelStyle}
           >
-            <div className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="font-souls font-bold text-stone-100 tracking-wider truncate">
-                {hud.bossName}
-                {hud.loopLevel > 1 ? ` · LOOP ${hud.loopLevel}` : ''}
+            <div className={`flex items-center justify-between gap-1.5 ${isMobileHud ? 'text-[9px]' : 'text-[11px]'}`}>
+              <span className="font-souls font-bold text-stone-100 tracking-wider truncate [text-shadow:0_1px_4px_rgba(0,0,0,0.98)]">
+                {isMobileHud ? hud.bossVariantName || hud.bossName : hud.bossName}
+                {hud.loopLevel > 1 ? ` · L${hud.loopLevel}` : ''}
               </span>
-              {hud.bossAttackLabel && (
+              {isMobileHud && hud.bossSuggestedWeapons && hud.bossSuggestedWeapons.length > 0 && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {hud.bossSuggestedWeapons.map((wid) => {
+                    const wDef = WEAPONS_CATALOG.find((w) => w.id === wid);
+                    const playerHas = localPlayer.weapon === wid;
+                    return (
+                      <span
+                        key={wid}
+                        className="px-1 rounded border font-mono-num text-[8px] font-bold bg-black/35 [text-shadow:0_1px_3px_rgba(0,0,0,0.98)]"
+                        style={{
+                          borderColor: playerHas ? '#34d399' : wDef?.accent || '#57534e',
+                          color: playerHas ? '#6ee7b7' : wDef?.accent || '#e7e5e4',
+                        }}
+                      >
+                        {wDef?.shortTag || wid}{playerHas ? '✓' : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {!isMobileHud && hud.bossAttackLabel && (
                 <span className="font-mono-num text-[10px] font-bold text-amber-300 animate-pulse truncate">
                   ▲ {hud.bossAttackLabel} ▲
                 </span>
               )}
-              <span className="font-mono-num text-[11px] text-stone-300 shrink-0 tabular-nums">
-                {hud.bossHealth} / {hud.bossMaxHealth}
+              <span className="font-mono-num text-[10px] sm:text-[11px] text-stone-100 shrink-0 tabular-nums [text-shadow:0_1px_4px_rgba(0,0,0,0.98)]">
+                {hud.bossHealth}/{hud.bossMaxHealth}
               </span>
             </div>
-            <div className="relative w-full h-2 bg-stone-950 border border-stone-700/90 overflow-hidden mt-0.5">
+            <div
+              className={`relative w-full overflow-hidden mt-0.5 ${
+                isMobileHud ? 'h-1.5 bg-black/50 border border-white/25 rounded-full' : 'h-2 bg-stone-950 border border-stone-700/90'
+              }`}
+            >
               <div
                 className="absolute inset-y-0 left-0 bg-amber-400/75 transition-all duration-500 ease-out"
                 style={{ width: `${bossPct}%` }}
@@ -1062,7 +1165,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               />
             </div>
 
-            {hud.bossSuggestedWeapons && hud.bossSuggestedWeapons.length > 0 && (() => {
+            {!isMobileHud && hud.bossSuggestedWeapons && hud.bossSuggestedWeapons.length > 0 && (() => {
               const suggested = hud.bossSuggestedWeapons;
               const isMatched = localPlayer.weapon !== 'none' && suggested.includes(localPlayer.weapon);
               return (
@@ -1111,14 +1214,16 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         ) : (
           <div
-            className="border border-stone-800/80 rounded-full px-3.5 py-0.5 backdrop-blur-sm flex items-center gap-3 font-mono-num text-[10px] text-stone-200 shadow"
-            style={panelStyle}
+            className={`border rounded-full flex items-center gap-2.5 font-mono-num text-[10px] text-stone-100 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)] ${
+              isMobileHud ? 'px-2.5 py-0 border-white/15 bg-black/20' : 'px-3.5 py-0.5 border-stone-800/80 backdrop-blur-sm shadow'
+            }`}
+            style={isMobileHud ? undefined : panelStyle}
           >
             <span className="font-souls text-amber-400 tracking-wider truncate max-w-[260px]">
               {hud.stageLabel}
               {hud.loopLevel > 1 ? ` · LOOP ${hud.loopLevel}` : ''}
             </span>
-            <span className="text-stone-400 shrink-0">
+            <span className="text-stone-300 shrink-0">
               {hud.isBossLevel
                 ? hud.waveText
                 : hud.gatesActive
@@ -1131,21 +1236,28 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Boss Teamwork Channel Warning */}
         {hud.bossChannel && (
           <div
-            className={`w-full max-w-[780px] rounded px-3 py-1 border flex items-center justify-between gap-2 font-mono-num text-[11px] font-bold animate-pulse shadow-lg ${
+            className={`w-full rounded px-2.5 border flex items-center justify-between gap-2 font-mono-num font-bold animate-pulse [text-shadow:0_1px_3px_rgba(0,0,0,0.98)] ${
+              isMobileHud ? 'max-w-[380px] py-0.5 text-[9px]' : 'max-w-[780px] py-1 text-[11px] shadow-lg'
+            } ${
               hud.bossChannel.kind === 'siege_beam'
-                ? 'bg-sky-950/90 border-sky-400 text-sky-100'
-                : hud.bossChannel.kind === 'bow_weakpoint'
-                ? 'bg-emerald-950/90 border-emerald-400 text-emerald-100'
+                ? 'bg-sky-950/35 border-sky-400/80 text-sky-100'
+                : hud.bossChannel.kind === 'bow_weakpoint' || hud.bossChannel.kind === 'sky_battery'
+                ? 'bg-emerald-950/35 border-emerald-400/80 text-emerald-100'
+                : hud.bossChannel.kind === 'cursed_miasma'
+                ? 'bg-lime-950/35 border-lime-400/80 text-lime-100'
                 : hud.bossChannel.kind === 'cursed_floor' ||
                   hud.bossChannel.kind === 'meteor_soak' ||
                   hud.bossChannel.kind === 'demon_seal_purge'
-                ? 'bg-orange-950/90 border-amber-400 text-amber-100'
-                : hud.bossChannel.kind === 'hunter_mark'
-                ? 'bg-rose-950/90 border-rose-400 text-rose-100'
-                : 'bg-purple-950/90 border-purple-400 text-purple-100'
+                ? 'bg-orange-950/35 border-amber-400/80 text-amber-100'
+                : hud.bossChannel.kind === 'hunter_mark' ||
+                  hud.bossChannel.kind === 'iron_carapace' ||
+                  hud.bossChannel.kind === 'obsidian_phalanx' ||
+                  hud.bossChannel.kind === 'blood_curse'
+                ? 'bg-rose-950/35 border-rose-400/80 text-rose-100'
+                : 'bg-purple-950/35 border-purple-400/80 text-purple-100'
             }`}
           >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">{hud.bossChannel.label}</span>
             </div>
@@ -1153,8 +1265,14 @@ export const GameHud: React.FC<GameHudProps> = ({
               {(hud.bossChannel.kind === 'interrupt' ||
                 hud.bossChannel.kind === 'hunter_mark' ||
                 hud.bossChannel.kind === 'bow_weakpoint' ||
+                hud.bossChannel.kind === 'sky_battery' ||
                 hud.bossChannel.kind === 'emp_interrupt' ||
-                hud.bossChannel.kind === 'demon_seal_purge') && (
+                hud.bossChannel.kind === 'mirage_ambush' ||
+                hud.bossChannel.kind === 'demon_seal_purge' ||
+                hud.bossChannel.kind === 'cursed_miasma' ||
+                hud.bossChannel.kind === 'blood_curse' ||
+                hud.bossChannel.kind === 'iron_carapace' ||
+                hud.bossChannel.kind === 'obsidian_phalanx') && (
                 <span className="text-amber-300">
                   {hud.bossChannel.hits}/{hud.bossChannel.hitsNeeded}
                 </span>
@@ -1170,7 +1288,8 @@ export const GameHud: React.FC<GameHudProps> = ({
         <div className={`fixed z-25 ${mapAnchorClass}`}>
           <FloorMinimapCard
             floorMap={hud.floorMap}
-            opacity={mapOpacity}
+            opacity={isMobileHud ? Math.min(mapOpacity, 0.72) : mapOpacity}
+            compactMobile={isMobileHud}
             onChangeOpacity={(next) => updateHudSettings({ mapOpacity: next })}
             onHideMap={() => updateHudSettings({ showMap: false })}
           />
@@ -1290,7 +1409,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                     cursed_floor: 'Lava Island',
                     siege_beam: 'Siege Cone',
                     bow_weakpoint: 'Core (Bow 3X)',
+                    sky_battery: 'Sky Pylons (Bow)',
                     emp_interrupt: 'EMP (Sin Break)',
+                    mirage_ambush: 'Shadow Parry (Sin)',
+                    cursed_miasma: 'Miasma (Staff)',
+                    blood_curse: 'Blood Curse (Staff)',
+                    iron_carapace: 'Carapace (Sword)',
+                    obsidian_phalanx: 'Phalanx (Sword)',
                     hunter_mark: 'Hunter Mark',
                     gravity_storm: 'Gravity Vortex',
                     abyss_tether: 'Soul Tether',
@@ -1320,19 +1445,41 @@ export const GameHud: React.FC<GameHudProps> = ({
                   Next Attack ↻
                 </button>
               </div>
-              <div className="space-y-1 pt-1 border-t border-stone-800/80">
+              <div className="space-y-1.5 pt-1 border-t border-stone-800/80">
                 <div className="font-mono-num text-[8px] text-stone-400 uppercase tracking-wider">
-                  Boss Variant &amp; Role Setup
+                  Boss Variant &amp; Role Setup (16 Total)
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {(['mecha', 'void', 'oni', 'eclipse'] as BossType[]).map((bt) => {
+                    const activeTab = practiceBossTab === bt;
+                    return (
+                      <button
+                        key={bt}
+                        type="button"
+                        onClick={() => setPracticeBossTab(bt)}
+                        className={`px-1 py-0.5 rounded border text-[8px] font-mono-num font-bold uppercase cursor-pointer ${
+                          activeTab
+                            ? 'bg-cyan-950/75 border-cyan-400 text-cyan-200'
+                            : 'bg-black/65 border-stone-800 text-stone-400 hover:text-stone-200'
+                        }`}
+                      >
+                        {bt}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="grid grid-cols-2 gap-1">
-                  {BOSS_VARIANTS.map((v) => {
+                  {BOSS_VARIANTS.filter((v) => v.bossType === practiceBossTab).map((v) => {
                     const isCur = hud.bossVariantId === v.id;
                     return (
                       <button
                         key={v.id}
                         type="button"
                         disabled={isOnline && localPlayer.id !== 1}
-                        onClick={() => onSwitchPracticeBoss?.(v.stage, v.id)}
+                        onClick={() => {
+                          setPracticeBossTab(v.bossType);
+                          onSwitchPracticeBoss?.(v.stage, v.id);
+                        }}
                         title={`${v.name} — Suggested: ${v.suggestedLabel}`}
                         className={`px-1.5 py-1 rounded border text-[8px] font-mono-num font-bold cursor-pointer disabled:opacity-45 text-left truncate ${
                           isCur
@@ -1415,7 +1562,9 @@ export const GameHud: React.FC<GameHudProps> = ({
       {hudSettings.showPartyHealth && (
         <div
           ref={partyCardRef}
-          className="fixed z-35 w-[224px] bg-transparent border-0 shadow-none"
+          className={`fixed z-35 bg-transparent border-0 shadow-none ${
+            isMobileHud ? 'w-[158px] sm:w-[210px] opacity-80' : 'w-[224px]'
+          }`}
           style={{ left: partyPos.x, top: partyPos.y }}
         >
           <div

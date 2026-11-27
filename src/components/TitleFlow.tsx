@@ -560,7 +560,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               </button>
             )}
             <span className="text-amber-400/85 font-semibold tracking-wider uppercase">
-              beta test 0.1.5
+              beta test 0.1.8
             </span>
           </div>
         </footer>

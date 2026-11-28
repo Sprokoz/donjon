@@ -17,6 +17,7 @@ import {
   clampPlayerToArenaAndHallways,
   CoinBurstEvent,
   ComicSlash,
+  CosmeticId,
   DeathEffect,
   DEFAULT_CHEATS,
   DIFFICULTY_SETTINGS,
@@ -33,6 +34,7 @@ import {
   FloorMapHudSnapshot,
   GameMode,
   HeroClassId,
+  HollowBeamEffect,
   Knife,
   LobbyPlayerInfo,
   Medkit,
@@ -48,6 +50,7 @@ import {
   RunSummary,
   ShopItem,
   ShopNpc,
+  SkillEffectId,
   SkillScrollDrop,
   SkillScrollItem,
   SkillZone,
@@ -113,11 +116,14 @@ export function getInviteLink(code: string): string {
 
 export interface LobbyLoadoutPayload {
   heroClass: HeroClassId;
+  weaponId?: WeaponClassId;
   colorHex: string;
   playerName?: string;
   ready?: boolean;
   difficulty?: DifficultyKey;
   mode?: GameMode;
+  cosmeticId?: CosmeticId | null;
+  skillEffectId?: SkillEffectId | null;
 }
 
 export interface SyncedPlayer {
@@ -125,6 +131,8 @@ export interface SyncedPlayer {
   name: string;
   isBot?: boolean;
   heroClass: HeroClassId;
+  cosmeticId?: CosmeticId | null;
+  skillEffectId?: SkillEffectId | null;
   weapon: WeaponId;
   scrollBag: SkillScrollItem[];
   potions: number;
@@ -184,6 +192,8 @@ export interface SyncedPlayer {
   dashDirX: number;
   dashDirY: number;
   animTime: number;
+  critBuffTimer: number;
+  berserkTimer: number;
 }
 
 export interface SyncedRuntimeSnapshot {
@@ -214,6 +224,8 @@ export interface SyncedRuntimeSnapshot {
   pingByPlayer: Record<number, number | null>;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
+  playerCosmetics?: Record<number, CosmeticId | null>;
+  playerSkillEffects?: Record<number, SkillEffectId | null>;
   stage: StageKey;
   waveNumber: number;
   bossType: GameRuntime['bossType'];
@@ -254,6 +266,7 @@ export interface SyncedRuntimeSnapshot {
   comicSlashes: ComicSlash[];
   voidRifts: VoidRift[];
   energyWaves: EnergyWave[];
+  hollowBeams: HollowBeamEffect[];
   activeBoons: BoonId[];
   score: number;
   stylePoints: number;
@@ -295,7 +308,16 @@ export type OnlineMessage =
       mode: GameMode;
       maxPlayers: number;
     }
-  | { type: 'guest_config'; colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }
+  | {
+      type: 'guest_config';
+      colorHex: string;
+      heroClass: HeroClassId;
+      weaponId?: WeaponClassId;
+      ready: boolean;
+      playerName?: string;
+      cosmeticId?: CosmeticId | null;
+      skillEffectId?: SkillEffectId | null;
+    }
   | { type: 'loadout'; payload: LobbyLoadoutPayload }
   | { type: 'input'; input: TouchInputState }
   | { type: 'sync'; seq?: number; snap: SyncedRuntimeSnapshot; sfx: SfxSyncEvent[] }
@@ -419,6 +441,8 @@ export function serializeRuntimeForSync(
       ...sz,
       x: r0(sz.x),
       y: r0(sz.y),
+      x2: sz.x2 !== undefined ? r0(sz.x2) : undefined,
+      y2: sz.y2 !== undefined ? r0(sz.y2) : undefined,
       radius: r0(sz.radius),
       timer: r2(sz.timer),
       tickTimer: r2(sz.tickTimer),
@@ -445,6 +469,8 @@ export function serializeRuntimeForSync(
     pingByPlayer: { ...rt.pingByPlayer },
     playerColors: { ...rt.playerColors },
     playerClasses: { ...rt.playerClasses },
+    playerCosmetics: { ...rt.playerCosmetics },
+    playerSkillEffects: { ...rt.playerSkillEffects },
     stage: rt.stage,
     waveNumber: rt.waveNumber,
     bossType: rt.bossType,
@@ -463,6 +489,8 @@ export function serializeRuntimeForSync(
       name: p.name || `P${p.id}`,
       isBot: Boolean(p.isBot),
       heroClass: p.heroClass,
+      cosmeticId: p.cosmeticId ?? null,
+      skillEffectId: p.skillEffectId ?? null,
       weapon: p.weapon,
       scrollBag: p.scrollBag.map((s) => ({ ...s })),
       potions: p.potions,
@@ -542,6 +570,8 @@ export function serializeRuntimeForSync(
       dashDirX: r2(p.dashDirX),
       dashDirY: r2(p.dashDirY),
       animTime: r2(p.animTime),
+      critBuffTimer: r2(p.critBuffTimer || 0),
+      berserkTimer: r2(p.berserkTimer || 0),
     })),
     playerProjectiles: (heavyBossLoad ? rt.playerProjectiles.slice(-18) : rt.playerProjectiles).map((pp) => ({
       ...pp,
@@ -704,6 +734,13 @@ export function serializeRuntimeForSync(
       radius: r0(ew.radius),
       alpha: r2(ew.alpha),
     })),
+    hollowBeams: rt.hollowBeams.slice(heavyBossLoad ? -6 : -12).map((hb) => ({
+      ...hb,
+      x: r0(hb.x),
+      y: r0(hb.y),
+      radius: r0(hb.radius),
+      timer: r2(hb.timer),
+    })),
     activeBoons: [...rt.activeBoons],
     score: Math.round(rt.score),
     stylePoints: r1(rt.stylePoints),
@@ -772,12 +809,22 @@ interface GuestNetState {
   playerProjTargets: Map<number, { x: number; y: number; dx: number; dy: number }>;
   knifeTargets: Map<PlayerId, { x: number; y: number }>;
   spiritBombTargets: Map<number, { x: number; y: number }>;
+  activePlayerIds: Set<PlayerId>;
+  activeEnemyIds: Set<number>;
+  activeBossProjUids: Set<number>;
+  activePlayerProjUids: Set<number>;
+  activeKnifeOwners: Set<PlayerId>;
   localErrX: number;
   localErrY: number;
   lastSnapAt: number;
 }
 
 const guestNetStates = new WeakMap<GameRuntime, GuestNetState>();
+
+export function releaseGuestNetState(rt: GameRuntime | null | undefined) {
+  if (!rt) return;
+  guestNetStates.delete(rt);
+}
 
 function getOrCreateGuestNetState(rt: GameRuntime): GuestNetState {
   let st = guestNetStates.get(rt);
@@ -800,6 +847,11 @@ function getOrCreateGuestNetState(rt: GameRuntime): GuestNetState {
       playerProjTargets: new Map(),
       knifeTargets: new Map(),
       spiritBombTargets: new Map(),
+      activePlayerIds: new Set(),
+      activeEnemyIds: new Set(),
+      activeBossProjUids: new Set(),
+      activePlayerProjUids: new Set(),
+      activeKnifeOwners: new Set(),
       localErrX: 0,
       localErrY: 0,
       lastSnapAt: now,
@@ -820,10 +872,14 @@ function hydratePlayer(sp: SyncedPlayer, prev?: Player): Player {
     ...sp,
     name: sp.name || `P${sp.id}`,
     isBot: Boolean(sp.isBot),
+    cosmeticId: sp.cosmeticId ?? null,
+    skillEffectId: sp.skillEffectId ?? null,
     scrollBag: Array.isArray(sp.scrollBag) ? sp.scrollBag.map((s) => ({ ...s })) : [],
     potions: sp.potions ?? 0,
     potionCooldownTimer: sp.potionCooldownTimer ?? 0,
     frontShieldTimer: sp.frontShieldTimer ?? 0,
+    critBuffTimer: sp.critBuffTimer ?? 0,
+    berserkTimer: sp.berserkTimer ?? 0,
     swapCooldownTimer: 0,
     learnedSkills: learnedCopy,
     grazedIds: prev ? prev.grazedIds : new Set<number>(),
@@ -1167,6 +1223,16 @@ export function advanceGuestDisplayRuntime(
     ew.alpha = Math.max(0, ew.alpha - clampedDt * 1.4);
   });
 
+  rt.hollowBeams.forEach((hb) => {
+    hb.timer = Math.max(0, hb.timer - clampedDt);
+  });
+
+  rt.skillZones.forEach((sz) => {
+    if (sz.kind === 'tank_vacuum' || sz.kind === 'shadow_slash_trail') {
+      sz.timer = Math.max(0, sz.timer - clampedDt);
+    }
+  });
+
   rt.floatingTexts.forEach((ft) => {
     ft.y -= 26 * clampedDt;
     ft.alpha = Math.max(0, ft.alpha - clampedDt * 0.9);
@@ -1254,6 +1320,8 @@ export function applySyncedSnapshotToGuest(
       pingByPlayer: { ...snap.pingByPlayer },
       playerColors: { ...snap.playerColors },
       playerClasses: { ...snap.playerClasses },
+      playerCosmetics: snap.playerCosmetics ? { ...snap.playerCosmetics } : {},
+      playerSkillEffects: snap.playerSkillEffects ? { ...snap.playerSkillEffects } : {},
       playerNames: Object.fromEntries(players.map((p) => [p.id, p.name])),
       stage: snap.stage,
       waveNumber: snap.waveNumber,
@@ -1295,6 +1363,7 @@ export function applySyncedSnapshotToGuest(
       comicSlashes: snap.comicSlashes.map((cs) => ({ ...cs })),
       voidRifts: snap.voidRifts.map((vr) => ({ ...vr })),
       energyWaves: snap.energyWaves.map((ew) => ({ ...ew })),
+      hollowBeams: (snap.hollowBeams || []).map((hb) => ({ ...hb })),
       ambientMotes: createGuestAmbientMotes(28, snap.arenaWidth, snap.arenaHeight),
       activeBoons: [...snap.activeBoons],
       score: snap.score,
@@ -1314,6 +1383,7 @@ export function applySyncedSnapshotToGuest(
       phaseAnnounceTimer: 0,
       screenShake: snap.screenShake,
       freezeTime: snap.freezeTime,
+      hitstopCooldown: 0,
       introPlaying: snap.introPlaying,
       introTimer: snap.introTimer,
       fadeOpacity: snap.fadeOpacity,
@@ -1381,7 +1451,7 @@ export function applySyncedSnapshotToGuest(
   displayRt.bossesDefeatedCount = snap.bossesDefeatedCount;
   displayRt.chests = snap.chests.map((c) => ({ ...c }));
   displayRt.weaponDrops = snap.weaponDrops.map((w) => ({ ...w }));
-  displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd })),
+  displayRt.scrollDrops = snap.scrollDrops.map((sd) => ({ ...sd }));
   displayRt.coinBursts = (snap.coinBursts || []).map((b) => ({ ...b }));
   displayRt.skillZones = snap.skillZones.map((sz) => ({ ...sz }));
   displayRt.gates = snap.gates.map((g) => ({ ...g, playersInside: [...g.playersInside] }));
@@ -1391,6 +1461,8 @@ export function applySyncedSnapshotToGuest(
   displayRt.pingByPlayer = { ...snap.pingByPlayer };
   displayRt.playerColors = { ...snap.playerColors };
   displayRt.playerClasses = { ...snap.playerClasses };
+  displayRt.playerCosmetics = snap.playerCosmetics ? { ...snap.playerCosmetics } : {};
+  displayRt.playerSkillEffects = snap.playerSkillEffects ? { ...snap.playerSkillEffects } : {};
   displayRt.waveNumber = snap.waveNumber;
   displayRt.bossType = snap.bossType;
   displayRt.isBossLevel = snap.isBossLevel;
@@ -1405,7 +1477,8 @@ export function applySyncedSnapshotToGuest(
   displayRt.bossVoiceLine = snap.bossVoiceLine;
   displayRt.bossVoiceTimer = snap.bossVoiceTimer;
 
-  const activePlayerIds = new Set<PlayerId>();
+  const activePlayerIds = netState.activePlayerIds;
+  activePlayerIds.clear();
   const isMovingLocally = Boolean(
     localInput && (Math.abs(localInput.x) > 0.04 || Math.abs(localInput.y) > 0.04)
   );
@@ -1485,11 +1558,12 @@ export function applySyncedSnapshotToGuest(
     }
     return next;
   });
-  for (const pid of Array.from(netState.playerTargets.keys())) {
+  for (const pid of netState.playerTargets.keys()) {
     if (!activePlayerIds.has(pid)) netState.playerTargets.delete(pid);
   }
 
-  const activeEnemyIds = new Set<number>();
+  const activeEnemyIds = netState.activeEnemyIds;
+  activeEnemyIds.clear();
   displayRt.enemies = snap.enemies.map((e) => {
     activeEnemyIds.add(e.id);
     const paused = Boolean((e.stunTimer && e.stunTimer > 0) || e.chargeState === 'telegraph');
@@ -1509,7 +1583,7 @@ export function applySyncedSnapshotToGuest(
       y: prev.y,
     };
   });
-  for (const eid of Array.from(netState.enemyTargets.keys())) {
+  for (const eid of netState.enemyTargets.keys()) {
     if (!activeEnemyIds.has(eid)) netState.enemyTargets.delete(eid);
   }
 
@@ -1551,7 +1625,8 @@ export function applySyncedSnapshotToGuest(
     y: prevBoss.y,
   };
 
-  const activeBossProjUids = new Set<number>();
+  const activeBossProjUids = netState.activeBossProjUids;
+  activeBossProjUids.clear();
   displayRt.bossProjectiles = snap.bossProjectiles.map((bp) => {
     activeBossProjUids.add(bp.uid);
     const staticProj = bp.type === 'mine' || bp.type === 'phantom_clone';
@@ -1574,11 +1649,12 @@ export function applySyncedSnapshotToGuest(
       y: prev.y,
     };
   });
-  for (const uid of Array.from(netState.bossProjTargets.keys())) {
+  for (const uid of netState.bossProjTargets.keys()) {
     if (!activeBossProjUids.has(uid)) netState.bossProjTargets.delete(uid);
   }
 
-  const activePlayerProjUids = new Set<number>();
+  const activePlayerProjUids = netState.activePlayerProjUids;
+  activePlayerProjUids.clear();
   displayRt.playerProjectiles = snap.playerProjectiles.map((pp) => {
     activePlayerProjUids.add(pp.uid);
     const targetX = pp.x + pp.dx * leadSec;
@@ -1597,11 +1673,12 @@ export function applySyncedSnapshotToGuest(
       y: prev.y,
     };
   });
-  for (const uid of Array.from(netState.playerProjTargets.keys())) {
+  for (const uid of netState.playerProjTargets.keys()) {
     if (!activePlayerProjUids.has(uid)) netState.playerProjTargets.delete(uid);
   }
 
-  const activeKnifeOwners = new Set<PlayerId>();
+  const activeKnifeOwners = netState.activeKnifeOwners;
+  activeKnifeOwners.clear();
   displayRt.knives = snap.knives.map((k) => {
     activeKnifeOwners.add(k.owner);
     netState.knifeTargets.set(k.owner, { x: k.x, y: k.y });
@@ -1613,7 +1690,7 @@ export function applySyncedSnapshotToGuest(
       y: prev.y,
     };
   });
-  for (const owner of Array.from(netState.knifeTargets.keys())) {
+  for (const owner of netState.knifeTargets.keys()) {
     if (!activeKnifeOwners.has(owner)) netState.knifeTargets.delete(owner);
   }
 
@@ -1634,7 +1711,7 @@ export function applySyncedSnapshotToGuest(
       y: prev.y,
     };
   });
-  for (const idx of Array.from(netState.spiritBombTargets.keys())) {
+  for (const idx of netState.spiritBombTargets.keys()) {
     if (idx >= snap.oniSpiritBombs.length) netState.spiritBombTargets.delete(idx);
   }
 
@@ -1658,6 +1735,7 @@ export function applySyncedSnapshotToGuest(
   displayRt.comicSlashes = snap.comicSlashes.map((cs) => ({ ...cs }));
   displayRt.voidRifts = snap.voidRifts.map((vr) => ({ ...vr }));
   displayRt.energyWaves = snap.energyWaves.map((ew) => ({ ...ew }));
+  displayRt.hollowBeams = (snap.hollowBeams || []).map((hb) => ({ ...hb }));
 
   displayRt.ambientMotes.forEach((m) => {
     m.x += m.vx * dt;

@@ -5,12 +5,14 @@ import {
   ColorOption,
   DIFFICULTY_SETTINGS,
   DifficultyKey,
+  GAME_VERSION,
   GameMode,
   HERO_CLASSES,
   HeroClassId,
   LeaderboardEntry,
   LobbyPlayerInfo,
   PlayerId,
+  WeaponClassId,
   WEAPONS_CATALOG,
 } from '../game/types';
 import { OnlineCampaignCheckpoint } from '../game/engine';
@@ -23,6 +25,7 @@ import {
   sanitizeRoomCode,
 } from '../game/onlineSync';
 import { PublicRoomInfo } from '../game/roomDirectory';
+import { getCosmeticDef, getSkillEffectDef, SoulsProfile } from '../game/cosmetics';
 
 interface TitleMenuProps {
   difficulty: DifficultyKey;
@@ -35,6 +38,8 @@ interface TitleMenuProps {
   onOpenSettings?: () => void;
   onOpenUpdates?: () => void;
   onOpenSuggestions?: () => void;
+  onOpenSoulShop?: () => void;
+  soulsProfile?: SoulsProfile;
   onBackToSplash?: () => void;
   anyCheatActive: boolean;
   isMuted: boolean;
@@ -58,6 +63,8 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
   onOpenSettings,
   onOpenUpdates,
   onOpenSuggestions,
+  onOpenSoulShop,
+  soulsProfile,
   onBackToSplash,
   anyCheatActive,
   isMuted,
@@ -256,10 +263,10 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
                 <span className="text-xs font-semibold tracking-wider text-slate-300 uppercase">Deployment Mode</span>
                 <span className="text-xs text-slate-500">
                   {mode === 'campaign'
-                    ? 'Dungeon + Stairs Down + 4 Bosses'
+                    ? 'Dungeon + Stairs Down + 4 Bosses (1–5P)'
                     : mode === 'teamwork_practice'
                     ? '1P AI Dummies or 1–5P Boss Drills'
-                    : '4 Bosses Back-to-Back'}
+                    : 'Choose Weapon · All 4 Skills · 4 Bosses'}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2 p-1 bg-black/80 border border-slate-800 rounded-md">
@@ -376,8 +383,45 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
             </button>
           </div>
 
-          {/* Right: Tutorial Button + Combat Guide + Top Scores */}
+          {/* Right: Soul Shop + Tutorial Button + Combat Guide + Top Scores */}
           <div className="lg:col-span-5 flex flex-col gap-4">
+            {/* Soul Armory & Crate Shop Button */}
+            {onOpenSoulShop && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playUiClick();
+                  onOpenSoulShop();
+                }}
+                className="w-full text-left bg-[#0c111d] hover:bg-[#131a2c] border border-sky-500/55 hover:border-sky-400 rounded-lg p-4 flex items-center justify-between gap-3 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded bg-sky-500/15 border border-sky-400/40 text-sky-300 shrink-0">
+                    <PackageOpen className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-souls text-sm font-bold text-sky-200 tracking-wider flex items-center gap-2">
+                      <span>SOUL ARMORY &amp; CRATES</span>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5 truncate">
+                      {soulsProfile
+                        ? `${soulsProfile.souls.toLocaleString()} Souls · ${soulsProfile.unlockedCosmetics.length}/12 Gear · ${soulsProfile.unlockedSkillEffects.length}/10 VFX`
+                        : 'Unbox character cosmetics (1,000) & skill effects (10,000)'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {soulsProfile && (
+                    <span className="px-2 py-1 rounded bg-amber-500/15 border border-amber-400/40 font-mono-num text-[11px] font-bold text-amber-300 tabular-nums whitespace-nowrap">
+                      {soulsProfile.souls.toLocaleString()} S
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-sky-300 shrink-0" />
+                </div>
+              </button>
+            )}
+
             {/* Optional Tutorial Mode & Class Codex Side Button */}
             <button
               type="button"
@@ -560,7 +604,7 @@ export const TitleMenu: React.FC<TitleMenuProps> = ({
               </button>
             )}
             <span className="text-amber-400/85 font-semibold tracking-wider uppercase">
-              beta test 0.2.0
+              {GAME_VERSION}
             </span>
           </div>
         </footer>
@@ -612,6 +656,8 @@ interface HeroSetupProps {
   onSelectColor: (playerNum: PlayerId, col: ColorOption) => void;
   playerClasses: Record<number, HeroClassId>;
   onSelectClass: (playerNum: PlayerId, cls: HeroClassId) => void;
+  playerWeapons: Record<number, WeaponClassId>;
+  onSelectWeapon: (playerNum: PlayerId, weapon: WeaponClassId) => void;
   localPlayerName: string;
   onChangeLocalPlayerName: (val: string) => void;
   p2LocalName?: string;
@@ -623,6 +669,8 @@ interface HeroSetupProps {
   onToggleFullscreen: () => void;
   optimizeConnection?: boolean;
   onToggleOptimizeConnection?: () => void;
+  soulsProfile?: SoulsProfile;
+  onOpenSoulShop?: () => void;
   savedCheckpoint?: OnlineCampaignCheckpoint | null;
   onResumeCheckpoint?: () => void;
   onDiscardCheckpoint?: () => void;
@@ -660,6 +708,8 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onSelectColor,
   playerClasses,
   onSelectClass,
+  playerWeapons,
+  onSelectWeapon,
   localPlayerName,
   onChangeLocalPlayerName,
   p2LocalName = 'Partner',
@@ -671,6 +721,8 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
   onToggleFullscreen,
   optimizeConnection = false,
   onToggleOptimizeConnection,
+  soulsProfile,
+  onOpenSoulShop,
   savedCheckpoint,
   onResumeCheckpoint,
   onDiscardCheckpoint,
@@ -681,10 +733,12 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
   const numPlayers: 1 | 2 = coopMode === 'solo' ? 1 : 2;
   const isOnline = coopMode === 'online';
-  const isOnlineCampaign = isOnline && mode === 'campaign';
+  const isCampaignMode = mode === 'campaign';
+  const isOnlineCampaign = isOnline && isCampaignMode;
   const isPracticeMode = mode === 'teamwork_practice';
-  const isMultiOnline = isOnline && (mode === 'campaign' || isPracticeMode);
-  const usesWeaponLoadout = isOnlineCampaign || isPracticeMode;
+  const isBossRushMode = mode === 'boss_rush';
+  const isMultiOnline = isOnline && (isCampaignMode || isPracticeMode || isBossRushMode);
+  const usesWeaponLoadout = isCampaignMode || isPracticeMode;
   const isOnlineConnected = onlineStatus === 'connected';
   const maxOnlineSlots = isMultiOnline ? 5 : 2;
 
@@ -735,11 +789,32 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
           <h2 className="font-arcade text-xs sm:text-base text-white tracking-wider text-center truncate">
             {isOnlineCampaign
               ? 'ONLINE CAMPAIGN LOBBY'
+              : isCampaignMode
+              ? 'DUNGEON CAMPAIGN LOADOUT'
               : isPracticeMode
               ? 'BOSS TEAMWORK PRACTICE'
-              : 'COMBAT FRAME LOADOUT'}
+              : 'BOSS RUSH · FULL KIT LOADOUT'}
           </h2>
           <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenSoulShop && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playUiClick();
+                  onOpenSoulShop();
+                }}
+                className="min-h-[36px] px-2.5 py-1 rounded border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors bg-sky-950/60 border-sky-500/60 text-sky-200 hover:bg-sky-900/60"
+                title="Open Soul Armory & Wardrobe"
+              >
+                <PackageOpen className="w-3.5 h-3.5 text-sky-300" />
+                <span className="hidden sm:inline">Wardrobe</span>
+                {soulsProfile && (
+                  <span className="font-mono-num text-[10px] text-amber-300 tabular-nums">
+                    ({soulsProfile.souls.toLocaleString()})
+                  </span>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -850,7 +925,11 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             <div className="min-w-0">
               <div className="font-arcade text-xs text-white">ONLINE CO-OP</div>
               <div className="text-[11px] text-slate-400 mt-1 truncate">
-                {mode === 'campaign' ? '1–5P Dungeon Campaign' : '2P Boss Rush'}
+                {mode === 'campaign'
+                  ? '1–5P Dungeon Campaign'
+                  : mode === 'boss_rush'
+                  ? '1–5P Boss Rush'
+                  : '1–5P Teamwork Practice'}
               </div>
             </div>
           </button>
@@ -1262,7 +1341,18 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
 
                         <div className="flex items-center justify-between gap-1.5">
                           <span className="font-mono-num text-[10px] text-slate-400 truncate">
-                            P{info.id} · {usesWeaponLoadout ? 'Adventurer' : clsInfo?.name || 'HERO'}
+                            P{info.id} ·{' '}
+                            {usesWeaponLoadout
+                              ? 'Adventurer'
+                              : WEAPONS_CATALOG.find((w) => w.id === info.weaponId)?.shortTag ||
+                                clsInfo?.name ||
+                                'GREATSWORD'}
+                            {(info.cosmeticId || info.skillEffectId) && (
+                              <span className="text-sky-300">
+                                {' '}
+                                · {getCosmeticDef(info.cosmeticId)?.name || getSkillEffectDef(info.skillEffectId)?.name}
+                              </span>
+                            )}
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
                             {onlineRole === 'host' && !info.isHost && onKickPlayer && (
@@ -1443,6 +1533,56 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     })}
                   </div>
                 </div>
+
+                {/* Local 2P Campaign: Partner 2 Name & Armor Coat */}
+                {!isOnline && numPlayers === 2 && isCampaignMode && (
+                  <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="font-arcade text-[11px]"
+                        style={{ color: (playerColors[2] || COLOR_OPTIONS[1]).hex }}
+                      >
+                        {p2LocalName.trim() || 'PLAYER 2'} (LOCAL P2)
+                      </span>
+                      <span className="font-mono-num text-[10px] text-cyan-300">
+                        Arrows · Enter Dash · / Skill
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={p2LocalName}
+                      onChange={(e) => onChangeP2LocalName?.(e.target.value.slice(0, 14))}
+                      placeholder="Player 2"
+                      maxLength={14}
+                      className="w-full px-3 py-1.5 rounded bg-slate-950 border border-slate-700 focus:border-cyan-400 outline-none font-mono-num text-xs text-white"
+                    />
+                    <div className="grid grid-cols-8 gap-1.5">
+                      {COLOR_OPTIONS.map((col) => {
+                        const activeCol = playerColors[2] || COLOR_OPTIONS[1];
+                        const isSel = activeCol.hex === col.hex;
+                        return (
+                          <button
+                            key={col.hex}
+                            type="button"
+                            title={col.name}
+                            onClick={() => {
+                              soundEngine.playUiClick();
+                              onSelectColor(2, col);
+                            }}
+                            className={`h-7 rounded border-2 transition-transform cursor-pointer ${
+                              isSel ? 'border-white scale-105' : 'border-transparent opacity-70 hover:opacity-100'
+                            }`}
+                            style={{
+                              backgroundColor: col.hex,
+                              boxShadow: isSel ? `0 0 10px ${col.hex}` : undefined,
+                            }}
+                            aria-label={`Player 2 ${col.name}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Player Ready Button (Online Only) */}
@@ -1469,6 +1609,12 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                       ? 'Everyone is Ready! Host may now deploy.'
                       : 'Host can launch once all joined players mark Ready.'}
                   </p>
+                </div>
+              ) : isCampaignMode ? (
+                <div className="pt-2 border-t border-slate-800/80 font-mono-num text-[11px] text-amber-300 text-center">
+                  {numPlayers === 2
+                    ? '2P Local Dungeon Expedition · Shared Floor Grid, Chests, Merchant Vex & Stairs Down!'
+                    : 'Solo Dungeon Expedition · Loot Weapons, Learn Scrolls [I], Descend Stairs & Defeat 4 Bosses!'}
                 </div>
               ) : (
                 <div className="pt-2 border-t border-slate-800/80 font-mono-num text-[11px] text-cyan-300 text-center">
@@ -1566,32 +1712,23 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
             )}
           </div>
         ) : (
-          /* SOLO, 2P LOCAL, OR 2P ONLINE BOSS RUSH: Classic Class + Color Selection (+ Online Ready Button) */
-          <div className={`grid gap-5 ${numPlayers === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
-            {([1, ...(numPlayers === 2 ? [2] : [])] as PlayerId[]).map((pid) => {
-              const selectedColor = playerColors[pid] || COLOR_OPTIONS[0];
-              const selectedClassId = playerClasses[pid] || 'ronin';
-              const selectedClass = HERO_CLASSES.find((c) => c.id === selectedClassId) || HERO_CLASSES[0];
+          /* SOLO, 2P LOCAL, OR 1-5P ONLINE BOSS RUSH: Choose Weapon Class with ALL 4 Skills Unlocked! */
+          <div className={`grid gap-5 ${!isOnline && numPlayers === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+            {(isOnline ? [localPlayerId] : ([1, ...(numPlayers === 2 ? [2] : [])] as PlayerId[])).map((pid) => {
+              const selectedColor = playerColors[pid] || COLOR_OPTIONS[Math.max(0, pid - 1)] || COLOR_OPTIONS[0];
+              const selectedWeaponId = playerWeapons[pid] || 'warrior_greatsword';
+              const selectedWeapon = WEAPONS_CATALOG.find((w) => w.id === selectedWeaponId) || WEAPONS_CATALOG[0];
               const lockedForLocalUser = isOnline && localEditablePid !== pid;
-              const rosterEntry = lobbyRoster.find((r) => r.id === pid);
               const roleBadge = !isOnline
                 ? pid === 1
-                  ? 'WASD · Space Dash · E Skill'
-                  : 'Arrows · Enter Dash · / Skill'
-                : localEditablePid === pid
-                ? 'YOUR FRAME · WASD/Arrows or Touch'
-                : pid === 1
-                ? 'HOST FRAME'
-                : isOnlineConnected
-                ? 'PARTNER FRAME'
-                : 'WAITING FOR PARTNER';
+                  ? 'WASD · Space Dash · E Q R F Skills · C Flask'
+                  : 'Arrows · Enter Dash · / . ; \' Skills · P Flask'
+                : 'YOUR LOADOUT · ALL 4 SKILLS UNLOCKED';
 
               return (
                 <div
                   key={pid}
-                  className={`p-4 rounded-md bg-black/75 border space-y-4 ${
-                    lockedForLocalUser ? 'border-slate-800/80 opacity-90' : 'border-slate-800'
-                  }`}
+                  className="p-4 rounded-md bg-black/75 border border-slate-800 space-y-4"
                 >
                   <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -1600,32 +1737,19 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                           ? localPlayerName.trim() || 'PLAYER 1'
                           : pid === 2 && !isOnline
                           ? p2LocalName.trim() || 'PLAYER 2'
-                          : rosterEntry?.playerName?.trim() || (localEditablePid === pid ? localPlayerName.trim() || `PLAYER ${pid}` : `PLAYER ${pid}`)}
+                          : localPlayerName.trim() || `PLAYER ${pid}`}
                       </span>
                       <span className="text-slate-600">·</span>
-                      <span className="font-mono-num text-xs text-white font-semibold truncate">
-                        {selectedClass.name}
+                      <span className="font-mono-num text-xs font-semibold truncate" style={{ color: selectedWeapon.accent }}>
+                        {selectedWeapon.name}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isOnline && rosterEntry?.connected && (
-                        <span
-                          className={`px-1.5 py-0.5 rounded font-mono-num text-[9px] font-bold ${
-                            rosterEntry.ready
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                              : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
-                          }`}
-                        >
-                          {rosterEntry.ready ? 'READY' : 'WAIT'}
-                        </span>
-                      )}
-                      <span className="text-[10px] font-mono-num text-slate-400 truncate">
-                        {roleBadge}
-                      </span>
-                    </div>
+                    <span className="text-[10px] font-mono-num text-emerald-300 truncate shrink-0">
+                      {roleBadge}
+                    </span>
                   </div>
 
-                  {/* Display Name Input for Local Editable Player */}
+                  {/* Display Name Input */}
                   {!lockedForLocalUser && (
                     <div className="flex items-center gap-2.5">
                       <span className="text-[10px] font-mono-num text-slate-400 uppercase shrink-0">NAME</span>
@@ -1647,52 +1771,69 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
                     </div>
                   )}
 
-                  {/* 4 Hero Class Selector */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {HERO_CLASSES.map((cls) => {
-                      const active = cls.id === selectedClassId;
-                      return (
-                        <button
-                          key={cls.id}
-                          type="button"
-                          disabled={lockedForLocalUser}
-                          onClick={() => {
-                            if (lockedForLocalUser) return;
-                            soundEngine.playUiClick();
-                            onSelectClass(pid, cls.id);
-                          }}
-                          className={`p-2.5 rounded border text-left transition-all ${
-                            lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
-                          } ${
-                            active
-                              ? 'bg-slate-900 border-white shadow-sm'
-                              : 'bg-slate-950/60 border-slate-800 hover:border-slate-600'
-                          }`}
-                          style={{ borderColor: active ? cls.accent : undefined }}
-                        >
-                          <div className="font-arcade text-[10px] truncate" style={{ color: cls.accent }}>
-                            {cls.name}
-                          </div>
-                          <div className="text-[10px] text-slate-400 mt-1 truncate">{cls.role}</div>
-                        </button>
-                      );
-                    })}
+                  {/* 5 Weapon Class Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] font-mono-num text-slate-400 uppercase">
+                      <span>CHOOSE WEAPON CLASS</span>
+                      <span className="text-amber-300 font-bold">ALL 4 SKILLS [E/Q/R/F] UNLOCKED · 2 FLASKS</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {WEAPONS_CATALOG.map((wpn) => {
+                        const active = wpn.id === selectedWeaponId;
+                        return (
+                          <button
+                            key={wpn.id}
+                            type="button"
+                            disabled={lockedForLocalUser}
+                            onClick={() => {
+                              if (lockedForLocalUser) return;
+                              soundEngine.playUiClick();
+                              onSelectWeapon(pid, wpn.id);
+                            }}
+                            className={`p-2.5 rounded border text-left transition-all ${
+                              lockedForLocalUser ? 'cursor-default' : 'cursor-pointer'
+                            } ${
+                              active
+                                ? 'bg-slate-900 border-white shadow-sm'
+                                : 'bg-slate-950/60 border-slate-800 hover:border-slate-600'
+                            }`}
+                            style={{ borderColor: active ? wpn.accent : undefined }}
+                          >
+                            <div className="font-arcade text-[10px] truncate" style={{ color: wpn.accent }}>
+                              {wpn.shortTag}
+                            </div>
+                            <div className="text-[10px] text-slate-300 mt-1 truncate">{wpn.roleLabel}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* Selected Class Passive + Skill Breakdown */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs bg-slate-950/90 border border-slate-800/90 rounded p-3">
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-mono-num text-slate-400 uppercase">
-                        Passive · {selectedClass.passiveName}
-                      </div>
-                      <p className="text-slate-200 leading-snug">{selectedClass.passiveDesc}</p>
+                  {/* Full 4-Skill + Passive Breakdown */}
+                  <div className="bg-slate-950/90 border border-slate-800/90 rounded p-3 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="font-mono-num font-bold" style={{ color: selectedWeapon.accent }}>
+                        {selectedWeapon.name} · {selectedWeapon.roleLabel}
+                      </span>
+                      <span className="font-mono-num text-[11px] text-emerald-300">
+                        {selectedWeapon.passiveDesc}
+                      </span>
                     </div>
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-mono-num uppercase flex items-center justify-between" style={{ color: selectedClass.accent }}>
-                        <span>Skill · {selectedClass.skillName}</span>
-                        <span>{selectedClass.skillCooldown}s CD</span>
-                      </div>
-                      <p className="text-slate-200 leading-snug">{selectedClass.skillDesc}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {selectedWeapon.skills.map((sk) => (
+                        <div
+                          key={sk.slot}
+                          className="p-2 rounded bg-black/70 border border-slate-800/80 space-y-0.5 text-[11px]"
+                        >
+                          <div className="flex items-center justify-between font-mono-num text-[10px] font-bold">
+                            <span style={{ color: selectedWeapon.accent }}>
+                              [{sk.keyLabel}] {sk.name}
+                            </span>
+                            <span className="text-amber-300">{sk.cooldown}s CD</span>
+                          </div>
+                          <p className="text-slate-300 leading-snug text-[10px]">{sk.desc}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -1785,9 +1926,13 @@ export const HeroSetup: React.FC<HeroSetupProps> = ({
               ? isOnline
                 ? `LAUNCH ${connectedCount}P TEAMWORK PRACTICE`
                 : 'LAUNCH TEAMWORK PRACTICE'
-              : isOnlineCampaign
-              ? `DEPLOY ${connectedCount}P EXPEDITION`
-              : 'DEPLOY INTO ARENA'}
+              : isCampaignMode
+              ? isOnline
+                ? `DEPLOY ${connectedCount}P EXPEDITION`
+                : 'DEPLOY INTO DUNGEON'
+              : isOnline
+              ? `LAUNCH ${connectedCount}P BOSS RUSH`
+              : 'LAUNCH BOSS RUSH'}
           </button>
         )}
       </div>

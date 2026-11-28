@@ -64,6 +64,8 @@ class SoundEngine {
   private lastVoiceAt = 0;
   private introGain: GainNode | null = null;
   private introTimers: number[] = [];
+  private sharedNoiseBuffer: AudioBuffer | null = null;
+  private activeSfxVoices = 0;
   private sfxBroadcastHook: ((ev: SfxSyncEvent) => void) | null = null;
   private replayingSync = false;
   private broadcastDepth = 0;
@@ -139,6 +141,19 @@ class SoundEngine {
     } finally {
       this.replayingSync = false;
     }
+  }
+
+  private getSharedNoiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (!this.sharedNoiseBuffer || this.sharedNoiseBuffer.sampleRate !== ctx.sampleRate) {
+      const len = Math.max(1024, Math.floor(ctx.sampleRate * 2.0));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      this.sharedNoiseBuffer = buf;
+    }
+    return this.sharedNoiseBuffer;
   }
 
   private createCathedralImpulse(ctx: AudioContext, seconds = 2.4, decay = 2.5): AudioBuffer {
@@ -433,6 +448,7 @@ class SoundEngine {
     delay = 0,
     filterCutoff?: number
   ) {
+    if (target === 'sfx' && this.activeSfxVoices >= 24) return;
     const ctx = this.ensureContext();
     const dest = this.resolveTargetNode(target);
     if (!ctx || !dest) return;
@@ -449,8 +465,9 @@ class SoundEngine {
     g.gain.linearRampToValueAtTime(gainLevel, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0005, t + duration);
 
+    let filt: BiquadFilterNode | null = null;
     if (filterCutoff) {
-      const filt = ctx.createBiquadFilter();
+      filt = ctx.createBiquadFilter();
       filt.type = 'lowpass';
       filt.frequency.setValueAtTime(filterCutoff, t);
       filt.frequency.exponentialRampToValueAtTime(Math.max(160, filterCutoff * 0.35), t + duration);
@@ -461,6 +478,17 @@ class SoundEngine {
     }
 
     g.connect(dest);
+    if (target === 'sfx') this.activeSfxVoices++;
+    osc.onended = () => {
+      if (target === 'sfx' && this.activeSfxVoices > 0) this.activeSfxVoices--;
+      try {
+        osc.disconnect();
+        if (filt) filt.disconnect();
+        g.disconnect();
+      } catch {
+        // ignore already-disconnected nodes
+      }
+    };
     osc.start(t);
     osc.stop(t + duration + 0.03);
   }
@@ -473,6 +501,7 @@ class SoundEngine {
     target: 'sfx' | 'music' | 'intro' = 'sfx',
     delay = 0
   ) {
+    if (target === 'sfx' && this.activeSfxVoices >= 24) return;
     const ctx = this.ensureContext();
     const dest = this.resolveTargetNode(target);
     if (!ctx || !dest) return;
@@ -493,12 +522,31 @@ class SoundEngine {
     filt.connect(g);
     g.connect(dest);
 
+    let remaining = 3;
+    if (target === 'sfx') this.activeSfxVoices++;
     [-7, 0, 7].forEach((cents) => {
       const osc = ctx.createOscillator();
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(freq, t);
       osc.detune.setValueAtTime(cents, t);
       osc.connect(filt);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+        } catch {
+          // ignore
+        }
+        remaining--;
+        if (remaining === 0) {
+          if (target === 'sfx' && this.activeSfxVoices > 0) this.activeSfxVoices--;
+          try {
+            filt.disconnect();
+            g.disconnect();
+          } catch {
+            // ignore
+          }
+        }
+      };
       osc.start(t);
       osc.stop(t + duration + 0.04);
     });
@@ -506,6 +554,7 @@ class SoundEngine {
 
   // Formant-filtered Demonic / Robotic Boss Voice Roar
   private formantVoice(baseFreq: number, endFreq: number, duration: number, f1Start: number, f1End: number, f2Start: number, f2End: number, metallic = false) {
+    if (this.activeSfxVoices >= 24) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain) return;
     const t = ctx.currentTime;
@@ -545,6 +594,26 @@ class SoundEngine {
     bp2.connect(g);
     g.connect(this.sfxGain);
 
+    this.activeSfxVoices++;
+    let remaining = 2;
+    const cleanup = () => {
+      remaining--;
+      if (remaining === 0) {
+        if (this.activeSfxVoices > 0) this.activeSfxVoices--;
+        try {
+          glottal.disconnect();
+          sub.disconnect();
+          bp1.disconnect();
+          bp2.disconnect();
+          g.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    glottal.onended = cleanup;
+    sub.onended = cleanup;
+
     glottal.start(t);
     sub.start(t);
     glottal.stop(t + duration + 0.03);
@@ -576,17 +645,13 @@ class SoundEngine {
     target: 'sfx' | 'music' | 'intro' = 'sfx',
     delay = 0
   ) {
+    if (target === 'sfx' && this.activeSfxVoices >= 24) return;
     const ctx = this.ensureContext();
     const dest = this.resolveTargetNode(target);
     if (!ctx || !dest) return;
-    const sampleCount = Math.max(64, Math.floor(ctx.sampleRate * duration));
-    const buf = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < sampleCount; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = this.getSharedNoiseBuffer(ctx);
+    src.loop = true;
 
     const filter = ctx.createBiquadFilter();
     filter.type = filterType;
@@ -601,7 +666,20 @@ class SoundEngine {
     src.connect(filter);
     filter.connect(g);
     g.connect(dest);
-    src.start(t);
+    if (target === 'sfx') this.activeSfxVoices++;
+    src.onended = () => {
+      if (target === 'sfx' && this.activeSfxVoices > 0) this.activeSfxVoices--;
+      try {
+        src.disconnect();
+        filter.disconnect();
+        g.disconnect();
+      } catch {
+        // ignore
+      }
+    };
+    const offset = Math.random() * 1.4;
+    src.start(t, offset);
+    src.stop(t + duration + 0.02);
   }
 
   // ── BOSS VOICES & PER-ATTACK SFX ───────────────────────────────────
@@ -1260,6 +1338,33 @@ class SoundEngine {
         }
       }
     }, tempoMs);
+  }
+
+  public playCaseTick(speedFrac = 1) {
+    if (this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const pitch = 780 + (1 - Math.max(0, Math.min(1, speedFrac))) * 220;
+    this.tone(pitch, pitch * 0.72, 0.032, 'triangle', 0.14, 'sfx');
+  }
+
+  public playCaseWin(rarity: 'common' | 'rare' | 'epic' | 'legendary' | 'mythic') {
+    if (this.muted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    if (rarity === 'mythic' || rarity === 'legendary') {
+      this.tone(523.25, 523.25, 0.16, 'triangle', 0.28, 'sfx', 0);
+      this.tone(659.25, 659.25, 0.18, 'triangle', 0.3, 'sfx', 0.08);
+      this.tone(783.99, 783.99, 0.22, 'triangle', 0.32, 'sfx', 0.16);
+      this.tone(1046.5, 1046.5, 0.45, 'sine', 0.36, 'sfx', 0.25);
+    } else if (rarity === 'epic') {
+      this.tone(440, 440, 0.15, 'triangle', 0.26, 'sfx', 0);
+      this.tone(659.25, 659.25, 0.22, 'triangle', 0.28, 'sfx', 0.08);
+      this.tone(880, 880, 0.32, 'sine', 0.3, 'sfx', 0.16);
+    } else {
+      this.tone(440, 440, 0.12, 'triangle', 0.22, 'sfx', 0);
+      this.tone(587.33, 587.33, 0.24, 'sine', 0.25, 'sfx', 0.07);
+    }
   }
 
   public getBossMusicStage(bossType: BossType): StageKey {

@@ -1,4 +1,5 @@
 import { soundEngine } from './soundEngine';
+import { getSkillEffectPalette } from './cosmetics';
 import {
   AmbientMote,
   BOONS_CATALOG,
@@ -23,6 +24,7 @@ import {
   CoinBurstEvent,
   ComicSlash,
   ControlsConfig,
+  CosmeticId,
   DeathEffect,
   DEFAULT_CHEATS,
   DIFFICULTY_SETTINGS,
@@ -46,6 +48,7 @@ import {
   getGateHallwayBounds,
   HERO_CLASSES,
   HeroClassId,
+  HollowBeamEffect,
   HudSnapshot,
   Knife,
   LeaderboardEntry,
@@ -64,6 +67,7 @@ import {
   RunSummary,
   ShopItem,
   ShopNpc,
+  SkillEffectId,
   SkillScrollDrop,
   SkillScrollItem,
   SkillZone,
@@ -116,6 +120,7 @@ export interface GameRuntime {
   mode: GameMode;
   numPlayers: number;
   isOnlineCampaign: boolean;
+  isLocalCoop?: boolean;
   isTeamworkPractice: boolean;
   roomKind: RoomKind;
   roomDepth: number;
@@ -142,6 +147,8 @@ export interface GameRuntime {
   playerNames: Record<number, string>;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
+  playerCosmetics: Record<number, CosmeticId | null>;
+  playerSkillEffects: Record<number, SkillEffectId | null>;
   stage: StageKey;
   waveNumber: number;
   bossType: BossType;
@@ -183,6 +190,7 @@ export interface GameRuntime {
   comicSlashes: ComicSlash[];
   voidRifts: VoidRift[];
   energyWaves: EnergyWave[];
+  hollowBeams: HollowBeamEffect[];
   ambientMotes: AmbientMote[];
   activeBoons: BoonId[];
   score: number;
@@ -202,6 +210,7 @@ export interface GameRuntime {
   phaseAnnounceTimer: number;
   screenShake: number;
   freezeTime: number;
+  hitstopCooldown: number;
   introPlaying: boolean;
   introTimer: number;
   fadeOpacity: number;
@@ -238,7 +247,7 @@ export interface GameRuntime {
 }
 
 function usesWeaponSystem(rt: GameRuntime): boolean {
-  return rt.isOnlineCampaign || rt.isTeamworkPractice;
+  return rt.isOnlineCampaign || rt.isTeamworkPractice || rt.mode === 'boss_rush';
 }
 
 const INTRO_DURATION = 2.2;
@@ -247,6 +256,21 @@ const REVIVE_TIME = 3.2;
 const BOSS_DEAD_DELAY = 4.2;
 const MAX_PARTICLES = 120;
 const MAX_BOSS_PROJECTILES = 160;
+const MAX_SLASH_ARCS = 30;
+const MAX_ENERGY_WAVES = 24;
+const MAX_DEATH_EFFECTS = 44;
+const MAX_COMIC_SLASHES = 12;
+const MAX_VOID_RIFTS = 12;
+const MAX_PLAYER_PROJECTILES = 88;
+const MAX_SKILL_ZONES = 16;
+const MAX_VOID_DECOYS = 16;
+const MAX_FLOATING_TEXTS = 22;
+const MAX_TELEGRAPH_LINES = 40;
+const MAX_ONI_CURSED_ZONES = 28;
+const MAX_BOSS_PROJECTILES_HARD = 220;
+const MAX_COIN_BURSTS = 16;
+const MAX_DASH_TRAIL = 10;
+const MAX_GRAZED_IDS = 140;
 
 export const LEADERBOARD_KEY = 'dungeon_bouncer_leaderboard_v3';
 
@@ -336,7 +360,9 @@ function createPlayer(
   numPlayers: number,
   usesWeapons: boolean,
   playerName?: string,
-  isBot = false
+  isBot = false,
+  cosmeticId: CosmeticId | null = null,
+  skillEffectId: SkillEffectId | null = null
 ): Player {
   const classDef = HERO_CLASSES.find((c) => c.id === heroClass) || HERO_CLASSES[0];
   const isActive = id <= numPlayers;
@@ -416,6 +442,8 @@ function createPlayer(
     frontShieldTimer: 0,
     bloodlustTimer: 0,
     chargeTimer: 0,
+    critBuffTimer: 0,
+    berserkTimer: 0,
     sealed: false,
     sealTimer: 0,
     hasShield: !usesWeapons && heroClass === 'vanguard',
@@ -426,6 +454,8 @@ function createPlayer(
     dashDirY: 1,
     animTime: Math.random() * 10,
     cleanDodgeFailed: false,
+    cosmeticId,
+    skillEffectId,
   };
 }
 
@@ -596,8 +626,12 @@ export function createInitialGameRuntime(params: {
   numPlayers: number;
   playerColors: Record<number, string>;
   playerClasses: Record<number, HeroClassId>;
+  playerWeapons?: Record<number, WeaponClassId>;
   playerNames?: Record<number, string>;
+  playerCosmetics?: Record<number, CosmeticId | null>;
+  playerSkillEffects?: Record<number, SkillEffectId | null>;
   isOnlineCampaign?: boolean;
+  isLocalCoop?: boolean;
   activePlayerIds?: PlayerId[];
   cheats?: CheatsConfig;
 }): GameRuntime {
@@ -606,9 +640,10 @@ export function createInitialGameRuntime(params: {
   const diffSettings = DIFFICULTY_SETTINGS[params.difficulty];
   const isTutorial = params.mode === 'tutorial';
   const isTeamworkPractice = params.mode === 'teamwork_practice';
-  const isBossStart = params.mode === 'boss_rush' || isTeamworkPractice;
-  const isOnlineCampaign = Boolean(params.isOnlineCampaign && params.mode === 'campaign');
-  const usesWeapons = isOnlineCampaign || isTeamworkPractice;
+  const isBossRush = params.mode === 'boss_rush';
+  const isBossStart = isBossRush || isTeamworkPractice;
+  const isOnlineCampaign = params.mode === 'campaign';
+  const usesWeapons = isOnlineCampaign || isTeamworkPractice || isBossRush;
   const startW = isBossStart ? BOSS_ARENA_WIDTH : isOnlineCampaign ? DUNGEON_ARENA_WIDTH : CANVAS_WIDTH;
   const startH = isBossStart ? BOSS_ARENA_HEIGHT : isOnlineCampaign ? DUNGEON_ARENA_HEIGHT : CANVAS_HEIGHT;
 
@@ -616,9 +651,10 @@ export function createInitialGameRuntime(params: {
   const spawnSoloDummies = isTeamworkPractice && params.numPlayers === 1;
   const effectiveNumPlayers = spawnSoloDummies ? 3 : params.numPlayers;
   const maxActiveId = activeSet ? Math.max(...Array.from(activeSet)) : effectiveNumPlayers;
-  const slotCount = isOnlineCampaign || isTeamworkPractice
-    ? Math.max(1, Math.min(5, Math.max(effectiveNumPlayers, maxActiveId)))
-    : Math.max(2, Math.min(5, Math.max(effectiveNumPlayers, maxActiveId)));
+  const slotCount =
+    isOnlineCampaign || isTeamworkPractice || isBossRush
+      ? Math.max(1, Math.min(5, Math.max(effectiveNumPlayers, maxActiveId)))
+      : Math.max(2, Math.min(5, Math.max(effectiveNumPlayers, maxActiveId)));
   const players: Player[] = [];
   for (let i = 1; i <= slotCount; i++) {
     const pid = i as PlayerId;
@@ -637,7 +673,9 @@ export function createInitialGameRuntime(params: {
       isIncluded ? Math.max(effectiveNumPlayers, pid) : 0,
       usesWeapons,
       isBot ? botName : params.playerNames?.[pid],
-      isBot
+      isBot,
+      isBot ? null : params.playerCosmetics?.[pid] || null,
+      isBot ? null : params.playerSkillEffects?.[pid] || null
     );
     if (!isIncluded) {
       pl.state = 'spectator';
@@ -655,6 +693,7 @@ export function createInitialGameRuntime(params: {
     mode: params.mode,
     numPlayers: effectiveNumPlayers,
     isOnlineCampaign,
+    isLocalCoop: Boolean(params.isLocalCoop),
     isTeamworkPractice,
     roomKind: 'combat',
     roomDepth: 1,
@@ -680,6 +719,8 @@ export function createInitialGameRuntime(params: {
     playerNames: { ...(params.playerNames || {}) },
     playerColors: { ...params.playerColors },
     playerClasses: { ...params.playerClasses },
+    playerCosmetics: { ...(params.playerCosmetics || {}) },
+    playerSkillEffects: { ...(params.playerSkillEffects || {}) },
     stage: startStage,
     waveNumber: 1,
     bossType: 'mecha',
@@ -726,6 +767,7 @@ export function createInitialGameRuntime(params: {
     comicSlashes: [],
     voidRifts: [],
     energyWaves: [],
+    hollowBeams: [],
     ambientMotes: createAmbientMotes(isBossStart || isOnlineCampaign ? 48 : 28, startW, startH),
     activeBoons: [],
     score: 0,
@@ -751,6 +793,7 @@ export function createInitialGameRuntime(params: {
     phaseAnnounceTimer: 0,
     screenShake: 0,
     freezeTime: 0,
+    hitstopCooldown: 0,
     introPlaying: true,
     introTimer: 0,
     fadeOpacity: 1,
@@ -824,6 +867,16 @@ export function createInitialGameRuntime(params: {
     );
   } else if (isBossStart) {
     setupBossStage(runtime, 'mechaBoss');
+    const fallbackWeapons: WeaponClassId[] = ['warrior_greatsword', 'assassin_blades', 'tank_shield', 'holy_staff', 'ranger_bow'];
+    runtime.players.forEach((pl, idx) => {
+      if (pl.state === 'spectator') return;
+      const wId = params.playerWeapons?.[pl.id] || fallbackWeapons[idx % fallbackWeapons.length];
+      pl.learnedSkills[wId] = [1, 2, 3, 4];
+      equipWeapon(runtime, pl, wId);
+      pl.unlockedSkillTier = 4;
+      pl.potions = 2;
+    });
+    showPhaseAnnounce(rtOrNull(runtime), 'BOSS RUSH · ALL 4 SKILLS UNLOCKED!', '#fbbf24', 3.0);
   } else if (isOnlineCampaign) {
     generateFloorGrid(runtime);
     soundEngine.setMusicTrack('ironDungeon', false);
@@ -1156,9 +1209,9 @@ function doesFrontShieldInterceptPoint(tank: Player, px: number, py: number, ext
   const dx = px - tcx;
   const dy = py - tcy;
   const dist = Math.hypot(dx, dy);
-  if (dist < 6 || dist > 84 + extraRadius) return false;
+  if (dist < 6 || dist > 106 + extraRadius) return false;
   const ang = Math.atan2(dy, dx);
-  return Math.abs(wrapAngleDiff(ang, tank.facingAngle)) <= 1.26;
+  return Math.abs(wrapAngleDiff(ang, tank.facingAngle)) <= 1.32;
 }
 
 function isBehindTankShield(rt: GameRuntime, ally: Player, threatX: number, threatY: number): boolean {
@@ -1169,30 +1222,31 @@ function isBehindTankShield(rt: GameRuntime, ally: Player, threatX: number, thre
   // Tank themselves facing the threat
   if (ally.frontShieldTimer > 0) {
     const angToThreat = Math.atan2(threatY - acy, threatX - acx);
-    if (Math.abs(wrapAngleDiff(angToThreat, ally.facingAngle)) <= 1.32) {
+    if (Math.abs(wrapAngleDiff(angToThreat, ally.facingAngle)) <= 1.38) {
       return true;
     }
   }
 
-  // Allied players standing inside the Tank's protective rear shadow cone
+  // Allied players standing inside the Tank's expanded protective rear shadow cone or close aura
   for (const tank of rt.players) {
     if (tank.state !== 'alive' || tank.frontShieldTimer <= 0 || tank.id === ally.id) continue;
     const tcx = tank.x + tank.size / 2;
     const tcy = tank.y + tank.size / 2;
-    const angToThreat = Math.atan2(threatY - tcy, threatX - tcx);
-    if (Math.abs(wrapAngleDiff(angToThreat, tank.facingAngle)) > 1.32) continue;
-
     const toAllyX = acx - tcx;
     const toAllyY = acy - tcy;
     const dist = Math.hypot(toAllyX, toAllyY);
-    if (dist > 250) continue;
+    if (dist <= 94) return true;
+    const angToThreat = Math.atan2(threatY - tcy, threatX - tcx);
+    if (Math.abs(wrapAngleDiff(angToThreat, tank.facingAngle)) > 1.38) continue;
+
+    if (dist > 360) continue;
 
     const fx = Math.cos(tank.facingAngle);
     const fy = Math.sin(tank.facingAngle);
-    // Behind tank = negative dot with facing direction (with slight front tolerance of +14px right at the wall)
+    // Behind tank = negative dot with facing direction (generous front tolerance of +24px right at the wall)
     const alongBack = -(toAllyX * fx + toAllyY * fy);
     const perp = Math.abs(-toAllyX * fy + toAllyY * fx);
-    if (alongBack >= -14 && perp <= 82 + alongBack * 0.28) {
+    if (alongBack >= -24 && perp <= 135 + alongBack * 0.42) {
       return true;
     }
   }
@@ -2760,7 +2814,7 @@ function addParticle(rt: GameRuntime, p: Particle) {
 }
 
 function addFloatingText(rt: GameRuntime, x: number, y: number, text: string, color: string, scale = 1) {
-  if (rt.floatingTexts.length > 24) rt.floatingTexts.shift();
+  if (rt.floatingTexts.length >= MAX_FLOATING_TEXTS) rt.floatingTexts.shift();
   rt.floatingTexts.push({
     x,
     y,
@@ -2773,16 +2827,74 @@ function addFloatingText(rt: GameRuntime, x: number, y: number, text: string, co
   });
 }
 
-function addSlashArc(rt: GameRuntime, x: number, y: number, angle: number, color: string, radius = 44) {
+function resolveFxColor(rt: GameRuntime, effectId: SkillEffectId | null | undefined, fallback: string): string {
+  if (!effectId) return fallback;
+  return getSkillEffectPalette(effectId, rt.elapsedSeconds * 1000)?.primary || fallback;
+}
+
+function getOwnerSkillEffect(rt: GameRuntime, ownerId: PlayerId): SkillEffectId | null {
+  const pl = rt.players.find((p) => p.id === ownerId);
+  return pl?.skillEffectId || rt.playerSkillEffects?.[ownerId] || null;
+}
+
+function trimFxArrays(rt: GameRuntime) {
+  if (rt.dustParticles.length > MAX_PARTICLES) rt.dustParticles.splice(0, rt.dustParticles.length - MAX_PARTICLES);
+  if (rt.slashArcs.length > MAX_SLASH_ARCS) rt.slashArcs.splice(0, rt.slashArcs.length - MAX_SLASH_ARCS);
+  if (rt.energyWaves.length > MAX_ENERGY_WAVES) rt.energyWaves.splice(0, rt.energyWaves.length - MAX_ENERGY_WAVES);
+  if (rt.deathEffects.length > MAX_DEATH_EFFECTS) rt.deathEffects.splice(0, rt.deathEffects.length - MAX_DEATH_EFFECTS);
+  if (rt.comicSlashes.length > MAX_COMIC_SLASHES) rt.comicSlashes.splice(0, rt.comicSlashes.length - MAX_COMIC_SLASHES);
+  if (rt.voidRifts.length > MAX_VOID_RIFTS) rt.voidRifts.splice(0, rt.voidRifts.length - MAX_VOID_RIFTS);
+  if (rt.hollowBeams.length > 24) rt.hollowBeams.splice(0, rt.hollowBeams.length - 24);
+  if (rt.playerProjectiles.length > MAX_PLAYER_PROJECTILES) {
+    rt.playerProjectiles.splice(0, rt.playerProjectiles.length - MAX_PLAYER_PROJECTILES);
+  }
+  if (rt.bossProjectiles.length > MAX_BOSS_PROJECTILES_HARD) {
+    rt.bossProjectiles.splice(0, rt.bossProjectiles.length - MAX_BOSS_PROJECTILES_HARD);
+  }
+  if (rt.skillZones.length > MAX_SKILL_ZONES) rt.skillZones.splice(0, rt.skillZones.length - MAX_SKILL_ZONES);
+  if (rt.voidDecoys.length > MAX_VOID_DECOYS) rt.voidDecoys.splice(0, rt.voidDecoys.length - MAX_VOID_DECOYS);
+  if (rt.floatingTexts.length > MAX_FLOATING_TEXTS) rt.floatingTexts.splice(0, rt.floatingTexts.length - MAX_FLOATING_TEXTS);
+  if (rt.telegraphLines.length > MAX_TELEGRAPH_LINES) {
+    rt.telegraphLines.splice(0, rt.telegraphLines.length - MAX_TELEGRAPH_LINES);
+  }
+  if (rt.oniCursedZones.length > MAX_ONI_CURSED_ZONES) {
+    rt.oniCursedZones.splice(0, rt.oniCursedZones.length - MAX_ONI_CURSED_ZONES);
+  }
+  if (rt.coinBursts.length > MAX_COIN_BURSTS) {
+    rt.coinBursts.splice(0, rt.coinBursts.length - MAX_COIN_BURSTS);
+  }
+  for (let i = 0; i < rt.players.length; i++) {
+    const p = rt.players[i];
+    if (p.dashTrail.length > MAX_DASH_TRAIL) {
+      p.dashTrail.splice(0, p.dashTrail.length - MAX_DASH_TRAIL);
+    }
+    if (p.grazedIds.size > MAX_GRAZED_IDS) {
+      p.grazedIds.clear();
+    }
+  }
+}
+
+function addSlashArc(
+  rt: GameRuntime,
+  x: number,
+  y: number,
+  angle: number,
+  color: string,
+  radius = 44,
+  effectId?: SkillEffectId | null
+) {
+  if (rt.slashArcs.length >= MAX_SLASH_ARCS) rt.slashArcs.shift();
+  const resolvedEffect = effectId || null;
   rt.slashArcs.push({
     x,
     y,
     angle,
-    radius,
-    color,
+    radius: Math.max(8, radius),
+    color: resolvedEffect ? resolveFxColor(rt, resolvedEffect, color) : color,
     alpha: 1,
     lifetime: 0.24,
     timer: 0,
+    effectId: resolvedEffect,
   });
 }
 
@@ -2839,8 +2951,8 @@ function getEnemyScaleMult(rt: GameRuntime): number {
 }
 
 function getBossHpMult(rt: GameRuntime): number {
-  const loopMult = 1 + Math.max(0, rt.loopLevel - 1) * 0.78;
-  const partyMult = rt.numPlayers <= 1 ? 1 : rt.numPlayers === 2 ? 2.15 : 1 + (rt.numPlayers - 1) * 0.85;
+  const loopMult = 1 + Math.max(0, rt.loopLevel - 1) * 0.85;
+  const partyMult = rt.numPlayers <= 1 ? 1 : rt.numPlayers === 2 ? 2.25 : 1 + (rt.numPlayers - 1) * 0.92;
   return partyMult * loopMult;
 }
 
@@ -3728,6 +3840,17 @@ function resetFloorWorkspace(rt: GameRuntime, combatStage: StageKey, healBonus: 
   rt.playerProjectiles = [];
   rt.voidDecoys = [];
   rt.telegraphLines = [];
+  rt.dustParticles = [];
+  rt.deathEffects = [];
+  rt.slashArcs = [];
+  rt.energyWaves = [];
+  rt.comicSlashes = [];
+  rt.voidRifts = [];
+  rt.floatingTexts = [];
+  rt.oniCursedZones = [];
+  rt.oniSpiritBombs = [];
+  rt.oniShrines = [];
+  rt.voidTentacles = [];
   rt.medkits = [];
   rt.relics = [];
   rt.stageElapsed = 0;
@@ -3739,6 +3862,8 @@ function resetFloorWorkspace(rt: GameRuntime, combatStage: StageKey, healBonus: 
   rt.ambientMotes = createAmbientMotes(48, rt.arenaWidth, rt.arenaHeight);
 
   rt.players.forEach((p, idx) => {
+    p.dashTrail = [];
+    p.grazedIds.clear();
     if (p.state === 'spectator') return;
     p.state = 'alive';
     p.invulnerable = false;
@@ -3825,6 +3950,17 @@ export function advanceToNextLoop(rt: GameRuntime) {
   rt.playerProjectiles = [];
   rt.voidDecoys = [];
   rt.telegraphLines = [];
+  rt.dustParticles = [];
+  rt.deathEffects = [];
+  rt.slashArcs = [];
+  rt.energyWaves = [];
+  rt.comicSlashes = [];
+  rt.voidRifts = [];
+  rt.floatingTexts = [];
+  rt.oniCursedZones = [];
+  rt.oniSpiritBombs = [];
+  rt.oniShrines = [];
+  rt.voidTentacles = [];
   rt.medkits = [];
   rt.relics = [];
   rt.stageElapsed = 0;
@@ -3836,6 +3972,8 @@ export function advanceToNextLoop(rt: GameRuntime) {
   rt.ambientMotes = createAmbientMotes(54, rt.arenaWidth, rt.arenaHeight);
 
   rt.players.forEach((p, idx) => {
+    p.dashTrail = [];
+    p.grazedIds.clear();
     if (p.state === 'spectator') return;
     p.state = 'alive';
     p.invulnerable = false;
@@ -3916,9 +4054,24 @@ function enterDungeonGate(rt: GameRuntime, gate: DungeonGate) {
   rt.playerProjectiles = [];
   rt.voidDecoys = [];
   rt.telegraphLines = [];
+  rt.dustParticles = [];
+  rt.deathEffects = [];
+  rt.slashArcs = [];
+  rt.energyWaves = [];
+  rt.comicSlashes = [];
+  rt.voidRifts = [];
+  rt.floatingTexts = [];
+  rt.oniCursedZones = [];
+  rt.oniSpiritBombs = [];
+  rt.oniShrines = [];
+  rt.voidTentacles = [];
   rt.medkits = [];
   rt.relics = [];
   rt.stageElapsed = 0;
+  for (let i = 0; i < rt.players.length; i++) {
+    rt.players[i].dashTrail = [];
+    rt.players[i].grazedIds.clear();
+  }
 
   if (targetRoom.kind === 'boss' && !targetRoom.cleared) {
     rt.arenaWidth = BOSS_ARENA_WIDTH;
@@ -4172,6 +4325,7 @@ export function transitionToStage(rt: GameRuntime, targetStage: StageKey) {
   rt.comicSlashes = [];
   rt.voidRifts = [];
   rt.energyWaves = [];
+  rt.hollowBeams = [];
   rt.oniShrines = [];
   rt.oniSpiritBombs = [];
   rt.oniCursedZones = [];
@@ -4229,6 +4383,8 @@ export function transitionToStage(rt: GameRuntime, targetStage: StageKey) {
     p.frontShieldTimer = 0;
     p.bloodlustTimer = 0;
     p.chargeTimer = 0;
+    p.critBuffTimer = 0;
+    p.berserkTimer = 0;
     p.empoweredStrike = false;
     p.dashTrail = [];
     p.safeZoneClosed = false;
@@ -4239,6 +4395,13 @@ export function transitionToStage(rt: GameRuntime, targetStage: StageKey) {
     p.overdriveTimer = 0;
     p.magnetTimer = 0;
     p.cleanDodgeFailed = false;
+    if (rt.mode === 'boss_rush') {
+      p.potions = Math.min(2, p.potions + 1);
+      p.unlockedSkillTier = 4;
+      if (p.weapon !== 'none') {
+        p.learnedSkills[p.weapon] = [1, 2, 3, 4];
+      }
+    }
     if (hasBoon(rt, 'aegis_core') || (!usesWeaponSystem(rt) && p.heroClass === 'vanguard') || p.weapon === 'tank_shield') {
       p.hasShield = true;
     }
@@ -4805,7 +4968,8 @@ function triggerSkillSlot(rt: GameRuntime, p: Player, slot: 1 | 2 | 3 | 4) {
     return;
   }
 
-  const cd = p.skillMaxCooldowns[idx] || 14;
+  const rawCd = p.skillMaxCooldowns[idx] || 14;
+  const cd = slot !== 4 && p.berserkTimer > 0 ? Math.max(1.5, Math.round(rawCd * 0.55 * 10) / 10) : rawCd;
   p.skillCooldowns[idx] = cd;
   if (slot === 1) {
     p.abilityReady = false;
@@ -4889,8 +5053,11 @@ function purgeEnemyEffectsInRadius(
   return { purgedCount, cleansedCount };
 }
 
+  const fxId = p.skillEffectId || null;
+  const fxCol = (fallback: string) => resolveFxColor(rt, fxId, fallback);
+
   if (usesWeaponSystem(rt)) {
-    // === HOLY STAFF (PURE HEALER + PLAGUE MIASMA PURIFIER) ===
+    // === HOLY STAFF (RADIANT CLERIC: HEALING POOL + 3-TARGET HOLLOW BEAM + MIASMA PURIFIER) ===
     if (p.weapon === 'holy_staff') {
       if (
         rt.isBossLevel &&
@@ -4901,19 +5068,19 @@ function purgeEnemyEffectsInRadius(
       }
       if (slot === 1) {
         soundEngine.playMedkit();
-        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 260, alpha: 0.9, speed: 440, color: '#fde047' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 280, alpha: 0.9, speed: 460, color: fxCol('#fde047'), effectId: fxId });
         let count = 0;
         rt.players.forEach((ally) => {
           if (ally.state === 'spectator') return;
-          if (Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 260) {
+          if (Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 280) {
             if (ally.state === 'alive') {
-              ally.hp = Math.min(ally.maxHp, ally.hp + 14);
+              ally.hp = Math.min(ally.maxHp, ally.hp + 16);
               count++;
-              addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+14 HP', '#fde047', 1.0);
+              addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+16 HP', '#fde047', 1.0);
             } else if (ally.state === 'down') {
-              ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.25);
+              ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.3);
               count++;
-              addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+25% REVIVE', '#34d399', 1.0);
+              addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+30% REVIVE', '#34d399', 1.0);
             }
           }
         });
@@ -4926,63 +5093,109 @@ function purgeEnemyEffectsInRadius(
           kind: 'holy_ground',
           x: cx,
           y: cy,
-          radius: 185,
-          timer: 5.0,
-          maxTimer: 5.0,
-          tickTimer: 0.45,
-          color: '#fde047',
+          radius: 235,
+          timer: 6.5,
+          maxTimer: 6.5,
+          tickTimer: 0.35,
+          triggered: false,
+          color: fxCol('#fde047'),
+          effectId: fxId,
         });
-        addFloatingText(rt, cx, p.y - 20, 'CONSECRATED GROUND!', '#fde047', 1.15);
+        addFloatingText(rt, cx, p.y - 20, 'SANCTUM POOL (+6 HP)!', '#fde047', 1.18);
       } else if (slot === 3) {
-        soundEngine.playMedkit();
-        // Lifebinder Blessing: Burst heal or massive revive on the most-injured ally within 340px
-        const candidates = rt.players.filter(
-          (ally) =>
-            ally.state !== 'spectator' &&
-            ally.id !== p.id &&
-            Math.hypot(ally.x + ally.size / 2 - cx, ally.y + ally.size / 2 - cy) <= 340
-        );
-        candidates.sort((a, b) => {
-          if (a.state === 'down' && b.state !== 'down') return -1;
-          if (b.state === 'down' && a.state !== 'down') return 1;
-          return a.hp / Math.max(1, a.maxHp) - b.hp / Math.max(1, b.maxHp);
-        });
-        const target = candidates[0] || p;
-        const tx = target.x + target.size / 2;
-        const ty = target.y + target.size / 2;
-        p.hp = Math.min(p.maxHp, p.hp + 8);
-        rt.energyWaves.push({ x: tx, y: ty, radius: 12, maxRadius: 140, alpha: 0.92, speed: 380, color: '#fef08a' });
-        for (let k = 0; k < 8; k++) {
-          const tFrac = k / 7;
-          addParticle(rt, {
-            x: cx + (tx - cx) * tFrac,
-            y: cy + (ty - cy) * tFrac,
-            dx: (Math.random() - 0.5) * 40,
-            dy: -35 - Math.random() * 40,
-            alpha: 1,
-            size: 4,
-            color: '#fde047',
+        // Seraphic Retribution (Rafaela S1 style): auto-targets up to 3 nearest enemies & drops Hollow Light Beams!
+        soundEngine.playShockwave();
+        const beamTargets: { x: number; y: number; isBoss: boolean; enemyId?: number }[] = [];
+        const bossActive =
+          rt.isBossLevel &&
+          rt.boss.health > 0 &&
+          rt.boss.state !== 'comic_intro' &&
+          rt.boss.state !== 'phase_transition' &&
+          rt.boss.state !== 'dead';
+        const candidates: { x: number; y: number; dist: number; isBoss: boolean; enemyId?: number }[] = [];
+        for (const e of rt.enemies) {
+          const ex = e.x + e.size / 2;
+          const ey = e.y + e.size / 2;
+          const d = Math.hypot(ex - cx, ey - cy);
+          if (d <= 540) candidates.push({ x: ex, y: ey, dist: d, isBoss: false, enemyId: e.id });
+        }
+        if (bossActive) {
+          const bcx = rt.boss.x + rt.boss.size / 2;
+          const bcy = rt.boss.y + rt.boss.size / 2;
+          const bd = Math.hypot(bcx - cx, bcy - cy);
+          if (bd <= 580) candidates.push({ x: bcx, y: bcy, dist: bd, isBoss: true });
+        }
+        candidates.sort((a, b) => a.dist - b.dist);
+        for (const c of candidates.slice(0, 3)) {
+          beamTargets.push({ x: c.x, y: c.y, isBoss: c.isBoss, enemyId: c.enemyId });
+        }
+        // Fallback forward beam if no target in range
+        if (beamTargets.length === 0) {
+          beamTargets.push({
+            x: Math.max(60, Math.min(rt.arenaWidth - 60, cx + Math.cos(p.facingAngle) * 180)),
+            y: Math.max(60, Math.min(rt.arenaHeight - 60, cy + Math.sin(p.facingAngle) * 180)),
+            isBoss: false,
           });
         }
-        if (target.state === 'down') {
-          target.reviveProgress = Math.min(REVIVE_TIME, target.reviveProgress + REVIVE_TIME * 0.55);
-          addFloatingText(rt, tx, target.y - 16, '+55% REVIVE TETHER!', '#34d399', 1.15);
-        } else {
-          const healAmt = target.id === p.id ? 18 : 24;
-          target.hp = Math.min(target.maxHp, target.hp + healAmt);
-          addFloatingText(rt, tx, target.y - 16, `+${healAmt} HP BLESSING!`, '#fde047', 1.15);
+
+        let bossStruck = false;
+        rt.screenShake = Math.max(rt.screenShake, 10);
+        for (const bt of beamTargets) {
+          rt.hollowBeams.push({
+            id: rt.nextUid++,
+            x: bt.x,
+            y: bt.y,
+            radius: 56,
+            timer: 0.62,
+            maxTimer: 0.62,
+            color: fxCol('#fde047'),
+            effectId: fxId,
+          });
+          rt.energyWaves.push({
+            x: bt.x,
+            y: bt.y,
+            radius: 10,
+            maxRadius: 96,
+            alpha: 0.92,
+            speed: 360,
+            color: fxCol('#fef08a'),
+            effectId: fxId,
+          });
+          rt.bossProjectiles = rt.bossProjectiles.filter(
+            (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - bt.x, bp.y + bp.size / 2 - bt.y) > 48
+          );
+          for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+            const e = rt.enemies[ei];
+            if (!e) continue;
+            if (Math.hypot(e.x + e.size / 2 - bt.x, e.y + e.size / 2 - bt.y) <= 68 || e.id === bt.enemyId) {
+              e.stunTimer = Math.max(e.stunTimer || 0, 1.1);
+              damageEnemy(rt, ei, p.id, 3, Math.PI / 2, fxCol('#fde047'));
+            }
+          }
+          if (bt.isBoss && !bossStruck) {
+            bossStruck = true;
+            handleBossHit(rt, p, false, 2);
+            registerBossInterrupt(rt, p, 1);
+          }
         }
-        addFloatingText(rt, cx, p.y - 24, 'LIFEBINDER BLESSING!', '#fef08a', 1.1);
+        addFloatingText(
+          rt,
+          cx,
+          p.y - 24,
+          `HOLLOW BEAM (${beamTargets.length}x)!`,
+          '#fde047',
+          1.2
+        );
       } else {
         soundEngine.playCoopResonance();
-        rt.energyWaves.push({ x: cx, y: cy, radius: 20, maxRadius: 420, alpha: 0.96, speed: 580, color: '#fde047' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 20, maxRadius: 460, alpha: 0.96, speed: 600, color: fxCol('#fde047'), effectId: fxId });
         rt.players.forEach((ally) => {
           if (ally.state === 'alive') {
-            ally.hp = Math.min(ally.maxHp, ally.hp + 20);
-            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+20 HP DAWN!', '#fef08a', 1.05);
+            ally.hp = Math.min(ally.maxHp, ally.hp + 24);
+            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+24 HP DAWN!', '#fef08a', 1.05);
           } else if (ally.state === 'down') {
-            ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.6);
-            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+60% REVIVE!', '#34d399', 1.1);
+            ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.7);
+            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 14, '+70% REVIVE!', '#34d399', 1.1);
           }
         });
         addFloatingText(rt, cx, p.y - 26, 'SERAPHIC REVIVAL!', '#fde047', 1.2);
@@ -4990,7 +5203,7 @@ function purgeEnemyEffectsInRadius(
       return;
     }
 
-    // === TANK SHIELD (EXCLUSIVE: 4s Frontal Aegis Purification + Safe Shadow Behind + Sanctuary Dome) ===
+    // === TANK SHIELD (WIDE FRONTLINE SHIELD + ALBION-STYLE VACUUM PULL + BASTION DOME) ===
     if (p.weapon === 'tank_shield') {
       if (slot === 1) {
         aimTankAtThreat(rt, p);
@@ -5003,53 +5216,71 @@ function purgeEnemyEffectsInRadius(
         }
         const sx = cx + Math.cos(p.facingAngle) * 52;
         const sy = cy + Math.sin(p.facingAngle) * 52;
-        rt.energyWaves.push({ x: sx, y: sy, radius: 10, maxRadius: 115, alpha: 0.92, speed: 480, color: '#38bdf8' });
-        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 128, 120);
+        rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 280, alpha: 0.9, speed: 620, color: fxCol('#38bdf8'), effectId: fxId });
+        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 155, 280);
         rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 130) e.stunTimer = Math.max(e.stunTimer || 0, 1.5);
+          if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 165) e.stunTimer = Math.max(e.stunTimer || 0, 1.6);
         });
         const total = purgedCount + cleansedCount;
         addFloatingText(
           rt,
           cx,
           p.y - 18,
-          total > 0 ? `FRONTLINE AEGIS 4s (PURGED ${total})` : 'FRONTLINE AEGIS (4.0s)!',
+          total > 0 ? `FRONTLINE AEGIS 4s (PURGED ${total})` : 'FRONTLINE AEGIS (280px SHIELD)!',
           '#38bdf8',
           1.18
         );
       } else if (slot === 2) {
-        soundEngine.playDash();
-        p.chargeTimer = 0.55;
-        p.invulnFrames = Math.max(p.invulnFrames, 0.7);
-        p.dashDirX = Math.cos(p.facingAngle);
-        p.dashDirY = Math.sin(p.facingAngle);
-        addFloatingText(rt, cx, p.y - 18, 'BULWARK CHARGE!', '#38bdf8', 1.1);
+        // Albion Online Heavy Mace / Tank Vacuum Pull (0.82s delayed gravity vortex before yank)
+        aimTankAtThreat(rt, p);
+        soundEngine.playCloak();
+        p.invulnFrames = Math.max(p.invulnFrames, 0.35);
+        p.hasShield = true;
+        const pullX = Math.max(80, Math.min(rt.arenaWidth - 80, cx + Math.cos(p.facingAngle) * 115));
+        const pullY = Math.max(80, Math.min(rt.arenaHeight - 80, cy + Math.sin(p.facingAngle) * 115));
+        rt.energyWaves.push({ x: pullX, y: pullY, radius: 18, maxRadius: 285, alpha: 0.72, speed: 520, color: fxCol('#38bdf8'), effectId: fxId });
+        rt.skillZones.push({
+          id: rt.nextUid++,
+          ownerId: p.id,
+          kind: 'tank_vacuum',
+          x: pullX,
+          y: pullY,
+          radius: 285,
+          timer: 0.82,
+          maxTimer: 0.82,
+          tickTimer: 0.2,
+          color: fxCol('#38bdf8'),
+          triggered: false,
+          effectId: fxId,
+        });
+        addFloatingText(rt, pullX, pullY - 22, 'GRAVITY VORTEX! (0.8s)', '#38bdf8', 1.15);
       } else if (slot === 3) {
         soundEngine.playShockwave();
         p.fortifyTimer = 4.5;
         p.hasShield = true;
         rt.screenShake = Math.max(rt.screenShake, 14);
-        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 290, alpha: 0.96, speed: 640, color: '#22d3ee' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 290, alpha: 0.96, speed: 640, color: fxCol('#22d3ee'), effectId: fxId });
         rt.skillZones.push({
           id: rt.nextUid++,
           ownerId: p.id,
           kind: 'sanctuary_dome',
           x: cx,
           y: cy,
-          radius: 255,
+          radius: 280,
           timer: 4.5,
           maxTimer: 4.5,
           tickTimer: 0.5,
-          color: '#22d3ee',
+          color: fxCol('#22d3ee'),
+          effectId: fxId,
         });
-        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 290, 255);
+        const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 290, 280);
         rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 255) {
+          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 280) {
             e.stunTimer = Math.max(e.stunTimer || 0, 2.4);
           }
         });
         if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 265) {
+          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 285) {
             handleBossHit(rt, p, false, 1);
             registerBossInterrupt(rt, p, 1);
           }
@@ -5059,26 +5290,27 @@ function purgeEnemyEffectsInRadius(
       } else {
         soundEngine.playShockwave();
         rt.screenShake = Math.max(rt.screenShake, 24);
-        rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: 380, alpha: 0.98, speed: 700, color: '#38bdf8' });
-        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 310, alpha: 0.9, speed: 560, color: '#ffffff' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 22, maxRadius: 400, alpha: 0.98, speed: 700, color: fxCol('#38bdf8'), effectId: fxId });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 320, alpha: 0.9, speed: 560, color: '#ffffff', effectId: fxId });
         rt.skillZones.push({
           id: rt.nextUid++,
           ownerId: p.id,
           kind: 'sanctuary_dome',
           x: cx,
           y: cy,
-          radius: 330,
+          radius: 345,
           timer: 5.0,
           maxTimer: 5.0,
           tickTimer: 0.5,
-          color: '#38bdf8',
+          color: fxCol('#38bdf8'),
+          effectId: fxId,
         });
-        const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 380, 9999);
+        const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 400, 9999);
         rt.enemies.forEach((e) => {
-          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 380) e.stunTimer = 3.8;
+          if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 400) e.stunTimer = 3.8;
         });
         if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 385) {
+          if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 405) {
             handleBossHit(rt, p, false, 2);
             registerBossInterrupt(rt, p, 2);
           }
@@ -5095,13 +5327,13 @@ function purgeEnemyEffectsInRadius(
       return;
     }
 
-    // === ASSASSIN BLADES ===
+    // === ASSASSIN BLADES (100% DASH CRIT + BENEDETTA ULT SLASH TRAIL + BUFFED KUNAI) ===
     if (p.weapon === 'assassin_blades') {
       if (
         rt.isBossLevel &&
         (rt.boss.channelKind === 'emp_interrupt' || rt.boss.channelKind === 'mirage_ambush') &&
         (rt.boss.channelTimer || 0) > 0 &&
-        Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 440
+        Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 460
       ) {
         registerBossInterrupt(rt, p, 3);
       }
@@ -5109,13 +5341,14 @@ function purgeEnemyEffectsInRadius(
         soundEngine.playCloak();
         p.cloakTimer = 1.3;
         p.empoweredStrike = true;
+        p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
         p.dashCooldownTimer = Math.max(0, p.dashCooldownTimer - 3.0);
         if (p.dashCooldownTimer <= 0) p.dashReady = true;
-        rt.voidDecoys.push({ x: cx, y: cy, timer: 0.5, maxTimer: 0.5, color: '#a855f7', ownerId: p.id });
-        addFloatingText(rt, cx, p.y - 14, 'SHADOW EXECUTION!', '#c084fc', 1.1);
+        rt.voidDecoys.push({ x: cx, y: cy, timer: 0.5, maxTimer: 0.5, color: fxCol('#a855f7'), ownerId: p.id, effectId: fxId });
+        addFloatingText(rt, cx, p.y - 14, 'SHADOW EXECUTION (100% CRIT)!', '#c084fc', 1.15);
       } else if (slot === 2) {
         soundEngine.playCrescentWave();
-        for (const off of [-0.36, -0.18, 0, 0.18, 0.36]) {
+        for (const off of [-0.34, -0.17, 0, 0.17, 0.34]) {
           const ang = p.facingAngle + off;
           rt.playerProjectiles.push({
             uid: rt.nextUid++,
@@ -5123,46 +5356,98 @@ function purgeEnemyEffectsInRadius(
             kind: 'shadow_kunai',
             x: cx,
             y: cy,
-            dx: Math.cos(ang) * 14,
-            dy: Math.sin(ang) * 14,
+            dx: Math.cos(ang) * 15,
+            dy: Math.sin(ang) * 15,
             angle: ang,
-            radius: 14,
-            color: '#c084fc',
-            lifetime: 0.9,
-            pierce: 2,
+            radius: 17,
+            color: fxCol('#c084fc'),
+            lifetime: 0.95,
+            pierce: 3,
+            bossDamage: 2,
+            effectId: fxId,
           });
         }
-        addFloatingText(rt, cx, p.y - 16, 'KUNAI FAN!', '#c084fc', 1.1);
+        addFloatingText(rt, cx, p.y - 16, p.critBuffTimer > 0 ? 'CRIT KUNAI FAN!' : 'KUNAI FAN!', '#c084fc', 1.12);
       } else if (slot === 3) {
-        soundEngine.playCloak();
-        rt.voidDecoys.push({ x: cx, y: cy, timer: 0.55, maxTimer: 0.55, color: '#a855f7', ownerId: p.id });
-        p.x = Math.max(16, Math.min(rt.arenaWidth - p.size - 16, p.x + Math.cos(p.facingAngle) * 195));
-        p.y = Math.max(16, Math.min(rt.arenaHeight - p.size - 16, p.y + Math.sin(p.facingAngle) * 195));
-        p.invulnFrames = Math.max(p.invulnFrames, 0.45);
+        // Benedetta-style Ult: long invulnerable sword-intent dash leaving a rapid-slashing corridor!
+        soundEngine.playShockwave();
+        const startX = cx;
+        const startY = cy;
+        p.x = Math.max(18, Math.min(rt.arenaWidth - p.size - 18, p.x + Math.cos(p.facingAngle) * 265));
+        p.y = Math.max(18, Math.min(rt.arenaHeight - p.size - 18, p.y + Math.sin(p.facingAngle) * 265));
+        const endX = p.x + p.size / 2;
+        const endY = p.y + p.size / 2;
+        p.invulnFrames = Math.max(p.invulnFrames, 0.65);
         p.dashReady = true;
         p.dashCooldownTimer = 0;
-        rt.voidDecoys.push({ x: p.x + p.size / 2, y: p.y + p.size / 2, timer: 0.55, maxTimer: 0.55, color: '#e879f9', ownerId: p.id });
-        addFloatingText(rt, p.x + p.size / 2, p.y - 16, 'PHANTOM BLINK!', '#e879f9', 1.15);
+        p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
+        p.empoweredStrike = true;
+        rt.screenShake = Math.max(rt.screenShake, 12);
+        rt.skillZones.push({
+          id: rt.nextUid++,
+          ownerId: p.id,
+          kind: 'shadow_slash_trail',
+          x: startX,
+          y: startY,
+          x2: endX,
+          y2: endY,
+          radius: 76,
+          timer: 2.4,
+          maxTimer: 2.4,
+          tickTimer: 0.08,
+          color: fxCol('#e879f9'),
+          effectId: fxId,
+        });
+        for (let step = 0; step < 4; step++) {
+          const t = step / 3;
+          const sx = startX + (endX - startX) * t;
+          const sy = startY + (endY - startY) * t;
+          addSlashArc(rt, sx, sy, p.facingAngle + (step % 2 === 0 ? 0.5 : -0.5), fxCol('#e879f9'), 64, fxId);
+          rt.comicSlashes.push({
+            x: sx,
+            y: sy,
+            angle: p.facingAngle + (Math.random() - 0.5) * 1.4,
+            length: 130,
+            alpha: 0.95,
+            thickness: 3.5,
+            timer: 0,
+            lifetime: 0.34,
+          });
+        }
+        rt.bossProjectiles = rt.bossProjectiles.filter(
+          (bp) => bp.type === 'phantom_clone' || pointToSegmentDist(bp.x + bp.size / 2, bp.y + bp.size / 2, startX, startY, endX, endY) > 76
+        );
+        for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+          const e = rt.enemies[ei];
+          if (!e) continue;
+          if (pointToSegmentDist(e.x + e.size / 2, e.y + e.size / 2, startX, startY, endX, endY) <= 76 + e.size * 0.4) {
+            damageEnemy(rt, ei, p.id, 3, p.facingAngle, fxCol('#e879f9'), p.critBuffTimer > 0);
+          }
+        }
+        addFloatingText(rt, endX, p.y - 18, 'ALECTO SLASH TRAIL!', '#e879f9', 1.2);
       } else {
         soundEngine.playSurge();
         p.bloodlustTimer = 4.5;
+        p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
         p.empoweredStrike = true;
-        for (let k = 0; k < 8; k++) {
-          const ang = (k / 8) * Math.PI * 2;
+        rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 175, alpha: 0.95, speed: 520, color: fxCol('#e879f9'), effectId: fxId });
+        for (let k = 0; k < 10; k++) {
+          const ang = (k / 10) * Math.PI * 2;
           rt.playerProjectiles.push({
             uid: rt.nextUid++,
             ownerId: p.id,
             kind: 'shadow_kunai',
             x: cx,
             y: cy,
-            dx: Math.cos(ang) * 13.5,
-            dy: Math.sin(ang) * 13.5,
+            dx: Math.cos(ang) * 14.5,
+            dy: Math.sin(ang) * 14.5,
             angle: ang,
-            radius: 16,
-            color: '#e879f9',
-            lifetime: 0.95,
+            radius: 17,
+            color: fxCol('#e879f9'),
+            lifetime: 1.0,
             pierce: 3,
-            bossDamage: 2,
+            bossDamage: 3,
+            effectId: fxId,
           });
         }
         addFloatingText(rt, cx, p.y - 20, 'NIGHTMARE BLOSSOM!', '#e879f9', 1.25);
@@ -5170,7 +5455,7 @@ function purgeEnemyEffectsInRadius(
       return;
     }
 
-    // === WARRIOR GREATSWORD (PURE HEAVY MELEE & SHOCKWAVE DPS) ===
+    // === WARRIOR GREATSWORD (HEAVY MELEE + 15s BERSERK MODE ON [F] 50s CD) ===
     if (p.weapon === 'warrior_greatsword') {
       if (slot === 1) {
         soundEngine.playCrescentWave();
@@ -5184,11 +5469,12 @@ function purgeEnemyEffectsInRadius(
           dy: Math.sin(p.facingAngle) * 12,
           angle: p.facingAngle,
           radius: 40,
-          color: p.color,
+          color: fxCol(p.color),
           lifetime: 1.25,
           pierce: 99,
+          effectId: fxId,
         });
-        addSlashArc(rt, cx, cy, p.facingAngle, '#ef4444', 58);
+        addSlashArc(rt, cx, cy, p.facingAngle, fxCol('#ef4444'), 58, fxId);
         addFloatingText(rt, cx, p.y - 14, 'CRESCENT CLEAVE!', '#ef4444', 1.1);
       } else if (slot === 2) {
         soundEngine.playSlash(3);
@@ -5199,7 +5485,7 @@ function purgeEnemyEffectsInRadius(
         rt.screenShake = Math.max(rt.screenShake, 12);
         p.bloodlustTimer = 4.5;
         p.empoweredStrike = true;
-        rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 160, alpha: 0.9, speed: 460, color: '#fb923c' });
+        rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 160, alpha: 0.9, speed: 460, color: fxCol('#fb923c'), effectId: fxId });
         for (const off of [-0.26, 0, 0.26]) {
           const ang = p.facingAngle + off;
           rt.playerProjectiles.push({
@@ -5212,32 +5498,67 @@ function purgeEnemyEffectsInRadius(
             dy: Math.sin(ang) * 12.5,
             angle: ang,
             radius: 34,
-            color: '#fb923c',
+            color: fxCol('#fb923c'),
             lifetime: 1.2,
             pierce: 99,
+            effectId: fxId,
           });
         }
         addFloatingText(rt, cx, p.y - 18, 'BLOODLUST ROAR!', '#fb923c', 1.18);
       } else {
         soundEngine.playShockwave();
-        rt.screenShake = Math.max(rt.screenShake, 20);
+        rt.screenShake = Math.max(rt.screenShake, 26);
+        p.berserkTimer = 15.0;
+        p.empoweredStrike = true;
+        for (let sIdx = 0; sIdx < 3; sIdx++) {
+          if (p.skillCooldowns[sIdx] > 0) {
+            p.skillCooldowns[sIdx] = Math.round(p.skillCooldowns[sIdx] * 0.55 * 10) / 10;
+          }
+        }
+        rt.energyWaves.push({ x: cx, y: cy, radius: 16, maxRadius: 210, alpha: 0.96, speed: 540, color: fxCol('#ef4444'), effectId: fxId });
         rt.playerProjectiles.push({
           uid: rt.nextUid++,
           ownerId: p.id,
           kind: 'cataclysm',
           x: cx,
           y: cy,
-          dx: Math.cos(p.facingAngle) * 14.5,
-          dy: Math.sin(p.facingAngle) * 14.5,
+          dx: Math.cos(p.facingAngle) * 16.0,
+          dy: Math.sin(p.facingAngle) * 16.0,
           angle: p.facingAngle,
-          radius: 58,
-          color: '#ef4444',
-          lifetime: 1.35,
+          radius: 78,
+          color: fxCol('#ef4444'),
+          lifetime: 1.55,
           pierce: 99,
-          bossDamage: 3,
+          bossDamage: 6,
+          effectId: fxId,
         });
-        addSlashArc(rt, cx, cy, p.facingAngle, '#fde047', 80);
-        addFloatingText(rt, cx, p.y - 22, 'CATACLYSM SPLITTER!', '#fde047', 1.25);
+        for (const off of [-0.2, 0.2]) {
+          const ang = p.facingAngle + off;
+          rt.playerProjectiles.push({
+            uid: rt.nextUid++,
+            ownerId: p.id,
+            kind: 'crescent',
+            x: cx,
+            y: cy,
+            dx: Math.cos(ang) * 14,
+            dy: Math.sin(ang) * 14,
+            angle: ang,
+            radius: 46,
+            color: fxCol('#fb923c'),
+            lifetime: 1.3,
+            pierce: 99,
+            bossDamage: 3,
+            effectId: fxId,
+          });
+        }
+        for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+          const e = rt.enemies[ei];
+          if (e && Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 185) {
+            damageEnemy(rt, ei, p.id, 6, p.facingAngle, fxCol('#ef4444'));
+          }
+        }
+        addSlashArc(rt, cx, cy, p.facingAngle, fxCol('#fde047'), 92, fxId);
+        addFloatingText(rt, cx, p.y - 24, 'CATACLYSM · BERSERK MODE (15s)!', '#fde047', 1.28);
       }
       return;
     }
@@ -5259,9 +5580,10 @@ function purgeEnemyEffectsInRadius(
             dy: Math.sin(ang) * 14.5,
             angle: ang,
             radius: 17,
-            color: '#34d399',
+            color: fxCol('#34d399'),
             lifetime: 1.2,
             pierce: 2,
+            effectId: fxId,
           });
         }
         const knife = rt.knives.find((k) => k.owner === p.id);
@@ -5282,7 +5604,8 @@ function purgeEnemyEffectsInRadius(
           timer: 6.0,
           maxTimer: 6.0,
           tickTimer: 0.35,
-          color: '#38bdf8',
+          color: fxCol('#38bdf8'),
+          effectId: fxId,
         });
         addFloatingText(rt, cx, p.y - 16, 'FROST SNARE TRAP!', '#38bdf8', 1.12);
       } else if (slot === 3) {
@@ -5298,10 +5621,11 @@ function purgeEnemyEffectsInRadius(
           dy: Math.sin(p.facingAngle) * 22.0,
           angle: p.facingAngle,
           radius: 26,
-          color: '#fde047',
+          color: fxCol('#fde047'),
           lifetime: 1.05,
           pierce: 99,
           bossDamage: 4,
+          effectId: fxId,
         });
         addFloatingText(rt, cx, p.y - 20, 'PIERCING RAILSHOT!', '#fde047', 1.24);
       } else {
@@ -5318,7 +5642,8 @@ function purgeEnemyEffectsInRadius(
           timer: 4.2,
           maxTimer: 4.2,
           tickTimer: 0.18,
-          color: '#34d399',
+          color: fxCol('#34d399'),
+          effectId: fxId,
         });
         addFloatingText(rt, tx, ty - 20, 'TEMPEST ARROW RAIN!', '#34d399', 1.24);
       }
@@ -5340,11 +5665,12 @@ function purgeEnemyEffectsInRadius(
         dy: Math.sin(p.facingAngle) * 11.5,
         angle: p.facingAngle,
         radius: 28,
-        color: p.color,
+        color: fxCol(p.color),
         lifetime: 1.15,
         pierce: 99,
+        effectId: fxId,
       });
-      addSlashArc(rt, cx, cy, p.facingAngle, p.color, 46);
+      addSlashArc(rt, cx, cy, p.facingAngle, p.color, 46, fxId);
       addFloatingText(rt, cx, p.y - 12, 'CRESCENT WAVE!', p.color, 1.0);
     } else if (slot === 2) {
       soundEngine.playSlash(3);
@@ -5364,37 +5690,54 @@ function purgeEnemyEffectsInRadius(
           dy: Math.sin(ang) * 12,
           angle: ang,
           radius: 30,
-          color: p.color,
+          color: fxCol(p.color),
           lifetime: 1.15,
           pierce: 99,
+          effectId: fxId,
         });
       }
       addFloatingText(rt, cx, p.y - 16, 'TRIPLE GALE!', p.color, 1.15);
     } else {
       soundEngine.playShockwave();
+      rt.screenShake = Math.max(rt.screenShake, 24);
+      p.berserkTimer = 15.0;
+      p.empoweredStrike = true;
+      for (let sIdx = 0; sIdx < 3; sIdx++) {
+        if (p.skillCooldowns[sIdx] > 0) p.skillCooldowns[sIdx] = Math.round(p.skillCooldowns[sIdx] * 0.55 * 10) / 10;
+      }
+      rt.energyWaves.push({ x: cx, y: cy, radius: 16, maxRadius: 200, alpha: 0.96, speed: 520, color: fxCol('#ef4444'), effectId: fxId });
       rt.playerProjectiles.push({
         uid: rt.nextUid++,
         ownerId: p.id,
         kind: 'cataclysm',
         x: cx,
         y: cy,
-        dx: Math.cos(p.facingAngle) * 14.5,
-        dy: Math.sin(p.facingAngle) * 14.5,
+        dx: Math.cos(p.facingAngle) * 16.0,
+        dy: Math.sin(p.facingAngle) * 16.0,
         angle: p.facingAngle,
-        radius: 52,
-        color: '#ef4444',
-        lifetime: 1.3,
+        radius: 76,
+        color: fxCol('#ef4444'),
+        lifetime: 1.5,
         pierce: 99,
-        bossDamage: 3,
+        bossDamage: 6,
+        effectId: fxId,
       });
-      addFloatingText(rt, cx, p.y - 20, 'HEAVENLY SEVER!', '#fde047', 1.25);
+      for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+        const e = rt.enemies[ei];
+        if (e && Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 180) {
+          damageEnemy(rt, ei, p.id, 6, p.facingAngle, fxCol('#ef4444'));
+        }
+      }
+      addSlashArc(rt, cx, cy, p.facingAngle, fxCol('#fde047'), 90, fxId);
+      addFloatingText(rt, cx, p.y - 22, 'HEAVENLY SEVER · BERSERK 15s!', '#fde047', 1.26);
     }
   } else if (p.heroClass === 'phantom') {
     if (slot === 1) {
       soundEngine.playCloak();
       p.cloakTimer = 1.4;
       p.empoweredStrike = true;
-      addFloatingText(rt, cx, p.y - 12, 'SHADOW CLOAK!', '#c084fc', 1.05);
+      p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
+      addFloatingText(rt, cx, p.y - 12, 'SHADOW CLOAK (100% CRIT)!', '#c084fc', 1.1);
     } else if (slot === 2) {
       soundEngine.playCrescentWave();
       for (const off of [-0.34, -0.17, 0, 0.17, 0.34]) {
@@ -5405,45 +5748,75 @@ function purgeEnemyEffectsInRadius(
           kind: 'shadow_kunai',
           x: cx,
           y: cy,
-          dx: Math.cos(ang) * 14,
-          dy: Math.sin(ang) * 14,
+          dx: Math.cos(ang) * 15,
+          dy: Math.sin(ang) * 15,
           angle: ang,
-          radius: 14,
-          color: '#c084fc',
-          lifetime: 0.9,
-          pierce: 2,
+          radius: 16,
+          color: fxCol('#c084fc'),
+          lifetime: 0.95,
+          pierce: 3,
+          bossDamage: 2,
+          effectId: fxId,
         });
       }
-      addFloatingText(rt, cx, p.y - 14, 'KUNAI SPREAD!', '#c084fc', 1.1);
+      addFloatingText(rt, cx, p.y - 14, p.critBuffTimer > 0 ? 'CRIT KUNAI SPREAD!' : 'KUNAI SPREAD!', '#c084fc', 1.12);
     } else if (slot === 3) {
-      soundEngine.playCloak();
-      rt.voidDecoys.push({ x: cx, y: cy, timer: 0.55, maxTimer: 0.55, color: '#a855f7', ownerId: p.id });
-      p.x = Math.max(16, Math.min(rt.arenaWidth - p.size - 16, p.x + Math.cos(p.facingAngle) * 185));
-      p.y = Math.max(16, Math.min(rt.arenaHeight - p.size - 16, p.y + Math.sin(p.facingAngle) * 185));
-      p.invulnFrames = Math.max(p.invulnFrames, 0.4);
+      soundEngine.playShockwave();
+      const startX = cx;
+      const startY = cy;
+      p.x = Math.max(18, Math.min(rt.arenaWidth - p.size - 18, p.x + Math.cos(p.facingAngle) * 255));
+      p.y = Math.max(18, Math.min(rt.arenaHeight - p.size - 18, p.y + Math.sin(p.facingAngle) * 255));
+      const endX = p.x + p.size / 2;
+      const endY = p.y + p.size / 2;
+      p.invulnFrames = Math.max(p.invulnFrames, 0.6);
       p.dashReady = true;
       p.dashCooldownTimer = 0;
-      rt.voidDecoys.push({ x: p.x + p.size / 2, y: p.y + p.size / 2, timer: 0.55, maxTimer: 0.55, color: '#e879f9', ownerId: p.id });
-      addFloatingText(rt, p.x + p.size / 2, p.y - 16, 'PHANTOM BLINK!', '#e879f9', 1.15);
+      p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
+      p.empoweredStrike = true;
+      rt.skillZones.push({
+        id: rt.nextUid++,
+        ownerId: p.id,
+        kind: 'shadow_slash_trail',
+        x: startX,
+        y: startY,
+        x2: endX,
+        y2: endY,
+        radius: 74,
+        timer: 2.4,
+        maxTimer: 2.4,
+        tickTimer: 0.08,
+        color: fxCol('#e879f9'),
+        effectId: fxId,
+      });
+      for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+        const e = rt.enemies[ei];
+        if (e && pointToSegmentDist(e.x + e.size / 2, e.y + e.size / 2, startX, startY, endX, endY) <= 74 + e.size * 0.4) {
+          damageEnemy(rt, ei, p.id, 3, p.facingAngle, fxCol('#e879f9'), p.critBuffTimer > 0);
+        }
+      }
+      addFloatingText(rt, endX, p.y - 18, 'ALECTO SLASH TRAIL!', '#e879f9', 1.18);
     } else {
       soundEngine.playSurge();
       p.bloodlustTimer = 4.5;
+      p.critBuffTimer = Math.max(p.critBuffTimer, 3.2);
       p.empoweredStrike = true;
-      for (let k = 0; k < 8; k++) {
-        const ang = (k / 8) * Math.PI * 2;
+      for (let k = 0; k < 10; k++) {
+        const ang = (k / 10) * Math.PI * 2;
         rt.playerProjectiles.push({
           uid: rt.nextUid++,
           ownerId: p.id,
           kind: 'shadow_kunai',
           x: cx,
           y: cy,
-          dx: Math.cos(ang) * 13,
-          dy: Math.sin(ang) * 13,
+          dx: Math.cos(ang) * 14,
+          dy: Math.sin(ang) * 14,
           angle: ang,
-          radius: 15,
-          color: '#e879f9',
-          lifetime: 0.95,
+          radius: 17,
+          color: fxCol('#e879f9'),
+          lifetime: 1.0,
           pierce: 3,
+          bossDamage: 3,
+          effectId: fxId,
         });
       }
       addFloatingText(rt, cx, p.y - 20, 'ECLIPSE LOTUS!', '#e879f9', 1.25);
@@ -5456,44 +5829,61 @@ function purgeEnemyEffectsInRadius(
       p.hasShield = true;
       const sx = cx + Math.cos(p.facingAngle) * 52;
       const sy = cy + Math.sin(p.facingAngle) * 52;
-      rt.energyWaves.push({ x: sx, y: sy, radius: 10, maxRadius: 115, alpha: 0.92, speed: 480, color: '#38bdf8' });
-      const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 128, 120);
+      rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 280, alpha: 0.9, speed: 620, color: fxCol('#38bdf8'), effectId: fxId });
+      const { purgedCount, cleansedCount } = purgeEnemyEffectsInRadius(rt, sx, sy, 155, 280);
       rt.enemies.forEach((e) => {
-        if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 130) e.stunTimer = Math.max(e.stunTimer || 0, 1.5);
+        if (Math.hypot(e.x + e.size / 2 - sx, e.y + e.size / 2 - sy) <= 165) e.stunTimer = Math.max(e.stunTimer || 0, 1.6);
       });
       const total = purgedCount + cleansedCount;
-      addFloatingText(rt, cx, p.y - 16, total > 0 ? `VANGUARD BULWARK 4s (PURGED ${total})` : 'VANGUARD BULWARK (4.0s)!', '#38bdf8', 1.15);
+      addFloatingText(rt, cx, p.y - 16, total > 0 ? `VANGUARD BULWARK 4s (PURGED ${total})` : 'VANGUARD BULWARK (280px SHIELD)!', '#38bdf8', 1.15);
     } else if (slot === 2) {
-      soundEngine.playDash();
-      p.chargeTimer = 0.5;
-      p.invulnFrames = Math.max(p.invulnFrames, 0.65);
-      p.dashDirX = Math.cos(p.facingAngle);
-      p.dashDirY = Math.sin(p.facingAngle);
-      addFloatingText(rt, cx, p.y - 14, 'SHIELD RUSH!', '#38bdf8', 1.1);
+      aimTankAtThreat(rt, p);
+      soundEngine.playCloak();
+      p.invulnFrames = Math.max(p.invulnFrames, 0.35);
+      p.hasShield = true;
+      const pullX = Math.max(80, Math.min(rt.arenaWidth - 80, cx + Math.cos(p.facingAngle) * 115));
+      const pullY = Math.max(80, Math.min(rt.arenaHeight - 80, cy + Math.sin(p.facingAngle) * 115));
+      rt.energyWaves.push({ x: pullX, y: pullY, radius: 18, maxRadius: 285, alpha: 0.72, speed: 520, color: fxCol('#38bdf8'), effectId: fxId });
+      rt.skillZones.push({
+        id: rt.nextUid++,
+        ownerId: p.id,
+        kind: 'tank_vacuum',
+        x: pullX,
+        y: pullY,
+        radius: 285,
+        timer: 0.82,
+        maxTimer: 0.82,
+        tickTimer: 0.2,
+        color: fxCol('#38bdf8'),
+        triggered: false,
+        effectId: fxId,
+      });
+      addFloatingText(rt, pullX, pullY - 20, 'GRAVITY VORTEX! (0.8s)', '#38bdf8', 1.15);
     } else if (slot === 3) {
       soundEngine.playShockwave();
       p.fortifyTimer = 4.5;
       p.hasShield = true;
       rt.screenShake = Math.max(rt.screenShake, 12);
-      rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 255, alpha: 0.95, speed: 560, color: '#22d3ee' });
+      rt.energyWaves.push({ x: cx, y: cy, radius: 12, maxRadius: 275, alpha: 0.95, speed: 560, color: fxCol('#22d3ee'), effectId: fxId });
       rt.skillZones.push({
         id: rt.nextUid++,
         ownerId: p.id,
         kind: 'sanctuary_dome',
         x: cx,
         y: cy,
-        radius: 245,
+        radius: 265,
         timer: 4.5,
         maxTimer: 4.5,
         tickTimer: 0.5,
-        color: '#22d3ee',
+        color: fxCol('#22d3ee'),
+        effectId: fxId,
       });
-      const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 245, 245);
+      const { purgedCount } = purgeEnemyEffectsInRadius(rt, cx, cy, 265, 265);
       rt.enemies.forEach((e) => {
-        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 235) e.stunTimer = 2.2;
+        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 265) e.stunTimer = 2.2;
       });
       if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 250) {
+        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 270) {
           handleBossHit(rt, p, false, 1);
           registerBossInterrupt(rt, p, 1);
         }
@@ -5502,30 +5892,31 @@ function purgeEnemyEffectsInRadius(
     } else {
       soundEngine.playShockwave();
       rt.screenShake = Math.max(rt.screenShake, 20);
-      rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 320, alpha: 0.98, speed: 660, color: '#22d3ee' });
+      rt.energyWaves.push({ x: cx, y: cy, radius: 18, maxRadius: 360, alpha: 0.98, speed: 660, color: fxCol('#22d3ee'), effectId: fxId });
       rt.skillZones.push({
         id: rt.nextUid++,
         ownerId: p.id,
         kind: 'sanctuary_dome',
         x: cx,
         y: cy,
-        radius: 310,
+        radius: 330,
         timer: 5.0,
         maxTimer: 5.0,
         tickTimer: 0.5,
-        color: '#38bdf8',
+        color: fxCol('#38bdf8'),
+        effectId: fxId,
       });
       rt.bossProjectiles = rt.bossProjectiles.filter(
-        (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) > 320
+        (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - cx, bp.y + bp.size / 2 - cy) > 360
       );
       rt.players.forEach((ally) => {
-        if (ally.state === 'alive' && Math.hypot(ally.x - p.x, ally.y - p.y) <= 260) ally.hasShield = true;
+        if (ally.state === 'alive' && Math.hypot(ally.x - p.x, ally.y - p.y) <= 320) ally.hasShield = true;
       });
       rt.enemies.forEach((e) => {
-        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 320) e.stunTimer = 3.2;
+        if (Math.hypot(e.x + e.size / 2 - cx, e.y + e.size / 2 - cy) <= 360) e.stunTimer = 3.2;
       });
       if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition') {
-        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 325) {
+        if (Math.hypot(rt.boss.x + rt.boss.size / 2 - cx, rt.boss.y + rt.boss.size / 2 - cy) <= 365) {
           handleBossHit(rt, p, false, 2);
           registerBossInterrupt(rt, p, 2);
         }
@@ -5543,7 +5934,7 @@ function purgeEnemyEffectsInRadius(
         knife.x = cx - knife.size / 2;
         knife.y = cy - knife.size / 2;
       }
-      rt.energyWaves.push({ x: cx, y: cy, radius: 8, maxRadius: 120, alpha: 0.9, speed: 360, color: '#facc15' });
+      rt.energyWaves.push({ x: cx, y: cy, radius: 8, maxRadius: 120, alpha: 0.9, speed: 360, color: fxCol('#facc15'), effectId: fxId });
       addFloatingText(rt, cx, p.y - 14, 'OVERCHARGE SURGE!', '#facc15', 1.1);
     } else if (slot === 2) {
       soundEngine.playCrescentWave();
@@ -5559,9 +5950,10 @@ function purgeEnemyEffectsInRadius(
           dy: Math.sin(ang) * 12,
           angle: ang,
           radius: 14,
-          color: '#facc15',
+          color: fxCol('#facc15'),
           lifetime: 1.0,
           pierce: 2,
+          effectId: fxId,
         });
       }
       addFloatingText(rt, cx, p.y - 14, 'ARC SCATTER!', '#facc15', 1.1);
@@ -5577,7 +5969,8 @@ function purgeEnemyEffectsInRadius(
         timer: 5.0,
         maxTimer: 5.0,
         tickTimer: 0.35,
-        color: '#facc15',
+        color: fxCol('#facc15'),
+        effectId: fxId,
       });
       addFloatingText(rt, cx, p.y - 16, 'STATIC FIELD!', '#facc15', 1.15);
     } else {
@@ -5593,10 +5986,11 @@ function purgeEnemyEffectsInRadius(
         dy: Math.sin(p.facingAngle) * 21,
         angle: p.facingAngle,
         radius: 22,
-        color: '#facc15',
+        color: fxCol('#facc15'),
         lifetime: 1.0,
         pierce: 99,
         bossDamage: 3,
+        effectId: fxId,
       });
       addFloatingText(rt, cx, p.y - 20, 'RAILGUN OVERLOAD!', '#fde047', 1.25);
     }
@@ -5845,6 +6239,8 @@ function updatePlayer(
   if (p.frontShieldTimer > 0) p.frontShieldTimer = Math.max(0, p.frontShieldTimer - dt);
   if (p.bloodlustTimer > 0) p.bloodlustTimer = Math.max(0, p.bloodlustTimer - dt);
   if (p.chargeTimer > 0) p.chargeTimer = Math.max(0, p.chargeTimer - dt);
+  if (p.critBuffTimer > 0) p.critBuffTimer = Math.max(0, p.critBuffTimer - dt);
+  if (p.berserkTimer > 0) p.berserkTimer = Math.max(0, p.berserkTimer - dt);
   if (p.potionCooldownTimer > 0) p.potionCooldownTimer = Math.max(0, p.potionCooldownTimer - dt);
   if (p.swapCooldownTimer > 0) p.swapCooldownTimer = Math.max(0, p.swapCooldownTimer - dt);
 
@@ -5894,7 +6290,8 @@ function updatePlayer(
     p.dash2Ready = true;
   }
 
-  const allowArrowMirror = rt.numPlayers === 1 || usesWeaponSystem(rt);
+  const isLocalP2 = Boolean(rt.isLocalCoop && p.id === 2);
+  const allowArrowMirror = rt.numPlayers === 1 || (!rt.isLocalCoop && usesWeaponSystem(rt));
   const upPressed = !!keys[controls.up] || (allowArrowMirror && !touchInput && !!keys['arrowup']);
   const downPressed = !!keys[controls.down] || (allowArrowMirror && !touchInput && !!keys['arrowdown']);
   const leftPressed = !!keys[controls.left] || (allowArrowMirror && !touchInput && !!keys['arrowleft']);
@@ -5909,49 +6306,55 @@ function updatePlayer(
     (allowArrowMirror && !touchInput && !!keys['1']);
   const skill2Pressed =
     !!touchInput?.skill2 ||
-    (p.id === 2 && !usesWeaponSystem(rt) ? !!keys['.'] : !!keys['q'] || !!keys['2']);
+    (isLocalP2 ? !!keys['.'] : !!keys['q'] || !!keys['2']);
   const skill3Pressed =
     !!touchInput?.skill3 ||
-    (p.id === 2 && !usesWeaponSystem(rt) ? !!keys[';'] : !!keys['r'] || !!keys['3']);
+    (isLocalP2 ? !!keys[';'] : !!keys['r'] || !!keys['3']);
   const skill4Pressed =
     !!touchInput?.skill4 ||
-    (p.id === 2 && !usesWeaponSystem(rt) ? !!keys["'"] : !!keys['f'] || !!keys['4']);
+    (isLocalP2 ? !!keys["'"] : !!keys['f'] || !!keys['4']);
   const potionPressed =
     !!touchInput?.usePotion ||
-    (p.id === 2 && !usesWeaponSystem(rt) ? !!keys['p'] : !!keys['c'] || !!keys['h']);
+    (isLocalP2 ? !!keys['p'] : !!keys['c'] || !!keys['h']);
 
   if (p.sealed) {
-    p.dashImmune = false;
-    p.dashTimeLeft = 0;
-    p.dashTrail.forEach((t) => (t.alpha -= dt * 3));
-    p.dashTrail = p.dashTrail.filter((t) => t.alpha > 0);
-    if (rt.numPlayers === 1 && dashPressed && !p._lastDashPressed) {
-      p.sealTimer -= 0.5;
-      addFloatingText(rt, p.x + p.size / 2, p.y - 10, 'STRUGGLE!', '#fbbf24', 0.85);
-      if (p.sealTimer <= 0) {
-        p.sealed = false;
-        p.sealTimer = 0;
-        addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'SEAL BROKEN!', '#34d399', 1.1);
-      }
-    }
-    p._lastDashPressed = dashPressed;
-    p._lastAbilityPressed = abilityPressed;
-    p._lastSkill2Pressed = skill2Pressed;
-    p._lastSkill3Pressed = skill3Pressed;
-    p._lastSkill4Pressed = skill4Pressed;
-    if (rt.numPlayers >= 2) {
-      const other = rt.players.find((op) => op.id !== p.id && op.state === 'alive');
-      if (other) {
-        const dist = Math.hypot(other.x + other.size / 2 - (p.x + p.size / 2), other.y + other.size / 2 - (p.y + p.size / 2));
-        if (dist < p.size * 1.35) {
+    if (!rt.isBossLevel || rt.boss.health <= 0 || rt.boss.state === 'dead') {
+      p.sealed = false;
+      p.sealTimer = 0;
+    } else {
+      p.dashImmune = false;
+      p.dashTimeLeft = 0;
+      p.dashTrail.forEach((t) => (t.alpha -= dt * 3));
+      p.dashTrail = p.dashTrail.filter((t) => t.alpha > 0);
+      const hasUnsealedBuddy = rt.players.some((op) => op.id !== p.id && op.state === 'alive' && !op.sealed);
+      if ((rt.numPlayers === 1 || !hasUnsealedBuddy) && dashPressed && !p._lastDashPressed) {
+        p.sealTimer -= 0.5;
+        addFloatingText(rt, p.x + p.size / 2, p.y - 10, 'STRUGGLE!', '#fbbf24', 0.85);
+        if (p.sealTimer <= 0) {
           p.sealed = false;
           p.sealTimer = 0;
-          soundEngine.playRevive();
-          addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'SEAL BROKEN!', '#34d399', 1.15);
+          addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'SEAL BROKEN!', '#34d399', 1.1);
         }
       }
+      p._lastDashPressed = dashPressed;
+      p._lastAbilityPressed = abilityPressed;
+      p._lastSkill2Pressed = skill2Pressed;
+      p._lastSkill3Pressed = skill3Pressed;
+      p._lastSkill4Pressed = skill4Pressed;
+      if (rt.numPlayers >= 2) {
+        const other = rt.players.find((op) => op.id !== p.id && op.state === 'alive' && !op.sealed);
+        if (other) {
+          const dist = Math.hypot(other.x + other.size / 2 - (p.x + p.size / 2), other.y + other.size / 2 - (p.y + p.size / 2));
+          if (dist < p.size * 1.35) {
+            p.sealed = false;
+            p.sealTimer = 0;
+            soundEngine.playRevive();
+            addFloatingText(rt, p.x + p.size / 2, p.y - 14, 'SEAL BROKEN!', '#34d399', 1.15);
+          }
+        }
+      }
+      return;
     }
-    return;
   }
 
   let dirX = (rightPressed ? 1 : 0) - (leftPressed ? 1 : 0);
@@ -6045,13 +6448,17 @@ function updatePlayer(
       soundEngine.playDash();
 
       if ((!usesWeaponSystem(rt) && p.heroClass === 'phantom') || p.weapon === 'assassin_blades') {
+        p.critBuffTimer = 3.2;
+        p.empoweredStrike = true;
+        addFloatingText(rt, p.x + p.size / 2, p.y - 16, '100% CRIT!', '#e879f9', 0.95);
         rt.voidDecoys.push({
           x: p.x + p.size / 2,
           y: p.y + p.size / 2,
           timer: 0.55,
           maxTimer: 0.55,
-          color: '#a855f7',
+          color: resolveFxColor(rt, p.skillEffectId, '#a855f7'),
           ownerId: p.id,
+          effectId: p.skillEffectId || null,
         });
       }
       if (p.weapon === 'ranger_bow') {
@@ -6066,9 +6473,10 @@ function updatePlayer(
           dy: Math.sin(snapAng) * 14.5,
           angle: snapAng,
           radius: 15,
-          color: '#34d399',
+          color: resolveFxColor(rt, p.skillEffectId, '#34d399'),
           lifetime: 0.95,
           pierce: 2,
+          effectId: p.skillEffectId || null,
         });
       }
     };
@@ -6082,6 +6490,7 @@ function updatePlayer(
     (p.overdriveTimer > 0 ? 1.32 : 1.0) *
     (p.cloakTimer > 0 ? 1.26 : 1.0) *
     (p.bloodlustTimer > 0 ? 1.3 : 1.0) *
+    (p.berserkTimer > 0 ? 1.18 : 1.0) *
     (p.fortifyTimer > 0 ? 0.88 : 1.0);
 
   if (p.chargeTimer > 0) {
@@ -6091,7 +6500,7 @@ function updatePlayer(
     p.x += p.vx * (dt * 60);
     p.y += p.vy * (dt * 60);
     if (p.dashTrail.length < 10) {
-      p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.75, color: '#38bdf8', angle: p.facingAngle });
+      p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.75, color: resolveFxColor(rt, p.skillEffectId, '#38bdf8'), angle: p.facingAngle });
     }
   } else if (p.dashImmune && p.dashTimeLeft > 0) {
     const ds = 18.0 * (p.overdriveTimer > 0 ? 1.15 : 1.0);
@@ -6102,7 +6511,7 @@ function updatePlayer(
     p.vx = moveX * ds;
     p.vy = moveY * ds;
     if (p.dashTrail.length < 10) {
-      p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.85, color: p.color, angle: p.facingAngle });
+      p.dashTrail.push({ x: p.x, y: p.y, alpha: 0.85, color: resolveFxColor(rt, p.skillEffectId, p.color), angle: p.facingAngle });
     }
     p.dashTimeLeft -= dt;
     if (p.dashTimeLeft <= 0) {
@@ -6136,7 +6545,8 @@ function updatePlayer(
     }
   }
 
-  const cdRate = (p.overdriveTimer > 0 ? 1.8 : 1.0) * (p.bloodlustTimer > 0 ? 1.45 : 1.0) * dt;
+  const baseCdRate = (p.overdriveTimer > 0 ? 1.8 : 1.0) * (p.bloodlustTimer > 0 ? 1.45 : 1.0) * dt;
+  const cdRate = baseCdRate * (p.berserkTimer > 0 ? 1.25 : 1.0);
   if (!p.dashReady) {
     p.dashCooldownTimer -= cdRate;
     if (p.dashCooldownTimer <= 0) {
@@ -6153,7 +6563,8 @@ function updatePlayer(
   }
   for (let sIdx = 0; sIdx < 4; sIdx++) {
     if (p.skillCooldowns[sIdx] > 0) {
-      p.skillCooldowns[sIdx] = Math.max(0, p.skillCooldowns[sIdx] - cdRate);
+      const slotRate = sIdx === 3 ? baseCdRate : cdRate;
+      p.skillCooldowns[sIdx] = Math.max(0, p.skillCooldowns[sIdx] - slotRate);
     }
   }
   if (p.weaponCooldowns) {
@@ -6194,10 +6605,16 @@ function handleBossHit(
   const tw = getTeamworkDiffScale(rt);
   const isWeakened = b.state === 'weakened';
   const wasEmpowered = player.empoweredStrike;
+  const isAssassinCrit =
+    player.critBuffTimer > 0 &&
+    (player.weapon === 'assassin_blades' || (!usesWeaponSystem(rt) && player.heroClass === 'phantom'));
   let baseDmg = (consumeKnife ? 2 : 1) + (hasBoon(rt, 'berserker_blade') ? 1 : 0) + bonusDamage;
   if (wasEmpowered) {
     baseDmg += consumeKnife ? 2 : 1;
     player.empoweredStrike = false;
+  }
+  if (isAssassinCrit) {
+    baseDmg = Math.max(baseDmg + 1, Math.round(baseDmg * 1.75));
   }
 
   const aliveCoopCount = rt.players.filter((pl) => pl.state === 'alive').length;
@@ -6316,12 +6733,15 @@ function handleBossHit(
     }
   }
   rt.screenShake = Math.max(rt.screenShake, crossDetonated ? 20 : isWeakened ? 16 : 12);
-  rt.freezeTime = crossDetonated ? 0.085 : isWeakened ? 0.065 : 0.045;
+  if (rt.hitstopCooldown <= 0 || crossDetonated) {
+    rt.freezeTime = Math.min(0.08, crossDetonated ? 0.08 : isWeakened ? 0.06 : 0.045);
+    rt.hitstopCooldown = 0.35;
+  }
   rt.stylePoints = Math.min(100, rt.stylePoints + (crossDetonated ? 20 : isWeakened ? 14 : 10));
   rt.score += Math.round((260 * dmg + (crossDetonated ? 450 : 0)) * getScoreMult(rt));
   if (crossDetonated) {
     soundEngine.playCoopResonance();
-    rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 420, alpha: 0.95, speed: 460, color: '#fbbf24' });
+    rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 420, alpha: 0.95, speed: 460, color: resolveFxColor(rt, player.skillEffectId, '#fbbf24'), effectId: player.skillEffectId || null });
     rt.energyWaves.push({ x: cx, y: cy, radius: 14, maxRadius: 360, alpha: 0.9, speed: 390, color: '#38bdf8' });
     addFloatingText(rt, cx, cy - 52, `TWIN ECLIPSE FINISHER! -${dmg}`, '#fde047', 1.3);
   } else if (bowCoreBonus) {
@@ -6332,9 +6752,16 @@ function handleBossHit(
     addFloatingText(rt, cx + (Math.random() - 0.5) * 30, cy - 28, `WEAKENED 2X! -${dmg}`, '#22d3ee', 1.3);
   } else if (!basicDeflectedByArmor) {
     soundEngine.playBossDamaged();
-    addFloatingText(rt, cx + (Math.random() - 0.5) * 30, cy - 25, `-${dmg} HIT`, '#fbbf24', 1.1);
+    addFloatingText(
+      rt,
+      cx + (Math.random() - 0.5) * 30,
+      cy - 25,
+      isAssassinCrit ? `CRIT! -${dmg}` : `-${dmg} HIT`,
+      isAssassinCrit ? '#e879f9' : '#fbbf24',
+      isAssassinCrit ? 1.25 : 1.1
+    );
   }
-  addSlashArc(rt, cx, cy, player.facingAngle, isWeakened ? '#22d3ee' : player.color, crossDetonated ? 84 : isWeakened ? 68 : 54);
+  addSlashArc(rt, cx, cy, player.facingAngle, isWeakened ? '#22d3ee' : player.color, crossDetonated ? 84 : isWeakened ? 68 : 54, player.skillEffectId);
 
   const bossAccent =
     rt.bossType === 'mecha'
@@ -6467,6 +6894,10 @@ function handleBossHit(
     rt.bossDeadTimer = 0;
     rt.bossDeadBeat = 0;
     rt.timeScale = 0.22;
+    rt.players.forEach((pl) => {
+      pl.sealed = false;
+      pl.sealTimer = 0;
+    });
     rt.bossProjectiles = [];
     rt.telegraphLines = [];
     rt.oniShrines = [];
@@ -9145,7 +9576,8 @@ function damageEnemy(
   ownerId: PlayerId,
   dmg: number,
   fxAngle: number,
-  fxColor: string
+  fxColor: string,
+  isCrit = false
 ): boolean {
   const e = rt.enemies[enemyIndex];
   if (!e) return false;
@@ -9154,13 +9586,21 @@ function damageEnemy(
   e.hp = (e.hp ?? 1) - Math.max(1, dmg);
   e.maxHp = e.maxHp ?? 1;
 
+  const ownerFx = getOwnerSkillEffect(rt, ownerId);
   if (e.hp > 0) {
     e.hitFlashTimer = 0.22;
     e.x = Math.max(0, Math.min(rt.arenaWidth - e.size, e.x + Math.cos(fxAngle) * 14));
     e.y = Math.max(0, Math.min(rt.arenaHeight - e.size, e.y + Math.sin(fxAngle) * 14));
     soundEngine.playBossDamaged();
-    addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 32);
-    addFloatingText(rt, ecx, e.y - 8, `-${dmg} (${e.hp}/${e.maxHp})`, '#fde047', 0.92);
+    addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 32, ownerFx);
+    addFloatingText(
+      rt,
+      ecx,
+      e.y - 8,
+      isCrit ? `CRIT -${dmg} (${e.hp}/${e.maxHp})` : `-${dmg} (${e.hp}/${e.maxHp})`,
+      isCrit ? '#e879f9' : '#fde047',
+      isCrit ? 1.05 : 0.92
+    );
     return false;
   }
 
@@ -9170,7 +9610,7 @@ function damageEnemy(
   updateCombo(rt, ownerId);
   const comboVal = rt.playerCombos[ownerId]?.count || 1;
   soundEngine.playSlash(comboVal);
-  addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 42);
+  addSlashArc(rt, ecx, ecy, fxAngle, fxColor, 42, ownerFx);
   addFloatingText(
     rt,
     ecx,
@@ -9406,12 +9846,19 @@ export function stepGame(
     vr.alpha -= dt * 0.28;
     if (vr.alpha <= 0) rt.voidRifts.splice(i, 1);
   }
+  for (let hi = rt.hollowBeams.length - 1; hi >= 0; hi--) {
+    rt.hollowBeams[hi].timer -= dt;
+    if (rt.hollowBeams[hi].timer <= 0) rt.hollowBeams.splice(hi, 1);
+  }
 
   if (rt.introPlaying) return;
 
+  if (!Number.isFinite(rt.hitstopCooldown) || rt.hitstopCooldown < 0) rt.hitstopCooldown = 0;
+  if (rt.hitstopCooldown > 0) rt.hitstopCooldown = Math.max(0, rt.hitstopCooldown - dt);
+
   if (!Number.isFinite(rt.freezeTime) || rt.freezeTime < 0) rt.freezeTime = 0;
   if (rt.freezeTime > 0) {
-    rt.freezeTime = Math.min(0.25, rt.freezeTime - dt);
+    rt.freezeTime = Math.max(0, Math.min(0.12, rt.freezeTime - dt));
     return;
   }
 
@@ -9428,7 +9875,7 @@ export function stepGame(
       updatePlayer(rt, pl, dt, keys, controls.p1, touchInput);
     } else {
       const rem = remoteMap[pl.id];
-      const useLocalP2Keys = !usesWeaponSystem(rt) && pl.id === 2 && !rem;
+      const useLocalP2Keys = Boolean(rt.isLocalCoop) && pl.id === 2 && !rem;
       updatePlayer(
         rt,
         pl,
@@ -9446,7 +9893,17 @@ export function stepGame(
     d.timer -= dt;
     if (d.timer <= 0) {
       soundEngine.playShockwave();
-      rt.energyWaves.push({ x: d.x, y: d.y, radius: 8, maxRadius: 110, alpha: 0.85, speed: 340, color: '#a855f7' });
+      const decoyFx = d.effectId || getOwnerSkillEffect(rt, d.ownerId);
+      rt.energyWaves.push({
+        x: d.x,
+        y: d.y,
+        radius: 8,
+        maxRadius: 110,
+        alpha: 0.85,
+        speed: 340,
+        color: resolveFxColor(rt, decoyFx, '#a855f7'),
+        effectId: decoyFx,
+      });
       rt.bossProjectiles = rt.bossProjectiles.filter((bp) => {
         if (bp.type === 'phantom_clone') return true;
         return Math.hypot(bp.x + bp.size / 2 - d.x, bp.y + bp.size / 2 - d.y) > 105;
@@ -9470,28 +9927,174 @@ export function stepGame(
     }
   }
 
-  // Skill Zones (Sacred Ground, Frost Trap / Static Field, Arrow Rain)
+  // Skill Zones (Sacred Ground, Frost Trap, Arrow Rain, Delayed Tank Vacuum Pull)
   for (let zi = rt.skillZones.length - 1; zi >= 0; zi--) {
     const z = rt.skillZones[zi];
     z.timer -= dt;
     z.tickTimer -= dt;
+    if (z.kind === 'tank_vacuum') {
+      if (z.timer > 0) {
+        // Gentle inward gravity tension during the Albion-style windup telegraph
+        for (let ei = 0; ei < rt.enemies.length; ei++) {
+          const e = rt.enemies[ei];
+          if (!e) continue;
+          const ex = e.x + e.size / 2;
+          const ey = e.y + e.size / 2;
+          const dist = Math.hypot(z.x - ex, z.y - ey);
+          if (dist > 14 && dist <= z.radius) {
+            const tug = Math.min(dist - 12, 42 * dt);
+            const ang = Math.atan2(z.y - ey, z.x - ex);
+            e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, e.x + Math.cos(ang) * tug));
+            e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, e.y + Math.sin(ang) * tug));
+          }
+        }
+        continue;
+      }
+
+      // Detonate Albion-style Tank Vacuum Pull!
+      const owner = rt.players.find((pl) => pl.id === z.ownerId) || rt.players[0];
+      const vacuumFx = z.effectId || getOwnerSkillEffect(rt, z.ownerId);
+      const dmg = owner && hasBoon(rt, owner.id, 'berserker_blade') ? 3 : 2;
+      soundEngine.playShockwave();
+      rt.screenShake = Math.max(rt.screenShake, 14);
+      rt.deathEffects.push({
+        type: 'shockwave',
+        x: z.x,
+        y: z.y,
+        radius: 26,
+        alpha: 0.95,
+        color: z.color || '#38bdf8',
+      });
+      rt.energyWaves.push({ x: z.x, y: z.y, radius: 16, maxRadius: z.radius, alpha: 0.95, speed: 700, color: z.color, effectId: vacuumFx });
+      rt.energyWaves.push({ x: z.x, y: z.y, radius: z.radius * 0.82, maxRadius: z.radius, alpha: 0.85, speed: -580, color: '#ffffff', effectId: vacuumFx });
+
+      let pulledCount = 0;
+      for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+        const e = rt.enemies[ei];
+        if (!e) continue;
+        const ex = e.x + e.size / 2;
+        const ey = e.y + e.size / 2;
+        if (Math.hypot(ex - z.x, ey - z.y) <= z.radius) {
+          const jitterAng = Math.random() * Math.PI * 2;
+          const jitterDist = 10 + Math.random() * 14;
+          e.x = Math.max(12, Math.min(rt.arenaWidth - e.size - 12, z.x + Math.cos(jitterAng) * jitterDist - e.size / 2));
+          e.y = Math.max(12, Math.min(rt.arenaHeight - e.size - 12, z.y + Math.sin(jitterAng) * jitterDist - e.size / 2));
+          e.stunTimer = Math.max(e.stunTimer || 0, 2.6);
+          e.chargeState = e.type === 'charger' ? 'roam' : e.chargeState;
+          pulledCount++;
+          const pullAng = Math.atan2(z.y - ey, z.x - ex);
+          addSlashArc(rt, e.x + e.size / 2, e.y + e.size / 2, pullAng, z.color, 38, vacuumFx);
+          damageEnemy(rt, ei, z.ownerId, dmg, pullAng, z.color);
+        }
+      }
+
+      const beforeProj = rt.bossProjectiles.length;
+      rt.bossProjectiles = rt.bossProjectiles.filter(
+        (bp) => bp.type === 'phantom_clone' || Math.hypot(bp.x + bp.size / 2 - z.x, bp.y + bp.size / 2 - z.y) > 210
+      );
+      const wiped = beforeProj - rt.bossProjectiles.length;
+      if (wiped > 0) rt.score += wiped * 35;
+
+      if (rt.isBossLevel && rt.boss.health > 0 && rt.boss.state !== 'comic_intro' && rt.boss.state !== 'dead' && rt.boss.state !== 'phase_transition' && owner) {
+        const bcx = rt.boss.x + rt.boss.size / 2;
+        const bcy = rt.boss.y + rt.boss.size / 2;
+        const bd = Math.hypot(bcx - z.x, bcy - z.y);
+        if (bd <= 295) {
+          const pullStep = Math.min(60, Math.max(0, bd - 70));
+          const tugAng = Math.atan2(z.y - bcy, z.x - bcx);
+          rt.boss.x = Math.max(40, Math.min(rt.arenaWidth - rt.boss.size - 40, rt.boss.x + Math.cos(tugAng) * pullStep));
+          rt.boss.y = Math.max(60, Math.min(rt.arenaHeight - rt.boss.size - 60, rt.boss.y + Math.sin(tugAng) * pullStep));
+          handleBossHit(rt, owner, false, 1);
+          registerBossInterrupt(rt, owner, 2);
+          pulledCount++;
+        }
+      }
+
+      addFloatingText(
+        rt,
+        z.x,
+        z.y - 24,
+        pulledCount > 0 ? `AEGIS VACUUM PULL (${pulledCount} FOES)!` : 'AEGIS VACUUM PULL!',
+        '#38bdf8',
+        1.24
+      );
+      rt.skillZones.splice(zi, 1);
+      continue;
+    }
     if (z.timer <= 0) {
       rt.skillZones.splice(zi, 1);
       continue;
     }
     if (z.tickTimer <= 0) {
       if (z.kind === 'holy_ground') {
-        z.tickTimer = 1.0;
+        z.tickTimer = 0.65;
+        z.triggered = !z.triggered;
         if (rt.isBossLevel && (rt.boss.channelKind === 'cursed_miasma' || rt.boss.channelKind === 'blood_curse')) {
           const staffOwner = rt.players.find((pl) => pl.id === z.ownerId) || rt.players[0];
           if (staffOwner) registerMiasmaPurge(rt, staffOwner, true);
         }
         rt.players.forEach((ally) => {
-          if (ally.state === 'alive' && Math.hypot(ally.x + ally.size / 2 - z.x, ally.y + ally.size / 2 - z.y) <= z.radius) {
-            ally.hp = Math.min(ally.maxHp, ally.hp + 4);
-            addFloatingText(rt, ally.x + ally.size / 2, ally.y - 10, '+4 HP', '#fde047', 0.8);
+          if (Math.hypot(ally.x + ally.size / 2 - z.x, ally.y + ally.size / 2 - z.y) <= z.radius) {
+            if (ally.state === 'alive') {
+              ally.hp = Math.min(ally.maxHp, ally.hp + 6);
+              addFloatingText(rt, ally.x + ally.size / 2, ally.y - 10, '+6 HP', '#fde047', 0.85);
+            } else if (ally.state === 'down') {
+              ally.reviveProgress = Math.min(REVIVE_TIME, ally.reviveProgress + REVIVE_TIME * 0.1);
+            }
           }
         });
+        if (z.triggered) {
+          for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+            const e = rt.enemies[ei];
+            if (e && Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius) {
+              damageEnemy(rt, ei, z.ownerId, 1, Math.PI / 2, z.color);
+            }
+          }
+        }
+      } else if (z.kind === 'shadow_slash_trail') {
+        z.tickTimer = 0.22;
+        const x2 = z.x2 ?? z.x;
+        const y2 = z.y2 ?? z.y;
+        const owner = rt.players.find((pl) => pl.id === z.ownerId) || rt.players[0];
+        const isCrit = Boolean(
+          owner &&
+            owner.critBuffTimer > 0 &&
+            (owner.weapon === 'assassin_blades' || (!usesWeaponSystem(rt) && owner.heroClass === 'phantom'))
+        );
+        const segAng = Math.atan2(y2 - z.y, x2 - z.x);
+        const midT = Math.random();
+        const fxX = z.x + (x2 - z.x) * midT;
+        const fxY = z.y + (y2 - z.y) * midT;
+        addSlashArc(rt, fxX, fxY, segAng + (Math.random() - 0.5) * 1.4, z.color, 54, z.effectId);
+        rt.bossProjectiles = rt.bossProjectiles.filter(
+          (bp) => bp.type === 'phantom_clone' || pointToSegmentDist(bp.x + bp.size / 2, bp.y + bp.size / 2, z.x, z.y, x2, y2) > z.radius
+        );
+        for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
+          const e = rt.enemies[ei];
+          if (!e) continue;
+          if (pointToSegmentDist(e.x + e.size / 2, e.y + e.size / 2, z.x, z.y, x2, y2) <= z.radius + e.size * 0.35) {
+            damageEnemy(rt, ei, z.ownerId, isCrit ? 3 : 2, segAng, z.color, isCrit);
+          }
+        }
+        if (
+          rt.isBossLevel &&
+          rt.boss.health > 0 &&
+          rt.boss.state !== 'comic_intro' &&
+          rt.boss.state !== 'dead' &&
+          rt.boss.state !== 'phase_transition'
+        ) {
+          const bcx = rt.boss.x + rt.boss.size / 2;
+          const bcy = rt.boss.y + rt.boss.size / 2;
+          if (
+            pointToSegmentDist(bcx, bcy, z.x, z.y, x2, y2) <= z.radius + rt.boss.size * 0.45 &&
+            (rt.bossProjBurstCooldowns[z.ownerId] || 0) <= 0 &&
+            owner
+          ) {
+            handleBossHit(rt, owner, false, 1);
+            registerBossInterrupt(rt, owner, 2);
+            rt.bossProjBurstCooldowns[z.ownerId] = 0.28;
+          }
+        }
       } else if (z.kind === 'frost_trap') {
         z.tickTimer = 0.45;
         let hitTarget: { x: number; y: number } | null = null;
@@ -9513,6 +10116,7 @@ export function stepGame(
         }
         if (hitTarget) {
           const ang = Math.atan2(hitTarget.y - z.y, hitTarget.x - z.x);
+          const trapFx = z.effectId || getOwnerSkillEffect(rt, z.ownerId);
           rt.playerProjectiles.push({
             uid: rt.nextUid++,
             ownerId: z.ownerId,
@@ -9526,6 +10130,7 @@ export function stepGame(
             color: z.color,
             lifetime: 0.85,
             pierce: 2,
+            effectId: trapFx,
           });
         }
       } else if (z.kind === 'arrow_rain') {
@@ -9623,20 +10228,27 @@ export function stepGame(
       continue;
     }
 
-    // Hit enemies (multi-HP aware)
-    const projDmg =
+    // Hit enemies (multi-HP aware + Assassin 100% Dash Crit scaling)
+    const projOwner = rt.players.find((pl) => pl.id === pp.ownerId);
+    const isProjCrit = Boolean(
+      projOwner &&
+        projOwner.critBuffTimer > 0 &&
+        (projOwner.weapon === 'assassin_blades' || (!usesWeaponSystem(rt) && projOwner.heroClass === 'phantom'))
+    );
+    const baseProjDmg =
       pp.bossDamage ||
       (pp.kind === 'sniper_arrow'
         ? 4
-        : pp.kind === 'crescent' || pp.kind === 'cataclysm' || pp.kind === 'ranger_arrow'
+        : pp.kind === 'crescent' || pp.kind === 'cataclysm' || pp.kind === 'ranger_arrow' || pp.kind === 'shadow_kunai'
         ? 2
         : 1);
+    const projDmg = isProjCrit ? Math.max(baseProjDmg + 1, Math.round(baseProjDmg * 1.75)) : baseProjDmg;
     for (let ei = rt.enemies.length - 1; ei >= 0; ei--) {
       const e = rt.enemies[ei];
       if (!e) continue;
       if ((e.hitFlashTimer || 0) > 0 && pp.pierce > 2) continue;
       if (Math.hypot(e.x + e.size / 2 - pp.x, e.y + e.size / 2 - pp.y) < pp.radius + e.size / 2) {
-        damageEnemy(rt, ei, pp.ownerId, projDmg, pp.angle, pp.color);
+        damageEnemy(rt, ei, pp.ownerId, projDmg, pp.angle, pp.color, isProjCrit);
         pp.pierce--;
         if (pp.pierce <= 0) break;
       }
@@ -9721,7 +10333,8 @@ export function stepGame(
             pp.kind === 'shadow_kunai' || pp.kind === 'sniper_arrow' || pp.kind === 'cataclysm' ? 2 : 1
           );
           if (pp.kind !== 'ranger_arrow') {
-            rt.bossProjBurstCooldowns[pp.ownerId] = isBowCh && isBowShot ? 0.16 : 0.35;
+            rt.bossProjBurstCooldowns[pp.ownerId] =
+              isBowCh && isBowShot ? 0.16 : pp.kind === 'shadow_kunai' ? 0.18 : 0.35;
           }
         }
         pp.pierce = 0;
@@ -10194,7 +10807,7 @@ export function stepGame(
       const zoneSlow = rt.skillZones.some(
         (z) => z.kind === 'holy_ground' && Math.hypot(e.x + e.size / 2 - z.x, e.y + e.size / 2 - z.y) <= z.radius
       )
-        ? 0.6
+        ? 0.45
         : 1;
 
       if (e.type === 'charger') {
@@ -10281,11 +10894,15 @@ export function stepGame(
 
       if (overlaps) {
         if (player.hasKnife) {
-          const strikeDmg =
+          const isBladeCrit =
+            player.critBuffTimer > 0 &&
+            (player.weapon === 'assassin_blades' || (!usesWeaponSystem(rt) && player.heroClass === 'phantom'));
+          const baseStrikeDmg =
             2 +
             (player.empoweredStrike ? 2 : 0) +
             (hasBoon(rt, 'berserker_blade') ? 1 : 0) +
             (player.weapon === 'warrior_greatsword' || (!usesWeaponSystem(rt) && player.heroClass === 'ronin') ? 1 : 0);
+          const strikeDmg = isBladeCrit ? Math.round(baseStrikeDmg * 1.75) : baseStrikeDmg;
           if (player.empoweredStrike) player.empoweredStrike = false;
           if (!rt.cheats.alwaysArmed) {
             player.hasKnife = false;
@@ -10293,7 +10910,10 @@ export function stepGame(
           }
           player.postDashInvulnerability = Math.max(player.postDashInvulnerability, 0.28);
           rt.screenShake = Math.max(rt.screenShake, 8);
-          rt.freezeTime = 0.045;
+          if (rt.hitstopCooldown <= 0) {
+            rt.freezeTime = 0.045;
+            rt.hitstopCooldown = 0.35;
+          }
           const hitX = e.x + e.size / 2;
           const hitY = e.y + e.size / 2;
           const cleaveTargets = rt.enemies.filter(
@@ -10302,8 +10922,8 @@ export function stepGame(
               other !== e &&
               Math.hypot(other.x + other.size / 2 - hitX, other.y + other.size / 2 - hitY) <= 58
           );
-          damageEnemy(rt, i, player.id, strikeDmg, player.facingAngle, player.color);
-          addSlashArc(rt, hitX, hitY, player.facingAngle, player.color, 58);
+          damageEnemy(rt, i, player.id, strikeDmg, player.facingAngle, player.color, isBladeCrit);
+          addSlashArc(rt, hitX, hitY, player.facingAngle, player.color, 58, player.skillEffectId);
           // Blade Orb Cleave AoE Splash to nearby dungeon enemies within 58px
           for (const target of cleaveTargets) {
             const tIdx = rt.enemies.indexOf(target);
@@ -10751,6 +11371,10 @@ export function stepGame(
 
     rt.players.forEach((p) => {
       if (p.state === 'alive') p.invulnerable = true;
+      if (p.sealed) {
+        p.sealed = false;
+        p.sealTimer = 0;
+      }
     });
 
     rt.bossDeadTimer += dt;
@@ -10819,6 +11443,8 @@ export function stepGame(
         rt.bossDeadBeat = 0;
         const bossCoinBonus = 18 + Math.max(0, rt.loopLevel - 1) * 8;
         rt.players.forEach((pl) => {
+          pl.sealed = false;
+          pl.sealTimer = 0;
           if (pl.state !== 'spectator') {
             pl.state = 'alive';
             pl.invulnerable = false;
@@ -10853,6 +11479,7 @@ export function stepGame(
         soundEngine.setMusicTrack(getCampaignDungeonStage(rt.bossesDefeatedCount), false);
         showPhaseAnnounce(rt, 'BOSS VANQUISHED! LOOT CHEST, SCROLL & ENTER NEXT FLOOR PORTAL!', '#fbbf24', 3.4);
       } else if (rt.isOnlineCampaign && rt.stage === 'eclipseBoss') {
+        rt.bossesDefeatedCount++;
         const room = rt.floorGrid[rt.currentRoomKey];
         if (room) {
           room.cleared = true;
@@ -10862,6 +11489,8 @@ export function stepGame(
         rt.bossDeadBeat = 0;
         rt.bossProjectiles = [];
         rt.players.forEach((pl) => {
+          pl.sealed = false;
+          pl.sealTimer = 0;
           if (pl.state !== 'spectator') {
             pl.state = 'alive';
             pl.invulnerable = false;
@@ -10875,14 +11504,18 @@ export function stepGame(
         };
         rt.finalVoteResolveDelay = 0;
       } else if (rt.stage === 'mechaBoss') {
+        rt.bossesDefeatedCount++;
         const nextStage: StageKey = rt.mode === 'boss_rush' ? 'voidBoss' : 'voidDungeon';
         rt.pendingEvent = { type: 'STAGE_CLEARED', clearedStage: 'mechaBoss', nextStage, offerBoons: true };
       } else if (rt.stage === 'voidBoss') {
+        rt.bossesDefeatedCount++;
         const nextStage: StageKey = rt.mode === 'boss_rush' ? 'oniBoss' : 'oniDungeon';
         rt.pendingEvent = { type: 'STAGE_CLEARED', clearedStage: 'voidBoss', nextStage, offerBoons: true };
       } else if (rt.stage === 'oniBoss') {
+        rt.bossesDefeatedCount++;
         rt.pendingEvent = { type: 'STAGE_CLEARED', clearedStage: 'oniBoss', nextStage: 'eclipseBoss', offerBoons: true };
       } else if (rt.stage === 'eclipseBoss') {
+        rt.bossesDefeatedCount++;
         rt.victory = true;
         soundEngine.stopMusic();
         soundEngine.playVictory();
@@ -10890,6 +11523,7 @@ export function stepGame(
       }
     }
   }
+  trimFxArrays(rt);
 }
 
 function spawnTrainingDummy(rt: GameRuntime, x: number, y: number) {
@@ -11055,16 +11689,46 @@ function stepTutorial(rt: GameRuntime, dt: number) {
   }
 }
 
+const STAGE_LABELS: Record<StageKey, string> = {
+  ironDungeon: 'STAGE 1 · IRON DEPTHS',
+  mechaBoss: 'BOSS 1 · IRON DESTROYER',
+  voidDungeon: 'STAGE 2 · THE VOID',
+  voidBoss: 'BOSS 2 · VOID PHANTOM',
+  oniDungeon: 'STAGE 3 · ONI SANCTUM',
+  oniBoss: 'BOSS 3 · YAMATA-ONI',
+  eclipseBoss: 'FINAL ACT · ECLIPSE SANCTUM',
+};
+
+const TUTORIAL_STATIC_META: Record<number, { title: string; obj: string; total: number }> = {
+  1: {
+    title: 'DRILL 1 · BLADE EXECUTION',
+    obj: 'Grab the glowing Blade Orb & slice 2 Training Dummies',
+    total: 2,
+  },
+  2: {
+    title: 'DRILL 2 · CLEAN DODGE',
+    obj: 'Dodge 3 orb waves cleanly without taking a hit to Empower your Blade',
+    total: 3,
+  },
+  3: {
+    title: 'DRILL 3 · CLASSES & CAMPAIGN WEAPONS',
+    obj: 'Switch Classes or Campaign Weapons below & press [E] / [Q] / [R] / [F]',
+    total: 2,
+  },
+  4: {
+    title: 'DRILL 4 · 100 HP & DAMAGE TIERS',
+    obj: 'Light (12) / Heavy (24) / Railgun (36) · Grab Estus (+35 HP)',
+    total: 1,
+  },
+  5: {
+    title: 'DRILL 5 · INVENTORY [I], DROP & ELITES',
+    obj: 'Press [I] to open Minecraft Inventory (Drop weapon / Learn Scrolls) & [C] for Flasks',
+    total: 1,
+  },
+};
+
 export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
-  const stageLabels: Record<StageKey, string> = {
-    ironDungeon: 'STAGE 1 · IRON DEPTHS',
-    mechaBoss: 'BOSS 1 · IRON DESTROYER',
-    voidDungeon: 'STAGE 2 · THE VOID',
-    voidBoss: 'BOSS 2 · VOID PHANTOM',
-    oniDungeon: 'STAGE 3 · ONI SANCTUM',
-    oniBoss: 'BOSS 3 · YAMATA-ONI',
-    eclipseBoss: 'FINAL ACT · ECLIPSE SANCTUM',
-  };
+  const stageLabels = STAGE_LABELS;
 
   const bossName =
     rt.bossType === 'mecha'
@@ -11124,39 +11788,20 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
       : 'TEAMWORK PRACTICE · SWAP WEAPONS OR TRIGGER BOSS MECHANICS ON SANDBOX PANEL';
   }
 
-  const tutorialMeta: Record<number, { title: string; obj: string; prog: number; total: number }> = {
-    1: {
-      title: 'DRILL 1 · BLADE EXECUTION',
-      obj: 'Grab the glowing Blade Orb & slice 2 Training Dummies',
-      prog: Math.min(2, rt.kills),
-      total: 2,
-    },
-    2: {
-      title: 'DRILL 2 · CLEAN DODGE',
-      obj: 'Dodge 3 orb waves cleanly without taking a hit to Empower your Blade',
-      prog: Math.min(3, Math.max(0, rt.grazes - rt.tutorialGrazesStart)),
-      total: 3,
-    },
-    3: {
-      title: 'DRILL 3 · CLASSES & CAMPAIGN WEAPONS',
-      obj: 'Switch Classes or Campaign Weapons below & press [E] / [Q] / [R] / [F]',
-      prog: Math.min(2, rt.tutorialSkillUses),
-      total: 2,
-    },
-    4: {
-      title: 'DRILL 4 · 100 HP & DAMAGE TIERS',
-      obj: 'Light (12) / Heavy (24) / Railgun (36) · Grab Estus (+35 HP)',
-      prog: 1,
-      total: 1,
-    },
-    5: {
-      title: 'DRILL 5 · INVENTORY [I], DROP & ELITES',
-      obj: 'Press [I] to open Minecraft Inventory (Drop weapon / Learn Scrolls) & [C] for Flasks',
-      prog: 1,
-      total: 1,
-    },
+  const tutBase = TUTORIAL_STATIC_META[rt.tutorialStep] || TUTORIAL_STATIC_META[1];
+  const tm = {
+    title: tutBase.title,
+    obj: tutBase.obj,
+    prog:
+      rt.tutorialStep === 1
+        ? Math.min(2, rt.kills)
+        : rt.tutorialStep === 2
+        ? Math.min(3, Math.max(0, rt.grazes - rt.tutorialGrazesStart))
+        : rt.tutorialStep === 3
+        ? Math.min(2, rt.tutorialSkillUses)
+        : 1,
+    total: tutBase.total,
   };
-  const tm = tutorialMeta[rt.tutorialStep] || tutorialMeta[1];
 
   const toPlayerHud = (pl: Player): PlayerHudState => ({
     id: pl.id,
@@ -11211,6 +11856,8 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     hasKnife: pl.hasKnife,
     hasShield: pl.hasShield,
     frontShield: Math.round(pl.frontShieldTimer * 10) / 10,
+    berserk: Math.round((pl.berserkTimer || 0) * 10) / 10,
+    critBuff: Math.round((pl.critBuffTimer || 0) * 10) / 10,
     empowered: pl.empoweredStrike,
     overdrive: pl.overdriveTimer,
     cloak: pl.cloakTimer,
@@ -11246,6 +11893,7 @@ export function extractHudSnapshot(rt: GameRuntime): HudSnapshot {
     : undefined;
 
   return {
+    mode: rt.mode,
     stage: rt.stage,
     stageLabel: rt.isTutorial
       ? 'TRAINING GROUNDS'
@@ -11554,7 +12202,13 @@ export function kickOnlinePlayerSlot(rt: GameRuntime, playerId: PlayerId): void 
 export function restoreOnlinePlayerSlot(
   rt: GameRuntime,
   playerId: PlayerId,
-  info?: { playerName?: string; colorHex?: string; heroClass?: HeroClassId }
+  info?: {
+    playerName?: string;
+    colorHex?: string;
+    heroClass?: HeroClassId;
+    cosmeticId?: CosmeticId | null;
+    skillEffectId?: SkillEffectId | null;
+  }
 ): Player {
   // Deduplicate if any corrupted state left multiple entries for same playerId
   const matching = rt.players.filter((p) => p.id === playerId);
@@ -11566,8 +12220,12 @@ export function restoreOnlinePlayerSlot(
   const usesWeapons = usesWeaponSystem(rt);
   const colorHex = info?.colorHex || rt.playerColors[playerId] || slot?.color || '#22d3ee';
   const resolvedName = info?.playerName?.trim().slice(0, 14) || slot?.name || `Player ${playerId}`;
+  const cosmeticId = info?.cosmeticId !== undefined ? info.cosmeticId : rt.playerCosmetics[playerId] ?? slot?.cosmeticId ?? null;
+  const skillEffectId = info?.skillEffectId !== undefined ? info.skillEffectId : rt.playerSkillEffects[playerId] ?? slot?.skillEffectId ?? null;
   rt.playerColors[playerId] = colorHex;
   rt.playerNames[playerId] = resolvedName;
+  rt.playerCosmetics[playerId] = cosmeticId;
+  rt.playerSkillEffects[playerId] = skillEffectId;
 
   const anchor = rt.players.find((p) => p.id !== playerId && p.state === 'alive');
   const spawnX = anchor
@@ -11588,13 +12246,17 @@ export function restoreOnlinePlayerSlot(
       Math.max(rt.numPlayers + 1, playerId),
       usesWeapons,
       resolvedName,
-      false
+      false,
+      cosmeticId,
+      skillEffectId
     );
     rt.players.push(slot);
     rt.players.sort((a, b) => a.id - b.id);
   } else {
     slot.name = resolvedName;
     slot.color = colorHex;
+    slot.cosmeticId = cosmeticId;
+    slot.skillEffectId = skillEffectId;
     slot.state = 'alive';
     slot.hp = Math.max(Math.min(slot.maxHp, 35), slot.hp > 0 ? slot.hp : Math.round(slot.maxHp * 0.65));
     slot.x = spawnX;

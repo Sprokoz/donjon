@@ -426,7 +426,7 @@ const GoldFlyOverlay: React.FC<{
         rafRef.current = null;
         return;
       }
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       if (canvas.width !== Math.floor(vw * dpr) || canvas.height !== Math.floor(vh * dpr)) {
@@ -517,7 +517,10 @@ const GoldFlyOverlay: React.FC<{
       if (coinsRef.current.length > 0) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
-        ctx.clearRect(0, 0, vw, vh);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.width = 1;
+        canvas.height = 1;
         rafRef.current = null;
       }
     };
@@ -530,6 +533,11 @@ const GoldFlyOverlay: React.FC<{
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
+      }
+      const cvs = overlayCanvasRef.current;
+      if (cvs) {
+        cvs.width = 1;
+        cvs.height = 1;
       }
     };
   }, []);
@@ -673,7 +681,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   const activePlayers = hud.players && hud.players.length > 0 ? hud.players : [hud.p1];
   const localPlayer = activePlayers.find((pl) => pl.id === localPlayerNum) || activePlayers[0] || hud.p1;
   const myColor = playerColors[localPlayer.id] || localPlayer.color;
-  const usesWeapons = hud.isOnlineCampaign || Boolean(hud.isTeamworkPractice);
+  const usesWeapons =
+    hud.isOnlineCampaign || Boolean(hud.isTeamworkPractice) || hud.mode === 'boss_rush';
 
   const resolvePing = (pid: PlayerId): number | null => {
     if (pid === 1) return isOnline ? 0 : null;
@@ -932,6 +941,16 @@ export const GameHud: React.FC<GameHudProps> = ({
               {(localPlayer.frontShield || 0) > 0 && (
                 <span className="px-1.5 py-0.5 rounded bg-sky-900/80 border border-sky-400 text-sky-100 font-bold">
                   WALL {localPlayer.frontShield?.toFixed(1)}s
+                </span>
+              )}
+              {(localPlayer.berserk || 0) > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-red-950/85 border border-red-400 text-red-200 font-bold animate-pulse">
+                  <Flame className="w-2.5 h-2.5 inline" /> BERSERK {localPlayer.berserk?.toFixed(1)}s
+                </span>
+              )}
+              {(localPlayer.critBuff || 0) > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-fuchsia-950/85 border border-fuchsia-400 text-fuchsia-200 font-bold">
+                  100% CRIT {localPlayer.critBuff?.toFixed(1)}s
                 </span>
               )}
               {localPlayer.empowered && (

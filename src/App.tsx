@@ -15,6 +15,7 @@ import {
   SuggestionsModal,
   UpdatesModal,
 } from './components/Modals';
+import { SoulShopModal } from './components/SoulShopModal';
 import { PublicRoomInfo, RoomDirectoryClient } from './game/roomDirectory';
 import { HeroSetup, TitleMenu } from './components/TitleFlow';
 import { LandingSplash, SprokozIntro } from './components/IntroSequence';
@@ -69,12 +70,14 @@ import {
   OnlineMessage,
   OnlineRole,
   OnlineSession,
+  releaseGuestNetState,
   sanitizeRoomCode,
   serializeRuntimeForSync,
   SyncedRuntimeSnapshot,
 } from './game/onlineSync';
-import { renderGame } from './game/renderer';
+import { clearRendererCaches, renderGame } from './game/renderer';
 import { SfxSyncEvent, soundEngine } from './game/soundEngine';
+import { computeRunSoulsAward, loadSoulsProfile, saveSoulsProfile, SoulsProfile } from './game/cosmetics';
 import {
   AppScreen,
   BoonDef,
@@ -85,6 +88,7 @@ import {
   COLOR_OPTIONS,
   ColorOption,
   ControlsConfig,
+  CosmeticId,
   DEFAULT_CHEATS,
   DEFAULT_CONTROLS,
   DEFAULT_HUD_SETTINGS,
@@ -97,7 +101,9 @@ import {
   LobbyPlayerInfo,
   PlayerId,
   RunSummary,
+  SkillEffectId,
   StageKey,
+  WeaponClassId,
   WeaponId,
 } from './game/types';
 
@@ -107,6 +113,36 @@ const P2_NAME_STORAGE_KEY = 'dungeon_bouncer_p2_name_v1';
 const NET_OPT_STORAGE_KEY = 'dungeon_bouncer_net_opt_v1';
 const HUD_SETTINGS_STORAGE_KEY = 'dungeon_bouncer_hud_settings_v1';
 const MOBILE_MODE_STORAGE_KEY = 'dungeon_bouncer_mobile_mode_v1';
+const AUDIO_SETTINGS_STORAGE_KEY = 'dungeon_bouncer_audio_v1';
+
+interface SavedAudioSettings {
+  musicVol: number;
+  sfxVol: number;
+  isMuted: boolean;
+}
+
+function loadSavedAudioSettings(): SavedAudioSettings {
+  try {
+    const raw = localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY);
+    if (!raw) return { musicVol: 0.65, sfxVol: 0.8, isMuted: false };
+    const parsed = JSON.parse(raw) || {};
+    return {
+      musicVol: typeof parsed.musicVol === 'number' ? Math.max(0, Math.min(1, parsed.musicVol)) : 0.65,
+      sfxVol: typeof parsed.sfxVol === 'number' ? Math.max(0, Math.min(1, parsed.sfxVol)) : 0.8,
+      isMuted: Boolean(parsed.isMuted),
+    };
+  } catch {
+    return { musicVol: 0.65, sfxVol: 0.8, isMuted: false };
+  }
+}
+
+function saveAudioSettings(next: SavedAudioSettings) {
+  try {
+    localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+}
 
 function loadSavedMobileMode(): boolean {
   try {
@@ -225,7 +261,18 @@ export default function App() {
   );
   const [connectedGuestIds, setConnectedGuestIds] = useState<PlayerId[]>([]);
   const [guestConfigs, setGuestConfigs] = useState<
-    Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>
+    Record<
+      number,
+      {
+        colorHex: string;
+        heroClass: HeroClassId;
+        weaponId?: WeaponClassId;
+        ready: boolean;
+        playerName?: string;
+        cosmeticId?: CosmeticId | null;
+        skillEffectId?: SkillEffectId | null;
+      }
+    >
   >({});
   const [guestLobbyRoster, setGuestLobbyRoster] = useState<LobbyPlayerInfo[]>([]);
   const [pingByPlayer, setPingByPlayer] = useState<Record<number, number | null>>({ 1: 0 });
@@ -244,9 +291,19 @@ export default function App() {
     4: 'volt',
     5: 'ronin',
   });
+  const [playerWeapons, setPlayerWeapons] = useState<Record<number, WeaponClassId>>({
+    1: 'warrior_greatsword',
+    2: 'assassin_blades',
+    3: 'tank_shield',
+    4: 'holy_staff',
+    5: 'ranger_bow',
+  });
+  const [localModalPid, setLocalModalPid] = useState<PlayerId>(1);
 
   const [controls, setControls] = useState<ControlsConfig>(loadSavedControls);
   const [hudSettings, setHudSettings] = useState<HudSettings>(loadSavedHudSettings);
+  const [soulsProfile, setSoulsProfile] = useState<SoulsProfile>(loadSoulsProfile);
+  const [showSoulShopModal, setShowSoulShopModal] = useState(false);
   const [partyResetSignal, setPartyResetSignal] = useState(0);
   const [optimizingState, setOptimizingState] = useState<{
     active: boolean;
@@ -264,9 +321,9 @@ export default function App() {
   const [publicRooms, setPublicRooms] = useState<PublicRoomInfo[]>([]);
   const [isPublicRoom, setIsPublicRoom] = useState(true);
   const roomDirectoryRef = useRef<RoomDirectoryClient | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [musicVol, setMusicVol] = useState(0.65);
-  const [sfxVol, setSfxVol] = useState(0.8);
+  const [isMuted, setIsMuted] = useState<boolean>(() => loadSavedAudioSettings().isMuted);
+  const [musicVol, setMusicVol] = useState<number>(() => loadSavedAudioSettings().musicVol);
+  const [sfxVol, setSfxVol] = useState<number>(() => loadSavedAudioSettings().sfxVol);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(loadLeaderboard);
 
   const [hud, setHud] = useState<HudSnapshot | null>(null);
@@ -336,7 +393,9 @@ export default function App() {
   const difficultyRef = useRef<DifficultyKey>(difficulty);
   const modeRef = useRef<GameMode>(mode);
   const playerClassesRef = useRef(playerClasses);
+  const playerWeaponsRef = useRef(playerWeapons);
   const playerColorsRef = useRef(playerColors);
+  const localModalPidRef = useRef<PlayerId>(localModalPid);
   const localPlayerIdRef = useRef<PlayerId>(localPlayerId);
   const localReadyRef = useRef<boolean>(localReady);
   const localPlayerNameRef = useRef<string>(localPlayerName);
@@ -353,6 +412,23 @@ export default function App() {
   const boonDraftStateRef = useRef(boonDraftState);
   const transitionTargetRef = useRef(transitionTarget);
   const pausedByRef = useRef(pausedBy);
+  const hudSettingsRef = useRef<HudSettings>(hudSettings);
+  const soulsProfileRef = useRef<SoulsProfile>(soulsProfile);
+  const runRewardedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    hudSettingsRef.current = hudSettings;
+  }, [hudSettings]);
+
+  useEffect(() => {
+    soulsProfileRef.current = soulsProfile;
+  }, [soulsProfile]);
+
+  const handleUpdateSoulsProfile = useCallback((next: SoulsProfile) => {
+    const saved = saveSoulsProfile(next);
+    soulsProfileRef.current = saved;
+    setSoulsProfile(saved);
+  }, []);
 
   useEffect(() => {
     localPlayerNameRef.current = localPlayerName;
@@ -410,8 +486,16 @@ export default function App() {
   }, [playerClasses]);
 
   useEffect(() => {
+    playerWeaponsRef.current = playerWeapons;
+  }, [playerWeapons]);
+
+  useEffect(() => {
     playerColorsRef.current = playerColors;
   }, [playerColors]);
+
+  useEffect(() => {
+    localModalPidRef.current = localModalPid;
+  }, [localModalPid]);
 
   useEffect(() => {
     localPlayerIdRef.current = localPlayerId;
@@ -572,6 +656,13 @@ export default function App() {
     }
   }, []);
 
+  const handleResetControls = useCallback(() => {
+    handleSaveControls({
+      p1: { ...DEFAULT_CONTROLS.p1 },
+      p2: { ...DEFAULT_CONTROLS.p2 },
+    });
+  }, [handleSaveControls]);
+
   const handleChangeHudSettings = useCallback((next: HudSettings) => {
     setHudSettings(next);
     try {
@@ -583,6 +674,14 @@ export default function App() {
 
   const handleResetPartyPos = useCallback(() => {
     setPartyResetSignal((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    soundEngine.setMusicVolume(musicVol);
+    soundEngine.setSfxVolume(sfxVol);
+    soundEngine.setMuted(isMuted);
+    // Sync initial audio settings once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const clearOptimizeTimers = useCallback(() => {
@@ -607,9 +706,11 @@ export default function App() {
       latestGuestSnapRef.current = null;
       guestSnapSeqRef.current = 0;
       guestAppliedSeqRef.current = 0;
+      releaseGuestNetState(guestDisplayRtRef.current);
       guestDisplayRtRef.current = null;
       guestFloorCacheRef.current = null;
       hostSentFloorRevRef.current = -1;
+      remoteActionLatchRef.current = {};
       setConnectedGuestIds([]);
       setGuestConfigs({});
       setGuestLobbyRoster([]);
@@ -815,6 +916,21 @@ export default function App() {
         setSavedCheckpoint(null);
         lastSavedCheckpointSigRef.current = '';
       }
+      const cheated = rt.cheatsUsed || Object.values(rt.cheats).some(Boolean);
+      const bossesDefeated = Math.max(0, rt.bossesDefeatedCount || 0);
+      const award = computeRunSoulsAward({
+        difficulty: rt.difficulty,
+        mode: rt.mode,
+        bossesDefeated,
+        score: Math.round(rt.score),
+        kills: rt.kills,
+        grazes: rt.grazes,
+        maxCombo: rt.maxCombo,
+        roomDepth: rt.roomDepth,
+        victory,
+        cheated,
+      });
+
       const base = {
         victory,
         score: Math.round(rt.score),
@@ -826,12 +942,28 @@ export default function App() {
         mode: rt.mode,
         numPlayers: rt.numPlayers,
         boons: [...rt.activeBoons],
-        cheated: rt.cheatsUsed || Object.values(rt.cheats).some(Boolean),
+        cheated,
+        bossesDefeated,
+        soulsEarned: award.totalSouls,
+        soulsBreakdown: award.breakdown,
       };
       const summary: RunSummary = {
         ...base,
         rank: computeRank(base),
       };
+
+      if (!runRewardedRef.current) {
+        runRewardedRef.current = true;
+        if (award.totalSouls > 0) {
+          const cur = soulsProfileRef.current;
+          handleUpdateSoulsProfile({
+            ...cur,
+            souls: cur.souls + award.totalSouls,
+            totalRuns: cur.totalRuns + 1,
+          });
+        }
+      }
+
       const updatedBoard = saveLeaderboardEntry(summary);
       setLeaderboard(updatedBoard);
       setRunSummary(summary);
@@ -839,7 +971,7 @@ export default function App() {
       setScreen(nextScreen);
       broadcastScreenMessage({ type: 'screen', screen: nextScreen, summary });
     },
-    [broadcastScreenMessage]
+    [broadcastScreenMessage, handleUpdateSoulsProfile]
   );
 
   const launchStageTransition = useCallback(
@@ -908,12 +1040,16 @@ export default function App() {
       stageTransitionTimerRef.current = null;
     }
 
+    clearRendererCaches();
     const isOnlineHost = coopMode === 'online' && onlineLobbyRole === 'host';
-    const isOnlineCampaign = isOnlineHost && mode === 'campaign';
+    const isCampaignMode = mode === 'campaign';
+    const isOnlineCampaignCheckpoint = isOnlineHost && isCampaignMode;
     if (isOnlineHost) {
       pendingSfxRef.current = [];
       soundEngine.setSfxBroadcastHook((ev) => {
-        pendingSfxRef.current.push(ev);
+        if (pendingSfxRef.current.length < 32) {
+          pendingSfxRef.current.push(ev);
+        }
       });
     } else {
       soundEngine.setSfxBroadcastHook(null);
@@ -928,7 +1064,14 @@ export default function App() {
 
     const resolvedColors: Record<number, string> = {};
     const resolvedClasses: Record<number, HeroClassId> = {};
+    const resolvedWeapons: Record<number, WeaponClassId> = {};
     const resolvedNames: Record<number, string> = {};
+    const resolvedCosmetics: Record<number, CosmeticId | null> = {
+      1: soulsProfileRef.current.equippedCosmetic,
+    };
+    const resolvedSkillEffects: Record<number, SkillEffectId | null> = {
+      1: soulsProfileRef.current.equippedSkillEffect,
+    };
     resolvedNames[1] = localPlayerName.trim() || 'Player 1';
     for (let i = 1; i <= 5; i++) {
       const pid = i as PlayerId;
@@ -941,25 +1084,39 @@ export default function App() {
         (pid !== 1 && isOnlineHost && guestConfigs[pid]?.heroClass) ||
         playerClasses[pid] ||
         'ronin';
+      resolvedWeapons[pid] =
+        (pid !== 1 && isOnlineHost && guestConfigs[pid]?.weaponId) ||
+        playerWeapons[pid] ||
+        'warrior_greatsword';
       if (pid > 1) {
         resolvedNames[pid] = isOnlineHost
           ? guestConfigs[pid]?.playerName?.trim() || `Player ${pid}`
           : pid === 2
           ? p2LocalName.trim() || 'Player 2'
           : `Player ${pid}`;
+        if (isOnlineHost) {
+          resolvedCosmetics[pid] = guestConfigs[pid]?.cosmeticId ?? null;
+          resolvedSkillEffects[pid] = guestConfigs[pid]?.skillEffectId ?? null;
+        }
       }
     }
 
-    const cpToUse = resumeFromCheckpoint && isOnlineCampaign ? savedCheckpoint : null;
+    runRewardedRef.current = false;
+    setLocalModalPid(1);
+    const cpToUse = resumeFromCheckpoint && isOnlineCampaignCheckpoint ? savedCheckpoint : null;
     const rt = createInitialGameRuntime({
       difficulty: cpToUse ? cpToUse.difficulty : difficulty,
       mode: mode === 'tutorial' ? 'campaign' : mode,
       numPlayers: activePlayerIds.length,
-      isOnlineCampaign,
+      isOnlineCampaign: isCampaignMode,
+      isLocalCoop: coopMode === 'local',
       activePlayerIds,
       playerColors: resolvedColors,
       playerClasses: resolvedClasses,
+      playerWeapons: resolvedWeapons,
       playerNames: resolvedNames,
+      playerCosmetics: resolvedCosmetics,
+      playerSkillEffects: resolvedSkillEffects,
       cheats: isOnlineHost ? DEFAULT_CHEATS : cheats,
     });
     if (cpToUse) {
@@ -970,11 +1127,13 @@ export default function App() {
       : { 1: 0 };
 
     runtimeRef.current = rt;
+    releaseGuestNetState(guestDisplayRtRef.current);
     guestDisplayRtRef.current = null;
     guestFloorCacheRef.current = null;
     hostSentFloorRevRef.current = -1;
     latestGuestSnapRef.current = null;
     remoteInputsRef.current = {};
+    remoteActionLatchRef.current = {};
     keysRef.current = {};
     touchInputRef.current = { x: 0, y: 0, dash: false, ability: false, skill2: false, skill3: false, skill4: false };
     setBoonDraftState(null);
@@ -985,7 +1144,7 @@ export default function App() {
     setHud(extractHudSnapshot(rt));
     setScreen('PLAYING');
 
-    if (isOnlineCampaign) {
+    if (isOnlineCampaignCheckpoint) {
       const cp = saveOnlineCheckpoint(rt, roomCodeRef.current);
       if (cp) setSavedCheckpoint(cp);
       lastSavedCheckpointSigRef.current = `${rt.floorNumber}_${rt.loopLevel}_${rt.bossesDefeatedCount}_${rt.roomDepth}`;
@@ -1012,11 +1171,18 @@ export default function App() {
         sfx,
       });
     }
-  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, guestConfigs, cheats, localPlayerName, p2LocalName, savedCheckpoint]);
+  }, [coopMode, onlineLobbyRole, difficulty, mode, playerColors, playerClasses, playerWeapons, guestConfigs, cheats, localPlayerName, p2LocalName, savedCheckpoint]);
 
   const beginTutorial = useCallback(() => {
     soundEngine.unlock();
     soundEngine.setSfxBroadcastHook(null);
+    clearRendererCaches();
+    releaseGuestNetState(guestDisplayRtRef.current);
+    guestDisplayRtRef.current = null;
+    latestGuestSnapRef.current = null;
+    guestFloorCacheRef.current = null;
+    pendingSfxRef.current = [];
+    remoteActionLatchRef.current = {};
     setShowTutorialModal(false);
     const rt = createInitialGameRuntime({
       difficulty: 'medium',
@@ -1043,7 +1209,18 @@ export default function App() {
 
   const buildHostRoster = useCallback(
     (
-      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>,
+      overrideGuests?: Record<
+        number,
+        {
+          colorHex: string;
+          heroClass: HeroClassId;
+          weaponId?: WeaponClassId;
+          ready: boolean;
+          playerName?: string;
+          cosmeticId?: CosmeticId | null;
+          skillEffectId?: SkillEffectId | null;
+        }
+      >,
       overridePings?: Record<number, number | null>
     ): LobbyPlayerInfo[] => {
       const session = onlineSessionRef.current;
@@ -1059,6 +1236,9 @@ export default function App() {
           playerName: localPlayerNameRef.current.trim() || 'Player 1',
           colorHex: playerColorsRef.current[1]?.hex || COLOR_OPTIONS[0].hex,
           heroClass: playerClassesRef.current[1] || 'ronin',
+          weaponId: playerWeaponsRef.current[1] || 'warrior_greatsword',
+          cosmeticId: soulsProfileRef.current.equippedCosmetic,
+          skillEffectId: soulsProfileRef.current.equippedSkillEffect,
           ready: localReadyRef.current,
           pingMs: 0,
         },
@@ -1072,6 +1252,9 @@ export default function App() {
           playerName: cfg?.playerName?.trim() || `Player ${gid}`,
           colorHex: cfg?.colorHex || COLOR_OPTIONS[gid - 1]?.hex || '#22d3ee',
           heroClass: cfg?.heroClass || 'phantom',
+          weaponId: cfg?.weaponId || playerWeaponsRef.current[gid] || 'assassin_blades',
+          cosmeticId: cfg?.cosmeticId ?? null,
+          skillEffectId: cfg?.skillEffectId ?? null,
           ready: Boolean(cfg?.ready),
           pingMs: pings[gid] ?? null,
         });
@@ -1083,13 +1266,24 @@ export default function App() {
 
   const broadcastHostLobbyState = useCallback(
     (
-      overrideGuests?: Record<number, { colorHex: string; heroClass: HeroClassId; ready: boolean; playerName?: string }>,
+      overrideGuests?: Record<
+        number,
+        {
+          colorHex: string;
+          heroClass: HeroClassId;
+          weaponId?: WeaponClassId;
+          ready: boolean;
+          playerName?: string;
+          cosmeticId?: CosmeticId | null;
+          skillEffectId?: SkillEffectId | null;
+        }
+      >,
       overridePings?: Record<number, number | null>
     ) => {
       const session = onlineSessionRef.current;
       if (!session || session.getRole() !== 'host') return;
       const maxPlayers =
-        modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' ? 5 : 2;
+        modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' || modeRef.current === 'boss_rush' ? 5 : 2;
       session.setMaxPlayers(maxPlayers);
       const roster = buildHostRoster(overrideGuests, overridePings);
       if (session.isConnected()) {
@@ -1111,12 +1305,16 @@ export default function App() {
     const pid = localPlayerIdRef.current;
     const colHex = playerColorsRef.current[pid]?.hex || COLOR_OPTIONS[Math.max(0, pid - 1)]?.hex || '#22d3ee';
     const cls = playerClassesRef.current[pid] || 'phantom';
+    const wpn = playerWeaponsRef.current[pid] || 'warrior_greatsword';
     session.send({
       type: 'guest_config',
       colorHex: colHex,
       heroClass: cls,
+      weaponId: wpn,
       ready: localReadyRef.current,
       playerName: localPlayerNameRef.current.trim() || `Player ${pid}`,
+      cosmeticId: soulsProfileRef.current.equippedCosmetic,
+      skillEffectId: soulsProfileRef.current.equippedSkillEffect,
     });
   }, []);
 
@@ -1124,18 +1322,23 @@ export default function App() {
     hostMessageHandlerRef.current = (msg: OnlineMessage, fromPlayerId: PlayerId) => {
       if (msg.type === 'guest_config') {
         const matchedColor = COLOR_OPTIONS.find((c) => c.hex === msg.colorHex) || COLOR_OPTIONS[fromPlayerId - 1] || COLOR_OPTIONS[1];
+        const nextWeapon = msg.weaponId || guestConfigsRef.current[fromPlayerId]?.weaponId || playerWeaponsRef.current[fromPlayerId] || 'warrior_greatsword';
         const nextGuests = {
           ...guestConfigsRef.current,
           [fromPlayerId]: {
             colorHex: matchedColor.hex,
             heroClass: msg.heroClass,
+            weaponId: nextWeapon,
             ready: msg.ready,
             playerName: msg.playerName?.trim() || guestConfigsRef.current[fromPlayerId]?.playerName || `Player ${fromPlayerId}`,
+            cosmeticId: msg.cosmeticId !== undefined ? msg.cosmeticId : guestConfigsRef.current[fromPlayerId]?.cosmeticId ?? null,
+            skillEffectId: msg.skillEffectId !== undefined ? msg.skillEffectId : guestConfigsRef.current[fromPlayerId]?.skillEffectId ?? null,
           },
         };
         guestConfigsRef.current = nextGuests;
         setGuestConfigs(nextGuests);
         setPlayerClasses((prev) => ({ ...prev, [fromPlayerId]: msg.heroClass }));
+        if (msg.weaponId) setPlayerWeapons((prev) => ({ ...prev, [fromPlayerId]: msg.weaponId! }));
         setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
         if (screenRef.current === 'HERO_SETUP') {
           broadcastHostLobbyState(nextGuests);
@@ -1147,23 +1350,36 @@ export default function App() {
             pSlot.color = matchedColor.hex;
             rt.playerColors[fromPlayerId] = matchedColor.hex;
             rt.playerNames[fromPlayerId] = pSlot.name;
+            if (nextGuests[fromPlayerId]?.cosmeticId !== undefined) {
+              pSlot.cosmeticId = nextGuests[fromPlayerId].cosmeticId ?? null;
+              rt.playerCosmetics[fromPlayerId] = pSlot.cosmeticId;
+            }
+            if (nextGuests[fromPlayerId]?.skillEffectId !== undefined) {
+              pSlot.skillEffectId = nextGuests[fromPlayerId].skillEffectId ?? null;
+              rt.playerSkillEffects[fromPlayerId] = pSlot.skillEffectId;
+            }
           }
         }
       } else if (msg.type === 'loadout') {
         const matchedColor =
           COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[fromPlayerId] || COLOR_OPTIONS[1];
+        const nextWeapon = msg.payload.weaponId || guestConfigsRef.current[fromPlayerId]?.weaponId || playerWeaponsRef.current[fromPlayerId] || 'warrior_greatsword';
         const nextGuests = {
           ...guestConfigsRef.current,
           [fromPlayerId]: {
             colorHex: matchedColor.hex,
             heroClass: msg.payload.heroClass,
+            weaponId: nextWeapon,
             ready: Boolean(msg.payload.ready),
             playerName: msg.payload.playerName?.trim() || guestConfigsRef.current[fromPlayerId]?.playerName || `Player ${fromPlayerId}`,
+            cosmeticId: msg.payload.cosmeticId !== undefined ? msg.payload.cosmeticId : guestConfigsRef.current[fromPlayerId]?.cosmeticId ?? null,
+            skillEffectId: msg.payload.skillEffectId !== undefined ? msg.payload.skillEffectId : guestConfigsRef.current[fromPlayerId]?.skillEffectId ?? null,
           },
         };
         guestConfigsRef.current = nextGuests;
         setGuestConfigs(nextGuests);
         setPlayerClasses((prev) => ({ ...prev, [fromPlayerId]: msg.payload.heroClass }));
+        if (msg.payload.weaponId) setPlayerWeapons((prev) => ({ ...prev, [fromPlayerId]: msg.payload.weaponId! }));
         setPlayerColors((prev) => ({ ...prev, [fromPlayerId]: matchedColor }));
         broadcastHostLobbyState(nextGuests);
       } else if (msg.type === 'input') {
@@ -1327,19 +1543,23 @@ export default function App() {
         const pingMap: Record<number, number | null> = {};
         const colMap: Record<number, ColorOption> = { ...playerColorsRef.current };
         const clsMap: Record<number, HeroClassId> = { ...playerClassesRef.current };
+        const wpnMap: Record<number, WeaponClassId> = { ...playerWeaponsRef.current };
         msg.roster.forEach((entry) => {
           pingMap[entry.id] = entry.pingMs;
           const foundCol = COLOR_OPTIONS.find((c) => c.hex === entry.colorHex);
           if (foundCol) colMap[entry.id] = foundCol;
           clsMap[entry.id] = entry.heroClass;
+          if (entry.weaponId) wpnMap[entry.id] = entry.weaponId;
         });
         setPingByPlayer(pingMap);
         setPlayerColors(colMap);
         setPlayerClasses(clsMap);
+        setPlayerWeapons(wpnMap);
       } else if (msg.type === 'loadout') {
         const matchedColor =
           COLOR_OPTIONS.find((c) => c.hex === msg.payload.colorHex) || playerColorsRef.current[1];
         setPlayerClasses((prev) => ({ ...prev, 1: msg.payload.heroClass }));
+        if (msg.payload.weaponId) setPlayerWeapons((prev) => ({ ...prev, 1: msg.payload.weaponId! }));
         setPlayerColors((prev) => ({ ...prev, 1: matchedColor }));
         if (msg.payload.difficulty) setDifficulty(msg.payload.difficulty);
         if (msg.payload.mode) setMode(msg.payload.mode);
@@ -1384,6 +1604,7 @@ export default function App() {
           setDisconnectModal(null);
         }
         if (msg.screen === 'PLAYING') {
+          runRewardedRef.current = false;
           setBoonDraftState(null);
           setTransitionTarget(null);
           setRunSummary(null);
@@ -1404,6 +1625,18 @@ export default function App() {
           setTransitionTarget(msg.transitionTarget || null);
           setScreen('STAGE_TRANSITION');
         } else if ((msg.screen === 'GAME_OVER' || msg.screen === 'VICTORY') && msg.summary) {
+          if (!runRewardedRef.current) {
+            runRewardedRef.current = true;
+            const earned = Math.max(0, Math.round(msg.summary.soulsEarned || 0));
+            if (earned > 0) {
+              const cur = soulsProfileRef.current;
+              handleUpdateSoulsProfile({
+                ...cur,
+                souls: cur.souls + earned,
+                totalRuns: cur.totalRuns + 1,
+              });
+            }
+          }
           setRunSummary(msg.summary);
           setScreen(msg.screen);
         }
@@ -1439,7 +1672,7 @@ export default function App() {
     setLocalPlayerId(1);
     setLocalReady(false);
 
-    const maxP = modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' ? 5 : 2;
+    const maxP = modeRef.current === 'campaign' || modeRef.current === 'teamwork_practice' || modeRef.current === 'boss_rush' ? 5 : 2;
     const session = new OnlineSession(
       'host',
       code,
@@ -1456,13 +1689,19 @@ export default function App() {
           const defaultCls =
             existingCfg?.heroClass ||
             ((['ronin', 'phantom', 'vanguard', 'volt', 'ronin'][playerId - 1] || 'phantom') as HeroClassId);
+          const defaultWpn =
+            existingCfg?.weaponId ||
+            ((['warrior_greatsword', 'assassin_blades', 'tank_shield', 'holy_staff', 'ranger_bow'][playerId - 1] || 'assassin_blades') as WeaponClassId);
           const nextGuests = {
             ...guestConfigsRef.current,
             [playerId]: {
               colorHex: defaultCol,
               heroClass: defaultCls,
+              weaponId: defaultWpn,
               ready: existingCfg?.ready ?? false,
               playerName: existingCfg?.playerName,
+              cosmeticId: existingCfg?.cosmeticId ?? null,
+              skillEffectId: existingCfg?.skillEffectId ?? null,
             },
           };
           guestConfigsRef.current = nextGuests;
@@ -1696,11 +1935,14 @@ export default function App() {
     onlineLobbyRole,
     onlineStatus,
     playerClasses,
+    playerWeapons,
     playerColors,
     localReady,
     localPlayerName,
     difficulty,
     mode,
+    soulsProfile.equippedCosmetic,
+    soulsProfile.equippedSkillEffect,
     broadcastHostLobbyState,
     sendGuestConfig,
   ]);
@@ -1746,7 +1988,7 @@ export default function App() {
       screen !== 'INTRO' &&
       screen !== 'TITLE_MENU';
     if (isHostActive) {
-      const maxPlayers = mode === 'campaign' || mode === 'teamwork_practice' ? 5 : 2;
+      const maxPlayers = mode === 'campaign' || mode === 'teamwork_practice' || mode === 'boss_rush' ? 5 : 2;
       dir.publishRoom({
         code: roomCode,
         hostName: localPlayerName || 'Host',
@@ -1848,14 +2090,28 @@ export default function App() {
           e.preventDefault();
           soundEngine.playUiClick();
           setShowShopModal(false);
-          setShowInventoryModal((prev) => !prev);
+          setShowInventoryModal((prev) => {
+            if (!prev) setLocalModalPid(1);
+            return !prev;
+          });
           keysRef.current = {};
           return;
         }
       }
-      if (k === (controlsRef.current.p1.ability || 'e') && screenRef.current === 'PLAYING') {
+      if (
+        (k === (controlsRef.current.p1.ability || 'e') ||
+          (coopModeRef.current === 'local' && k === (controlsRef.current.p2.ability || '/'))) &&
+        screenRef.current === 'PLAYING'
+      ) {
         const curHud = hudRef.current;
-        const myPid = activeOnlineRoleRef.current === 'guest' ? localPlayerIdRef.current : 1;
+        const p2AbilityKey = controlsRef.current.p2.ability || '/';
+        const isLocalP2ShopKey = coopModeRef.current === 'local' && k === p2AbilityKey;
+        const myPid: PlayerId =
+          activeOnlineRoleRef.current === 'guest'
+            ? localPlayerIdRef.current
+            : isLocalP2ShopKey
+            ? 2
+            : 1;
         const me = curHud?.players?.find((pl) => pl.id === myPid);
         if (
           curHud?.isOnlineCampaign &&
@@ -1869,6 +2125,7 @@ export default function App() {
         ) {
           e.preventDefault();
           soundEngine.playUiClick();
+          setLocalModalPid(myPid);
           setShowShopModal((prev) => !prev);
           keysRef.current = {};
           return;
@@ -2042,7 +2299,7 @@ export default function App() {
 
           if (displayRt) {
             if (ctx) {
-              renderGame(ctx, displayRt, localPlayerIdRef.current);
+              renderGame(ctx, displayRt, localPlayerIdRef.current, hudSettingsRef.current);
             }
             hudSyncAccum += dt;
             if (hudSyncAccum >= 0.12) {
@@ -2090,6 +2347,9 @@ export default function App() {
               hostModalOpen ? { x: 0, y: 0, dash: false, ability: false } : touchInputRef.current,
               hostRemoteInputs
             );
+            if (rt.isBossLevel && rt.boss.state === 'comic_intro' && hudSettingsRef.current.autoSkipBossIntro) {
+              skipBossIntro(rt);
+            }
 
             if (rt.isOnlineCampaign && role === 'host') {
               const sig = `${rt.floorNumber}_${rt.loopLevel}_${rt.bossesDefeatedCount}_${rt.roomDepth}`;
@@ -2198,7 +2458,7 @@ export default function App() {
 
           if (ctx) {
             const viewerId = coopModeRef.current === 'local' ? undefined : (1 as PlayerId);
-            renderGame(ctx, rt, viewerId);
+            renderGame(ctx, rt, viewerId, hudSettingsRef.current);
           }
         }
       }
@@ -2213,11 +2473,34 @@ export default function App() {
     return () => cancelAnimationFrame(rafId);
   }, [screen, showControlsModal, showCheatsModal, finalizeRun, launchStageTransition, broadcastScreenMessage]);
 
-  const handleToggleMute = () => {
-    const next = !isMuted;
-    setIsMuted(next);
-    soundEngine.setMuted(next);
-  };
+  const handleToggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      soundEngine.setMuted(next);
+      saveAudioSettings({ musicVol, sfxVol, isMuted: next });
+      return next;
+    });
+  }, [musicVol, sfxVol]);
+
+  const handleMusicChange = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(1, v));
+      setMusicVol(clamped);
+      soundEngine.setMusicVolume(clamped);
+      saveAudioSettings({ musicVol: clamped, sfxVol, isMuted });
+    },
+    [sfxVol, isMuted]
+  );
+
+  const handleSfxChange = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(1, v));
+      setSfxVol(clamped);
+      soundEngine.setSfxVolume(clamped);
+      saveAudioSettings({ musicVol, sfxVol: clamped, isMuted });
+    },
+    [musicVol, isMuted]
+  );
 
   const handleReturnToMenu = useCallback(() => {
     if (stageTransitionTimerRef.current) {
@@ -2233,6 +2516,7 @@ export default function App() {
       onlineSessionRef.current.send({ type: 'cmd', action: 'leave' });
     }
     destroyOnlineSession();
+    clearRendererCaches();
     soundEngine.stopMusic();
     runtimeRef.current = null;
     setHud(null);
@@ -2301,8 +2585,10 @@ export default function App() {
     }
     const rt = runtimeRef.current;
     if (!rt) return;
-    const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && usePlayerPotion(rt, p1)) {
+    const targetPid: PlayerId =
+      coopModeRef.current === 'local' && showInventoryModalRef.current ? localModalPidRef.current : 1;
+    const pTarget = rt.players.find((pl) => pl.id === targetPid) || rt.players.find((pl) => pl.id === 1);
+    if (pTarget && usePlayerPotion(rt, pTarget)) {
       setHud(extractHudSnapshot(rt));
     }
   }, []);
@@ -2314,9 +2600,10 @@ export default function App() {
     }
     const rt = runtimeRef.current;
     if (!rt) return;
-    const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1) {
-      dropEquippedWeapon(rt, p1);
+    const targetPid: PlayerId = coopModeRef.current === 'local' ? localModalPidRef.current : 1;
+    const pTarget = rt.players.find((pl) => pl.id === targetPid) || rt.players.find((pl) => pl.id === 1);
+    if (pTarget) {
+      dropEquippedWeapon(rt, pTarget);
       setHud(extractHudSnapshot(rt));
     }
   }, []);
@@ -2328,8 +2615,9 @@ export default function App() {
     }
     const rt = runtimeRef.current;
     if (!rt) return;
-    const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && useBagScroll(rt, p1, scrollId)) {
+    const targetPid: PlayerId = coopModeRef.current === 'local' ? localModalPidRef.current : 1;
+    const pTarget = rt.players.find((pl) => pl.id === targetPid) || rt.players.find((pl) => pl.id === 1);
+    if (pTarget && useBagScroll(rt, pTarget, scrollId)) {
       setHud(extractHudSnapshot(rt));
     }
   }, []);
@@ -2341,8 +2629,9 @@ export default function App() {
     }
     const rt = runtimeRef.current;
     if (!rt) return;
-    const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && dropBagScroll(rt, p1, scrollId)) {
+    const targetPid: PlayerId = coopModeRef.current === 'local' ? localModalPidRef.current : 1;
+    const pTarget = rt.players.find((pl) => pl.id === targetPid) || rt.players.find((pl) => pl.id === 1);
+    if (pTarget && dropBagScroll(rt, pTarget, scrollId)) {
       setHud(extractHudSnapshot(rt));
     }
   }, []);
@@ -2354,20 +2643,29 @@ export default function App() {
     }
     const rt = runtimeRef.current;
     if (!rt) return;
-    const p1 = rt.players.find((pl) => pl.id === 1);
-    if (p1 && purchaseShopItemById(rt, p1, itemId)) {
+    const targetPid: PlayerId = coopModeRef.current === 'local' ? localModalPidRef.current : 1;
+    const pTarget = rt.players.find((pl) => pl.id === targetPid) || rt.players.find((pl) => pl.id === 1);
+    if (pTarget && purchaseShopItemById(rt, pTarget, itemId)) {
       setHud(extractHudSnapshot(rt));
     }
   }, []);
 
   const handleOpenInventory = useCallback(() => {
     keysRef.current = {};
+    setLocalModalPid(1);
     setShowShopModal(false);
     setShowInventoryModal(true);
   }, []);
 
   const handleOpenShop = useCallback(() => {
     keysRef.current = {};
+    const curHud = hudRef.current;
+    if (coopModeRef.current === 'local' && curHud?.players) {
+      const nearPl = curHud.players.find((pl) => pl.nearMerchant);
+      if (nearPl) setLocalModalPid(nearPl.id);
+    } else {
+      setLocalModalPid(1);
+    }
     setShowInventoryModal(false);
     setShowShopModal(true);
   }, []);
@@ -2420,8 +2718,33 @@ export default function App() {
           onReplayIntro={() => setScreen('INTRO')}
           onOpenUpdates={() => setShowUpdatesModal(true)}
           onOpenSuggestions={() => setShowSuggestionsModal(true)}
+          onOpenSettings={() => setShowControlsModal(true)}
         />
         {fullscreenToast}
+        {showControlsModal && (
+          <ControlsModal
+            controls={controls}
+            numPlayers={numPlayers}
+            hudSettings={hudSettings}
+            onChangeHudSettings={handleChangeHudSettings}
+            onResetPartyPos={handleResetPartyPos}
+            showTouchControls={showTouchControls}
+            onToggleTouchControls={handleToggleTouchControls}
+            optimizeConnection={optimizeConnection}
+            onOptimizeConnection={handleOptimizeConnection}
+            musicVol={musicVol}
+            sfxVol={sfxVol}
+            isMuted={isMuted}
+            onMusicChange={handleMusicChange}
+            onSfxChange={handleSfxChange}
+            onToggleMute={handleToggleMute}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={handleToggleFullscreen}
+            onResetControls={handleResetControls}
+            onChange={handleSaveControls}
+            onClose={() => setShowControlsModal(false)}
+          />
+        )}
         {showUpdatesModal && <UpdatesModal onClose={() => setShowUpdatesModal(false)} />}
         {showSuggestionsModal && <SuggestionsModal onClose={() => setShowSuggestionsModal(false)} />}
       </>
@@ -2442,6 +2765,8 @@ export default function App() {
           onOpenSettings={() => setShowControlsModal(true)}
           onOpenUpdates={() => setShowUpdatesModal(true)}
           onOpenSuggestions={() => setShowSuggestionsModal(true)}
+          onOpenSoulShop={() => setShowSoulShopModal(true)}
+          soulsProfile={soulsProfile}
           onBackToSplash={() => setScreen('LANDING')}
           anyCheatActive={anyCheatActive}
           isMuted={isMuted}
@@ -2454,6 +2779,13 @@ export default function App() {
           leaderboard={leaderboard}
         />
         {fullscreenToast}
+        <SoulShopModal
+          isOpen={showSoulShopModal}
+          onClose={() => setShowSoulShopModal(false)}
+          profile={soulsProfile}
+          onUpdateProfile={handleUpdateSoulsProfile}
+          sfxMuted={isMuted}
+        />
         {showControlsModal && (
           <ControlsModal
             controls={controls}
@@ -2465,6 +2797,15 @@ export default function App() {
             onToggleTouchControls={handleToggleTouchControls}
             optimizeConnection={optimizeConnection}
             onOptimizeConnection={handleOptimizeConnection}
+            musicVol={musicVol}
+            sfxVol={sfxVol}
+            isMuted={isMuted}
+            onMusicChange={handleMusicChange}
+            onSfxChange={handleSfxChange}
+            onToggleMute={handleToggleMute}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={handleToggleFullscreen}
+            onResetControls={handleResetControls}
             onChange={handleSaveControls}
             onClose={() => setShowControlsModal(false)}
           />
@@ -2530,6 +2871,8 @@ export default function App() {
           onSelectColor={(pid, col) => setPlayerColors((prev) => ({ ...prev, [pid]: col }))}
           playerClasses={playerClasses}
           onSelectClass={(pid, cls) => setPlayerClasses((prev) => ({ ...prev, [pid]: cls }))}
+          playerWeapons={playerWeapons}
+          onSelectWeapon={(pid, wpn) => setPlayerWeapons((prev) => ({ ...prev, [pid]: wpn }))}
           localPlayerName={localPlayerName}
           onChangeLocalPlayerName={handleSavePlayerName}
           p2LocalName={p2LocalName}
@@ -2541,6 +2884,8 @@ export default function App() {
           onToggleFullscreen={handleToggleFullscreen}
           optimizeConnection={optimizeConnection}
           onToggleOptimizeConnection={handleOptimizeConnection}
+          soulsProfile={soulsProfile}
+          onOpenSoulShop={() => setShowSoulShopModal(true)}
           savedCheckpoint={savedCheckpoint}
           onResumeCheckpoint={() => beginRun(true)}
           onDiscardCheckpoint={() => {
@@ -2552,6 +2897,13 @@ export default function App() {
             setScreen('TITLE_MENU');
           }}
           onStart={() => beginRun(false)}
+        />
+        <SoulShopModal
+          isOpen={showSoulShopModal}
+          onClose={() => setShowSoulShopModal(false)}
+          profile={soulsProfile}
+          onUpdateProfile={handleUpdateSoulsProfile}
+          sfxMuted={isMuted}
         />
         {fullscreenToast}
       </>
@@ -2709,14 +3061,8 @@ export default function App() {
           onOptimizeAllConnections={handleOptimizeAllConnections}
           pausedBy={pausedBy}
           pausedByName={pausedByName}
-          onMusicChange={(v) => {
-            setMusicVol(v);
-            soundEngine.setMusicVolume(v);
-          }}
-          onSfxChange={(v) => {
-            setSfxVol(v);
-            soundEngine.setSfxVolume(v);
-          }}
+          onMusicChange={handleMusicChange}
+          onSfxChange={handleSfxChange}
           onToggleFullscreen={handleToggleFullscreen}
           onToggleTouchControls={handleToggleTouchControls}
           onResume={() => {
@@ -2748,6 +3094,15 @@ export default function App() {
           optimizeConnection={optimizeConnection}
           onOptimizeConnection={handleOptimizeConnection}
           onOptimizeAllConnections={handleOptimizeAllConnections}
+          musicVol={musicVol}
+          sfxVol={sfxVol}
+          isMuted={isMuted}
+          onMusicChange={handleMusicChange}
+          onSfxChange={handleSfxChange}
+          onToggleMute={handleToggleMute}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
+          onResetControls={handleResetControls}
           onChange={handleSaveControls}
           onClose={() => setShowControlsModal(false)}
         />
@@ -2833,14 +3188,19 @@ export default function App() {
       )}
 
       {(() => {
+        const activeModalPid: PlayerId = coopMode === 'local' ? localModalPid : localPlayerNum;
         const localHudPlayer =
-          hud?.players?.find((pl) => pl.id === localPlayerNum) || hud?.p1;
+          hud?.players?.find((pl) => pl.id === activeModalPid) || hud?.p1;
         if (screen !== 'PLAYING' || !hud?.isOnlineCampaign || !localHudPlayer) return null;
+        const nearMerchantPlayers =
+          coopMode === 'local' ? hud.players.filter((pl) => pl.nearMerchant) : undefined;
         return (
           <>
             {showInventoryModal && (
               <InventoryModal
                 player={localHudPlayer}
+                partyPlayers={coopMode === 'local' ? hud.players : undefined}
+                onSelectPlayer={coopMode === 'local' ? setLocalModalPid : undefined}
                 isOnlineCampaign={hud.isOnlineCampaign}
                 onDropWeapon={handleDropWeapon}
                 onUseScroll={handleUseScroll}
@@ -2853,6 +3213,8 @@ export default function App() {
               <ShopNpcModal
                 npcName={hud.shopNpcName || 'Gilded Broker Vex'}
                 player={localHudPlayer}
+                partyPlayers={nearMerchantPlayers}
+                onSelectPlayer={coopMode === 'local' ? setLocalModalPid : undefined}
                 items={hud.shopCatalog}
                 onBuyItem={handleBuyShopItem}
                 onClose={() => setShowShopModal(false)}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FastForward, Lightbulb, Maximize2, Minimize2, Play, RotateCcw, Smartphone, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { FastForward, Lightbulb, Maximize2, Minimize2, Play, RotateCcw, SlidersHorizontal, Smartphone, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { soundEngine } from '../game/soundEngine';
+import { GAME_VERSION } from '../game/types';
 
 const INTRO_TOTAL_SECONDS = 10.0;
 const SKIP_UNLOCK_SECONDS = 5.0;
@@ -558,6 +559,7 @@ interface LandingSplashProps {
   onReplayIntro: () => void;
   onOpenUpdates?: () => void;
   onOpenSuggestions?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const LandingSplash: React.FC<LandingSplashProps> = ({
@@ -572,6 +574,7 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
   onReplayIntro,
   onOpenUpdates,
   onOpenSuggestions,
+  onOpenSettings,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -799,8 +802,22 @@ export const LandingSplash: React.FC<LandingSplashProps> = ({
       <footer className="relative z-10 w-full max-w-5xl flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400">
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <span className="font-mono-num text-[11px] text-amber-400/85 font-semibold tracking-wider uppercase">
-            beta test 0.2.0
+            {GAME_VERSION}
           </span>
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                soundEngine.playUiClick();
+                onOpenSettings();
+              }}
+              className="min-h-[34px] px-3 py-1 rounded-md bg-emerald-950/55 hover:bg-emerald-900/65 border border-emerald-500/60 text-emerald-200 font-mono-num text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Settings</span>
+            </button>
+          )}
           {onOpenUpdates && (
             <button
               type="button"

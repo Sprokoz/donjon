@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw, SlidersHorizontal, Keyboard, Map as MapIcon, Users, Eye, Lightbulb, Lock, Smartphone } from 'lucide-react';
-import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, DEFAULT_HUD_SETTINGS, FinalVoteState, HudSettings, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
+import { RotateCcw, Home, Play, Sparkles, Trophy, Volume2, VolumeX, Skull, Flame, AlertTriangle, Shield, Swords, Zap, Clock, HeartPulse, X, Maximize2, Minimize2, Gamepad2, CheckCircle2, Briefcase, Coins, FlaskConical, ScrollText, Store, Trash2, Wifi, RefreshCw, SlidersHorizontal, Keyboard, Map as MapIcon, Users, Eye, Lightbulb, Lock, Smartphone } from 'lucide-react';
+import { BoonDef, CheatsConfig, ControlsConfig, DEFAULT_CHEATS, DEFAULT_HUD_SETTINGS, FinalVoteState, GAME_VERSION, HudSettings, PlayerControls, PlayerHudState, PlayerId, RunSummary, ShopItem, StageKey, WEAPONS_CATALOG, WeaponClassId } from '../game/types';
 import { formatDuration } from './PixelHeart';
 import { soundEngine } from '../game/soundEngine';
 
@@ -24,6 +24,15 @@ interface ControlsModalProps {
   optimizeConnection?: boolean;
   onOptimizeConnection?: () => void;
   onOptimizeAllConnections?: () => void;
+  musicVol?: number;
+  sfxVol?: number;
+  isMuted?: boolean;
+  onMusicChange?: (v: number) => void;
+  onSfxChange?: (v: number) => void;
+  onToggleMute?: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  onResetControls?: () => void;
   onChange: (next: ControlsConfig) => void;
   onClose: () => void;
 }
@@ -39,10 +48,19 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
   optimizeConnection = false,
   onOptimizeConnection,
   onOptimizeAllConnections,
+  musicVol = 0.65,
+  sfxVol = 0.8,
+  isMuted = false,
+  onMusicChange,
+  onSfxChange,
+  onToggleMute,
+  isFullscreen = false,
+  onToggleFullscreen,
+  onResetControls,
   onChange,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'controls' | 'hud' | 'network'>('controls');
+  const [activeTab, setActiveTab] = useState<'audio' | 'controls' | 'hud' | 'network'>('audio');
   const [listening, setListening] = useState<{ player: 1 | 2; action: keyof PlayerControls } | null>(null);
 
   useEffect(() => {
@@ -84,7 +102,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
-            <h2 className="font-arcade text-sm text-white">SETTINGS &amp; HUD</h2>
+            <h2 className="font-arcade text-sm text-white">SETTINGS &amp; PREFERENCES</h2>
           </div>
           <button
             type="button"
@@ -97,14 +115,29 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playUiClick();
+              setActiveTab('audio');
+            }}
+            className={`py-2 px-2.5 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+              activeTab === 'audio'
+                ? 'bg-amber-950/70 border-amber-500 text-amber-100'
+                : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            <span>Audio &amp; VFX</span>
+          </button>
           <button
             type="button"
             onClick={() => {
               soundEngine.playUiClick();
               setActiveTab('controls');
             }}
-            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+            className={`py-2 px-2.5 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
               activeTab === 'controls'
                 ? 'bg-red-950/70 border-red-500 text-white'
                 : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
@@ -119,7 +152,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
               soundEngine.playUiClick();
               setActiveTab('hud');
             }}
-            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+            className={`py-2 px-2.5 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
               activeTab === 'hud'
                 ? 'bg-cyan-950/70 border-cyan-500 text-cyan-100'
                 : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
@@ -134,7 +167,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
               soundEngine.playUiClick();
               setActiveTab('network');
             }}
-            className={`py-2 px-3 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+            className={`py-2 px-2.5 rounded border font-mono-num text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
               activeTab === 'network'
                 ? 'bg-emerald-950/70 border-emerald-500 text-emerald-100'
                 : 'bg-black/70 border-slate-800 text-slate-400 hover:text-white'
@@ -144,6 +177,189 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
             <span>Network</span>
           </button>
         </div>
+
+        {activeTab === 'audio' && (
+          <div className="space-y-3.5 pt-1">
+            {/* Audio Sliders & Mute */}
+            <div className="bg-black/75 border border-slate-800 rounded-md p-3.5 space-y-3 font-mono-num text-xs">
+              <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-800/80">
+                <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                  {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-amber-300" />}
+                  <span>AUDIO MIXER (SAVES AUTOMATICALLY)</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.unlock();
+                      soundEngine.playBoonSelect();
+                    }}
+                    className="px-2.5 py-1 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-[10px] font-bold cursor-pointer"
+                  >
+                    Test SFX
+                  </button>
+                  {onToggleMute && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.unlock();
+                        onToggleMute();
+                      }}
+                      className={`px-2.5 py-1 rounded border text-[10px] font-bold cursor-pointer transition-colors ${
+                        isMuted
+                          ? 'bg-rose-950/75 border-rose-500 text-rose-200'
+                          : 'bg-emerald-950/60 border-emerald-500/70 text-emerald-200'
+                      }`}
+                    >
+                      {isMuted ? 'MUTED' : 'SOUND ON'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-300 shrink-0">Music Volume</span>
+                <div className="flex items-center gap-2 flex-1 max-w-[260px]">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round(musicVol * 100)}
+                    onChange={(e) => onMusicChange?.(Number(e.target.value) / 100)}
+                    className="flex-1 accent-amber-400 cursor-pointer"
+                  />
+                  <span className="w-10 text-right text-amber-300 font-bold">
+                    {isMuted ? '0%' : `${Math.round(musicVol * 100)}%`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-300 shrink-0">SFX Volume</span>
+                <div className="flex items-center gap-2 flex-1 max-w-[260px]">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round(sfxVol * 100)}
+                    onChange={(e) => onSfxChange?.(Number(e.target.value) / 100)}
+                    className="flex-1 accent-cyan-400 cursor-pointer"
+                  />
+                  <span className="w-10 text-right text-cyan-300 font-bold">
+                    {isMuted ? '0%' : `${Math.round(sfxVol * 100)}%`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Particle Density & Visual Performance */}
+            {onChangeHudSettings && (
+              <>
+                <div className="bg-black/75 border border-slate-800 rounded-md p-3.5 space-y-2.5 font-mono-num">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-cyan-300">PARTICLE &amp; VFX DENSITY</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Lower particle density reduces GPU/RAM load in chaotic co-op fights.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { id: 'full', label: 'Full VFX' },
+                        { id: 'medium', label: 'Balanced' },
+                        { id: 'low', label: 'Low (Performance)' },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playUiClick();
+                          updateHud({ particleDensity: opt.id });
+                        }}
+                        className={`py-2 px-2 rounded border text-[11px] font-bold cursor-pointer transition-colors ${
+                          (hudSettings.particleDensity || 'full') === opt.id
+                            ? 'bg-cyan-950/80 border-cyan-400 text-cyan-100'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Display & Combat Comfort Toggles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono-num text-[11px]">
+                  {onToggleFullscreen && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playUiClick();
+                        onToggleFullscreen();
+                      }}
+                      className={`px-3 py-2.5 rounded border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                        isFullscreen
+                          ? 'bg-cyan-950/45 border-cyan-500/75 text-cyan-100'
+                          : 'bg-black/65 border-slate-800 text-slate-300 hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                        <span>Fullscreen Display</span>
+                      </span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${isFullscreen ? 'bg-cyan-500 text-black' : 'bg-slate-800 text-slate-400'}`}>
+                        {isFullscreen ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  )}
+
+                  {(
+                    [
+                      { key: 'disableScreenShake', label: 'No Screen Shake', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+                      { key: 'disableHitFlashes', label: 'No Hit Flashes', icon: <Eye className="w-3.5 h-3.5" /> },
+                      { key: 'hideFloatingText', label: 'Hide Damage Numbers', icon: <Sparkles className="w-3.5 h-3.5" /> },
+                      { key: 'autoSkipBossIntro', label: 'Auto-Skip Boss Intro', icon: <Play className="w-3.5 h-3.5" /> },
+                    ] as const
+                  ).map((tog) => {
+                    const active = Boolean(hudSettings[tog.key]);
+                    return (
+                      <button
+                        key={tog.key}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playUiClick();
+                          updateHud({ [tog.key]: !active });
+                        }}
+                        className={`px-3 py-2.5 rounded border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                          active
+                            ? 'bg-emerald-950/45 border-emerald-500/75 text-emerald-100'
+                            : 'bg-black/65 border-slate-800 text-slate-300 hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          {tog.icon}
+                          <span className="truncate">{tog.label}</span>
+                        </span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            active ? 'bg-emerald-500 text-black' : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {active ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {activeTab === 'controls' && (
           <div className="space-y-4 pt-1">
@@ -203,6 +419,30 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                 );
               })}
             </div>
+
+            <div className="bg-black/75 border border-slate-800 rounded-md p-3 space-y-2 font-mono-num text-[11px]">
+              <div className="text-slate-400 text-[10px] uppercase tracking-wider">Fixed Weapon &amp; Utility Hotkeys</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-300">
+                <div><span className="text-amber-300 font-bold">[Q / R / F]</span> Skills 2–4</div>
+                <div><span className="text-rose-300 font-bold">[C]</span> Crimson Flask</div>
+                <div><span className="text-cyan-300 font-bold">[I]</span> Skill Bag</div>
+                <div><span className="text-purple-300 font-bold">[TAB]</span> Skip Intro</div>
+              </div>
+            </div>
+
+            {onResetControls && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playUiClick();
+                  onResetControls();
+                }}
+                className="w-full py-2 px-3 rounded border border-amber-700/70 bg-amber-950/45 hover:bg-amber-900/60 text-amber-200 font-mono-num text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Default Keybinds</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -299,7 +539,7 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Visibility Toggles */}
+                {/* Visibility & Comfort Toggles */}
                 <div className="grid grid-cols-2 gap-2 font-mono-num text-[11px]">
                   {(
                     [
@@ -310,6 +550,8 @@ export const ControlsModal: React.FC<ControlsModalProps> = ({
                       { key: 'showBossBar', label: 'Boss Health Bar', icon: <Skull className="w-3.5 h-3.5" /> },
                       { key: 'showExtraUi', label: 'Extra Metrics', icon: <Sparkles className="w-3.5 h-3.5" /> },
                       { key: 'compactSkills', label: 'Compact Skills', icon: <Zap className="w-3.5 h-3.5" /> },
+                      { key: 'disableScreenShake', label: 'No Screen Shake', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+                      { key: 'disableHitFlashes', label: 'No Hit Flashes', icon: <Eye className="w-3.5 h-3.5" /> },
                     ] as const
                   ).map((tog) => {
                     const active = Boolean(hudSettings[tog.key]);
@@ -1184,26 +1426,73 @@ export const EndScreenModal: React.FC<EndScreenModalProps> = ({
           </div>
           <div className="h-12 w-px bg-stone-800" />
           <div>
-            <div className="text-[11px] text-stone-400 uppercase">Souls Harvested</div>
-            <div className="font-mono-num text-2xl font-bold text-white mt-1">
+            <div className="text-[11px] text-stone-400 uppercase">Run Score</div>
+            <div className="font-mono-num text-2xl font-bold text-white mt-1 tabular-nums">
               {summary.score.toLocaleString()}
             </div>
           </div>
         </div>
 
+        {/* Persistent Souls Reward */}
+        {summary.soulsEarned !== undefined && (
+          <div className="bg-amber-950/25 border border-amber-500/40 rounded p-3 text-left space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-amber-200 uppercase tracking-wide">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                Souls Banked
+              </span>
+              <span className="font-mono-num text-lg font-extrabold text-amber-300 tabular-nums">
+                +{(summary.soulsEarned || 0).toLocaleString()} SOULS
+              </span>
+            </div>
+            {summary.soulsBreakdown ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[10px] font-mono-num text-stone-300">
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Run Base</span>
+                  <span>+{summary.soulsBreakdown.base}</span>
+                </div>
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Bosses ({summary.bossesDefeated ?? 0})</span>
+                  <span className="text-amber-300">+{summary.soulsBreakdown.bosses}</span>
+                </div>
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Combat</span>
+                  <span>+{summary.soulsBreakdown.combat}</span>
+                </div>
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Technique</span>
+                  <span className="text-cyan-300">+{summary.soulsBreakdown.technique}</span>
+                </div>
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Victory</span>
+                  <span className="text-emerald-300">+{summary.soulsBreakdown.victory}</span>
+                </div>
+                <div className="bg-black/50 rounded px-2 py-1 flex justify-between">
+                  <span className="text-stone-400">Diff Mult</span>
+                  <span className="text-purple-300">{summary.soulsBreakdown.multiplier}x</span>
+                </div>
+              </div>
+            ) : summary.soulsEarned === 0 ? (
+              <div className="text-[11px] text-stone-400">
+                No Souls awarded in Practice, Tutorial, or when Forbidden Cheats are active.
+              </div>
+            ) : null}
+          </div>
+        )}
+
         {/* Breakdown */}
         <div className="grid grid-cols-3 gap-2 text-xs font-mono-num">
           <div className="bg-black/70 border border-stone-800 rounded p-2.5">
             <div className="text-stone-500 text-[10px]">TIME</div>
-            <div className="text-white font-semibold mt-0.5">{formatDuration(summary.elapsedSeconds)}</div>
+            <div className="text-white font-semibold mt-0.5 tabular-nums">{formatDuration(summary.elapsedSeconds)}</div>
           </div>
           <div className="bg-black/70 border border-stone-800 rounded p-2.5">
             <div className="text-stone-500 text-[10px]">MAX COMBO</div>
-            <div className="text-amber-300 font-semibold mt-0.5">{summary.maxCombo}x</div>
+            <div className="text-amber-300 font-semibold mt-0.5 tabular-nums">{summary.maxCombo}x</div>
           </div>
           <div className="bg-black/70 border border-stone-800 rounded p-2.5">
             <div className="text-stone-500 text-[10px]">CLEAN DODGES</div>
-            <div className="text-cyan-300 font-semibold mt-0.5">{summary.grazes}</div>
+            <div className="text-cyan-300 font-semibold mt-0.5 tabular-nums">{summary.grazes}</div>
           </div>
         </div>
 
@@ -1477,6 +1766,8 @@ export const FinalBossVoteModal: React.FC<FinalBossVoteModalProps> = ({
 
 interface InventoryModalProps {
   player: PlayerHudState;
+  partyPlayers?: PlayerHudState[];
+  onSelectPlayer?: (pid: PlayerId) => void;
   isOnlineCampaign: boolean;
   onDropWeapon: () => void;
   onUseScroll: (scrollId: number) => void;
@@ -1487,6 +1778,8 @@ interface InventoryModalProps {
 
 export const InventoryModal: React.FC<InventoryModalProps> = ({
   player,
+  partyPlayers,
+  onSelectPlayer,
   isOnlineCampaign,
   onDropWeapon,
   onUseScroll,
@@ -1525,7 +1818,25 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {partyPlayers && partyPlayers.length > 1 && onSelectPlayer && (
+              <div className="flex items-center gap-1 mr-1">
+                {partyPlayers.map((pl) => (
+                  <button
+                    key={pl.id}
+                    type="button"
+                    onClick={() => onSelectPlayer(pl.id)}
+                    className={`px-2 py-1 rounded border font-mono-num text-[10px] font-bold cursor-pointer ${
+                      pl.id === player.id
+                        ? 'bg-amber-600 border-amber-400 text-white'
+                        : 'bg-stone-900 border-stone-700 text-stone-300 hover:text-white'
+                    }`}
+                  >
+                    {pl.name || `P${pl.id}`}
+                  </button>
+                ))}
+              </div>
+            )}
             {isOnlineCampaign && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-950/50 border border-amber-500/60 font-mono-num text-xs font-bold text-amber-300">
                 <Coins className="w-3.5 h-3.5" />
@@ -1739,6 +2050,8 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
 interface ShopNpcModalProps {
   npcName: string;
   player: PlayerHudState;
+  partyPlayers?: PlayerHudState[];
+  onSelectPlayer?: (pid: PlayerId) => void;
   items: ShopItem[];
   onBuyItem: (itemId: number) => void;
   onClose: () => void;
@@ -1747,6 +2060,8 @@ interface ShopNpcModalProps {
 export const ShopNpcModal: React.FC<ShopNpcModalProps> = ({
   npcName,
   player,
+  partyPlayers,
+  onSelectPlayer,
   items,
   onBuyItem,
   onClose,
@@ -1775,7 +2090,25 @@ export const ShopNpcModal: React.FC<ShopNpcModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            {partyPlayers && partyPlayers.length > 1 && onSelectPlayer && (
+              <div className="flex items-center gap-1">
+                {partyPlayers.map((pl) => (
+                  <button
+                    key={pl.id}
+                    type="button"
+                    onClick={() => onSelectPlayer(pl.id)}
+                    className={`px-2 py-1 rounded border font-mono-num text-[10px] font-bold cursor-pointer ${
+                      pl.id === player.id
+                        ? 'bg-amber-600 border-amber-400 text-white'
+                        : 'bg-stone-900 border-stone-700 text-stone-300 hover:text-white'
+                    }`}
+                  >
+                    {pl.name || `P${pl.id}`}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-950/60 border border-amber-500/70 font-mono-num text-xs font-bold text-amber-300">
               <Coins className="w-3.5 h-3.5" />
               {player.coins}g
@@ -1893,9 +2226,47 @@ interface VersionUpdateEntry {
 
 const VERSION_UPDATES_LOG: VersionUpdateEntry[] = [
   {
+    version: 'beta test 0.2.2',
+    title: 'Class Reworks, Delayed Tank Vacuum [Q], Boss HP Buff, Expanded Settings & 8 New Cosmetics',
+    tag: 'LATEST',
+    changes: [
+      'Buffed all Bosses’ HP (~1.85–2.1x across Recruit, Slayer & Nightmare, plus steeper multiplayer scaling) to keep boss battles tense against the revamped weapon kits.',
+      'Reworked Tank & Vanguard [Q] into an Albion-style delayed Gravity Vortex: plants a shrinking 0.82s telegraph ring before detonating into a 285px pull, 2.6s stun, and projectile shatter.',
+      'Expanded Settings with a dedicated Audio & VFX tab (persistent Music/SFX volume sliders, Master Mute, Test SFX, Fullscreen toggle, Particle Density Full/Balanced/Low, Hide Damage Numbers, Auto-Skip Boss Intro) plus Reset Default Keybinds.',
+      'Added 8 new sleek non-chunky Character Cosmetics (20 total in the 1,000-Soul Crate): Valkyrie Winglet Crest, Shogun Crescent Crest, Kitsune Foxfire Ears, Glacial Needle Orbit, Oni Third-Eye Sigil, Astral Blade Pinions, Abyssal Sovereign Horns, and Celestial Astrolabe.',
+      'Revamped Weapon Kits & Modes: Assassin dash grants 100% Crit + Benedetta-style Slash Trail Blink, Greatsword [F] activates 15s Berserk CDR mode (50s CD), Holy Staff [E] drops triple Rafaela-style Hollow Beams + buffed Holy Ground heal, Tank [E] extends to 280px, plus modern Offline Campaign and full-kit 1–5P Boss Rush.',
+      'Optimized browser RAM with object/array caps, cached sprite buffers, and unified version badges + patch history.',
+    ],
+    simpleChanges: [
+      'Buffed all Boss HP (~2x) so bosses stay challenging against the stronger revamped skills.',
+      'Tank [Q] now drops an Albion-style shrinking vortex ring for 0.8s before yanking enemies into the center.',
+      'Expanded Settings with Music & SFX volume sliders, Particle Density (Low/Medium/Full), Auto-Skip Boss Intro, Hide Damage Numbers, and Keybind Reset.',
+      'Added 8 new sleek character cosmetics to the 1,000-Soul crate (wings, fox ears, frost orbit, astrolabe, third eye & more).',
+      'Revamped Assassin, Greatsword, Holy Staff, Tank, Offline Campaign, and full-skill Boss Rush, plus reduced RAM usage.',
+    ],
+  },
+  {
+    version: 'beta test 0.2.1',
+    title: 'Souls Progression, CS-Style Crate Unboxing, Oni Softlock Fix & VFX Comfort Toggles',
+    changes: [
+      'Added persistent Souls progression earned every run based on bosses defeated, score, kills, clean dodges, combo, and difficulty (Slayer + Boss 1 averages ~700 Souls; every run rewards progress).',
+      'Launched the Soul Armory & Case Shop with CS-style horizontal crate unboxing: Character Cosmetics Crate (1,000 Souls, 12 sleek non-chunky accessories) and Skill Effects Crate (10,000 Souls, 10 elemental & prismatic combat VFX themes), plus duplicate Souls cashback and a persistent Wardrobe.',
+      'Synced equipped Cosmetics and Skill VFX themes across Online Co-op lobbies and live matches.',
+      'Fixed the Yamata-Oni Seal softlock bug where players sealed at the moment the Oni boss died remained permanently frozen and unable to finish or continue.',
+      'Fixed heavy multi-hit effect freezes and canvas crashes via hitstop cooldown gating, frame time clamping, FX array caps, and finite positive radius guards.',
+      'Added No Screen Shake and No Hit Flashes toggles in Settings -> HUD Layout for visual comfort.',
+    ],
+    simpleChanges: [
+      'You now earn permanent Souls after every run (Slayer + 1st boss averages ~700 Souls) even if your party wipes.',
+      'Added a CS-style Crate Opening Shop & Wardrobe: unbox sleek hero accessories (1,000 Souls) and skill color effects (10,000 Souls) that show up in solo & online co-op.',
+      'Fixed the bug where getting stunned/sealed right as the Oni boss dies froze your character permanently.',
+      'Fixed lag/freeze crashes when lots of skill effects trigger at once.',
+      'Added Settings switches to turn off screen shake and hit/white flashes.',
+    ],
+  },
+  {
     version: 'beta test 0.2.0',
     title: 'Boss Intro Darkness Fix & Split Build Bundles for GitHub Sync',
-    tag: 'LATEST',
     changes: [
       'Fixed the boss darkness bug where letting the boss cinematic intro finish without clicking Skip left a permanent 55% black fade overlay over the entire boss fight.',
       'Softened Void and Oni intro edge vignettes so boss entrance animations remain vivid and clearly visible.',
@@ -2185,7 +2556,7 @@ export const UpdatesModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 PATCH NOTES &amp; VERSION HISTORY
               </h2>
               <p className="font-mono-num text-[11px] text-stone-400">
-                Every update from beta test 0.0.1 through 0.2.0
+                Every update from beta test 0.0.1 through {GAME_VERSION}
               </p>
             </div>
           </div>
